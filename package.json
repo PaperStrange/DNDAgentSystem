@@ -1,0 +1,20 @@
+{
+  "name": "dnd-agent-system",
+  "version": "1.0.0",
+  "private": true,
+  "description": "AI主导的DND像素风WEB联机跑团游戏：5名玩家+12位AI DM人设，凡杜尔失落矿坑副本",
+  "type": "module",
+  "scripts": {
+    "start": "node server/index.mjs",
+    "extract:pdf": "node tools/extract-pdf.mjs",
+    "sim": "node simulate/bots.mjs",
+    "e2e": "node simulate/e2e.mjs"
+  },
+  "dependencies": {
+    "pdfjs-dist": "^4.10.38",
+    "ws": "^8.18.0"
+  },
+  "devDependencies": {
+    "playwright": "^1.49.1"
+  }
+}

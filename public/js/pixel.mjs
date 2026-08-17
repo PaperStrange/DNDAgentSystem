@@ -1,0 +1,377 @@
+// 像素渲染引擎：程序化tileset + 角色/怪物像素画（全部代码绘制，无图片资源）
+export const TILE = 16; // 逻辑像素
+
+function hash2(x, y, seed = 0) {
+  let h = (x * 374761393 + y * 668265263 + seed * 1442695041) | 0;
+  h = (h ^ (h >>> 13)) | 0;
+  h = Math.imul(h, 1274126177);
+  return ((h ^ (h >>> 16)) >>> 0) / 4294967296;
+}
+
+export function makeCanvas(w, h) {
+  const c = document.createElement('canvas');
+  c.width = w; c.height = h;
+  return c;
+}
+
+// ---------- 瓦片 ----------
+export function drawTile(ctx, type, x, y, t = 0) {
+  const r = () => hash2(x, y, 1), r2 = () => hash2(x, y, 2), r3 = () => hash2(x, y, 3);
+  switch (type) {
+    case 'g': { // grass
+      ctx.fillStyle = r() > .5 ? '#4f7c43' : '#57894a';
+      ctx.fillRect(x, y, TILE, TILE);
+      ctx.fillStyle = '#446b3a';
+      for (let i = 0; i < 6; i++) ctx.fillRect(x + Math.floor(r2() * 14) + 1, y + Math.floor(r3() * 14) + 1, 1, 1);
+      ctx.fillStyle = '#639b53';
+      for (let i = 0; i < 4; i++) ctx.fillRect(x + Math.floor(r3() * 15), y + Math.floor(r2() * 15), 1, 1);
+      break;
+    }
+    case '.': { // stone floor
+      ctx.fillStyle = '#7d7d8a';
+      ctx.fillRect(x, y, TILE, TILE);
+      ctx.fillStyle = '#6c6c78';
+      for (let i = 0; i < 7; i++) ctx.fillRect(x + Math.floor(r() * 15), y + Math.floor(r2() * 15), 1, 1);
+      ctx.fillStyle = '#8f8f9c';
+      for (let i = 0; i < 3; i++) ctx.fillRect(x + Math.floor(r3() * 15), y + Math.floor(r() * 15), 1, 1);
+      ctx.fillStyle = 'rgba(0,0,0,.15)';
+      if (r2() > .6) ctx.fillRect(x, y + 14, TILE, 2);
+      break;
+    }
+    case '#': { // wall
+      ctx.fillStyle = '#4a4a56';
+      ctx.fillRect(x, y, TILE, TILE);
+      ctx.fillStyle = '#3c3c47';
+      for (let i = 0; i < 4; i++) ctx.fillRect(x + 1 + i * 4, y, 2, TILE);
+      ctx.fillStyle = '#5a5a68';
+      ctx.fillRect(x, y, TILE, 2);
+      ctx.fillStyle = '#44444f';
+      ctx.fillRect(x, y + 7, TILE, 2);
+      ctx.fillRect(x + 7, y, 2, TILE);
+      ctx.fillStyle = 'rgba(0,0,0,.25)';
+      ctx.fillRect(x, y + TILE - 2, TILE, 2);
+      break;
+    }
+    case '~': { // water
+      ctx.fillStyle = '#3b6ea5';
+      ctx.fillRect(x, y, TILE, TILE);
+      ctx.fillStyle = '#35649a';
+      const off = Math.floor(t / 12) % 2;
+      for (let i = 0; i < 3; i++) ctx.fillRect(x + ((i * 6 + off + Math.floor(r() * 2)) % 16), y + 4 + i * 4, 3, 1);
+      ctx.fillStyle = '#4d82ba';
+      for (let i = 0; i < 3; i++) ctx.fillRect(x + ((i * 5 + off) % 16), y + 2 + i * 5, 2, 1);
+      break;
+    }
+    case '^': { // rubble
+      ctx.fillStyle = '#6e6250';
+      ctx.fillRect(x, y, TILE, TILE);
+      ctx.fillStyle = '#5d5343';
+      for (let i = 0; i < 8; i++) ctx.fillRect(x + Math.floor(r() * 15), y + Math.floor(r2() * 15), 2, 1);
+      ctx.fillStyle = '#837663';
+      for (let i = 0; i < 4; i++) ctx.fillRect(x + Math.floor(r3() * 15), y + Math.floor(r() * 15), 1, 1);
+      break;
+    }
+    case 'T': { // tree
+      ctx.fillStyle = r() > .5 ? '#4f7c43' : '#57894a';
+      ctx.fillRect(x, y, TILE, TILE);
+      ctx.fillStyle = '#5d4328';
+      ctx.fillRect(x + 6, y + 8, 4, 6);
+      ctx.fillStyle = '#2f5a2c';
+      ctx.fillRect(x + 2, y + 1, 12, 9);
+      ctx.fillRect(x + 1, y + 3, 14, 5);
+      ctx.fillStyle = '#3c6e38';
+      ctx.fillRect(x + 3, y + 2, 10, 6);
+      ctx.fillStyle = '#4d8a48';
+      ctx.fillRect(x + 5, y + 2, 4, 3);
+      ctx.fillStyle = 'rgba(0,0,0,.2)';
+      ctx.fillRect(x + 1, y + 14, 14, 2);
+      break;
+    }
+    case 'D': { // door (closed)
+      ctx.fillStyle = '#7d7d8a';
+      ctx.fillRect(x, y, TILE, TILE);
+      ctx.fillStyle = '#7a5a2e';
+      ctx.fillRect(x + 2, y + 1, 12, 14);
+      ctx.fillStyle = '#8f6c3a';
+      ctx.fillRect(x + 3, y + 2, 10, 12);
+      ctx.fillStyle = '#5d4328';
+      ctx.fillRect(x + 4, y + 4, 2, 8);
+      ctx.fillRect(x + 10, y + 4, 2, 8);
+      ctx.fillStyle = '#e8c15a';
+      ctx.fillRect(x + 11, y + 7, 2, 2);
+      break;
+    }
+    case 'c': { // chest (closed)
+      ctx.fillStyle = '#7d7d8a';
+      ctx.fillRect(x, y, TILE, TILE);
+      ctx.fillStyle = '#7a4a24';
+      ctx.fillRect(x + 2, y + 5, 12, 9);
+      ctx.fillStyle = '#96602e';
+      ctx.fillRect(x + 3, y + 6, 10, 2);
+      ctx.fillStyle = '#5d3a1c';
+      ctx.fillRect(x + 2, y + 5, 12, 2);
+      ctx.fillStyle = '#e8c15a';
+      ctx.fillRect(x + 7, y + 8, 2, 3);
+      break;
+    }
+    case 'o': { // chest opened
+      ctx.fillStyle = '#7d7d8a';
+      ctx.fillRect(x, y, TILE, TILE);
+      ctx.fillStyle = '#5d3a1c';
+      ctx.fillRect(x + 2, y + 5, 12, 9);
+      ctx.fillStyle = '#7a4a24';
+      ctx.fillRect(x + 2, y + 5, 12, 2);
+      ctx.fillStyle = '#2b2018';
+      ctx.fillRect(x + 3, y + 7, 10, 7);
+      break;
+    }
+    case 'f': { // campfire (animated)
+      ctx.fillStyle = '#4a4438';
+      ctx.fillRect(x, y, TILE, TILE);
+      ctx.fillStyle = '#5d4328';
+      ctx.fillRect(x + 4, y + 11, 8, 2);
+      ctx.fillRect(x + 3, y + 12, 10, 2);
+      const flick = Math.sin(t / 5) * 1.2 + Math.sin(t / 3.1) * .8;
+      ctx.fillStyle = '#e07030';
+      ctx.fillRect(x + 6, y + 4 + Math.floor(flick), 4, 7);
+      ctx.fillStyle = '#f0a040';
+      ctx.fillRect(x + 7, y + 6 + Math.floor(flick / 2), 2, 4);
+      ctx.fillStyle = '#ffe9a0';
+      ctx.fillRect(x + 7, y + 8, 2, 2);
+      break;
+    }
+    case 'k': { // rock
+      ctx.fillStyle = '#7d7d8a';
+      ctx.fillRect(x, y, TILE, TILE);
+      ctx.fillStyle = '#6e6e7a';
+      ctx.fillRect(x + 3, y + 6, 10, 8);
+      ctx.fillStyle = '#85858f';
+      ctx.fillRect(x + 5, y + 7, 5, 4);
+      ctx.fillStyle = '#5c5c66';
+      ctx.fillRect(x + 3, y + 12, 10, 2);
+      break;
+    }
+    case 'b': { // barrel
+      ctx.fillStyle = '#7d7d8a';
+      ctx.fillRect(x, y, TILE, TILE);
+      ctx.fillStyle = '#8a5f2e';
+      ctx.fillRect(x + 3, y + 2, 10, 12);
+      ctx.fillStyle = '#a3733a';
+      ctx.fillRect(x + 4, y + 2, 2, 12);
+      ctx.fillStyle = '#5d4328';
+      ctx.fillRect(x + 2, y + 3, 1, 10);
+      ctx.fillRect(x + 13, y + 3, 1, 10);
+      ctx.fillStyle = '#4a3820';
+      ctx.fillRect(x + 3, y + 5, 10, 1);
+      ctx.fillRect(x + 3, y + 9, 10, 1);
+      break;
+    }
+    case 'y': { // crystal
+      ctx.fillStyle = '#5a4a72';
+      ctx.fillRect(x, y, TILE, TILE);
+      ctx.fillStyle = '#a06ae0';
+      ctx.fillRect(x + 6, y + 2, 4, 10);
+      ctx.fillStyle = '#c08cf0';
+      ctx.fillRect(x + 7, y + 2, 1, 8);
+      ctx.fillStyle = '#7a48b8';
+      ctx.fillRect(x + 5, y + 3, 1, 8);
+      ctx.fillRect(x + 10, y + 4, 2, 2);
+      ctx.fillRect(x + 4, y + 5, 2, 2);
+      break;
+    }
+    case 'x': { // exit portal / stairs (animated)
+      ctx.fillStyle = '#4a4438';
+      ctx.fillRect(x, y, TILE, TILE);
+      const glow = Math.floor(2 + Math.sin(t / 6) * 1.5);
+      ctx.fillStyle = '#7a48b8';
+      ctx.fillRect(x + 3, y + 2, 10, 12);
+      ctx.fillStyle = '#a06ae0';
+      ctx.fillRect(x + 4, y + 3, 8, 10);
+      ctx.fillStyle = '#d8b8ff';
+      ctx.fillRect(x + 7, y + 7, 2, 4);
+      ctx.fillStyle = 'rgba(216,184,255,.35)';
+      ctx.fillRect(x + 4 + glow, y + 3, 2, 10);
+      break;
+    }
+    case 'z': { // forge (final)
+      ctx.fillStyle = '#4a4438';
+      ctx.fillRect(x, y, TILE, TILE);
+      const pulse = Math.floor(2 + Math.sin(t / 4) * 2);
+      ctx.fillStyle = '#8a6a3a';
+      ctx.fillRect(x + 3, y + 3, 10, 10);
+      ctx.fillStyle = '#ffb020';
+      ctx.fillRect(x + 6, y + 6, 4, 4);
+      ctx.fillStyle = '#fff0c0';
+      ctx.fillRect(x + 7, y + 7, 2, 2);
+      ctx.fillStyle = 'rgba(255,176,32,.4)';
+      ctx.fillRect(x + 2 + pulse, y + 2, 2, 12);
+      break;
+    }
+    default: {
+      ctx.fillStyle = '#101018';
+      ctx.fillRect(x, y, TILE, TILE);
+    }
+  }
+}
+
+// ---------- 精灵 ----------
+// 通用人形 12x16，字符: o描边 s皮肤 h头发 u上衣 d深色/腰带 w金属 e眼白
+const HUMANOID = [
+  '....oooo....',
+  '...osssso...',
+  '..oshhhsho..',
+  '..oshhhsho..',
+  '..oshhhsho..',
+  '..oseoesho..',
+  '...osssso...',
+  '....oooo....',
+  '..ouuuuuuo..',
+  '.ouuuuuuuuo.',
+  '.ouuuuuuuuo.',
+  '.ouuuuuuuuo.',
+  '.ouduuuduo..',
+  '..ouuuuuuo..',
+  '..oouooouo..',
+  '..oouooouo..',
+];
+const WOLF = [
+  '....oo........',
+  '...oooo..oo...',
+  '..oooooo.ooo..',
+  '.ooooooo.ooo..',
+  '.oo.oooooooo..',
+  'oo.ooooooooo..',
+  'ooooooooooooo.',
+  '.ooooooooooo..',
+  '..oo.ooooo.oo.',
+  '.....oo..oo...',
+  '.....oo..oo...',
+];
+const SPIDER = [
+  '......oo......',
+  '....oooooo....',
+  '...o.oooo.o...',
+  '..oo.oooo.oo..',
+  '.oo.oooooo.oo.',
+  'oo.oooooooo.oo',
+  'oo.oooooooo.oo',
+  '.oo.oooooo.oo.',
+  '..oo..oo..oo..',
+  '...o..oo..o...',
+  '....o.oo.o....',
+];
+const SKELETON = [
+  '....oooo....',
+  '...owwwwo...',
+  '..owwowwwo..',
+  '..owwowwwo..',
+  '..owwowwwo..',
+  '..owooooow..',
+  '...owwwwo...',
+  '....oooo....',
+  '..oddoddo...',
+  '..owwwwwwo..',
+  '..oowwwwoo..',
+  '...owwwo....',
+  '...owwwo....',
+  '..oowwoo....',
+  '..ow..wo....',
+  '..ow..wo....',
+];
+
+const CLASS_TWEAK = {
+  fighter: (g) => [g[0], g[1], '..owwwwwo..', '..owwwwwo..', '..owwwwwo..', g[5], g[6], g[7], '.owuuuuuwo.', g[9], g[10], g[11], g[12], g[13], g[14], g[15]],
+  wizard: (g) => ['....ouuo....', '...ouuuuo...', '..ouuuuuuo..', '..ouuuuuuo..', '..ouuuuuuo..', g[5], g[6], g[7], '..ouuuuuuo..', '.ouduuuuduo.', '.ouuuuuuuuo.', '.ouuuuuuuuo.', '.ouduuuduo..', '..ouuuuuuo..', '..oouooouo..', '..oouooouo..'],
+  rogue: (g) => [g[0], g[1], '..ohhhhhho..', '..ohhhhhho..', '..ohhhhhho..', g[5], g[6], g[7], '..ouuuuuuo..', '.ouuuuuuuuo.', '.ouuuuuuuuo.', '.ouuuuuuuuo.', '.ouduuuduo..', '..ouuuuuuo..', '..oouooouo..', '..oouooouo..'],
+  cleric: (g) => [g[0], g[1], '..oddddddo..', '..oddddddo..', '..oddddddo..', g[5], g[6], g[7], '..ouuuuuuo..', '.oduuuuuudo.', '.ouuuuuuuuo.', '.ouuuuuuuuo.', '.oduuuudo..', '..ouuuuuuo..', '..oouooouo..', '..oouooouo..'],
+  ranger: (g) => [g[0], g[1], '..ohhhhhho..', '..ohhhhhho..', '..ohhhhhho..', g[5], g[6], g[7], '..ouuuuuuo..', '.ouuuuuuuuo.', '.ouuuuuuuuo.', '.ouuuuuuuuo.', '.ouduuuduo..', '..ouuuuuuo..', '..oouooouo..', '..oouooouo..'],
+};
+
+export const SKIN_TONES = ['#e8b88a', '#f0c8a0', '#c88a5a', '#a06a3e', '#8a5a34', '#e8a06a', '#6a4630'];
+export const HAIR_TONES = ['#5b3a1e', '#2a2018', '#8a5a2e', '#c88a2e', '#b8b8c0', '#d84848', '#3a5a8a', '#e8e8f0'];
+export const OUTFIT_TONES = ['#4a6b8a', '#8a4a4a', '#4a8a5a', '#6a4a8a', '#8a7a3a', '#3a5a6a', '#7a4a6a', '#5a5a5a', '#c9a23f', '#3a3a4a'];
+
+const PALETTES = {
+  player: (colors) => ({ o: '#2a2430', s: colors.skin, h: colors.hair, u: colors.outfit, d: shade(colors.outfit), w: '#cfd6e4', e: '#f0f0f0' }),
+  goblin: { o: '#2a2430', s: '#7a9a3a', h: '#5a7a2a', u: '#6a4a2e', d: '#4a3a22', w: '#cfd6e4', e: '#ffd040' },
+  wolf: { o: '#2a2430', s: '#6a6a72', h: '#6a6a72', u: '#4a4a52', d: '#3a3a42', w: '#cfd6e4', e: '#ffd040' },
+  klarg: { o: '#2a2430', s: '#8a6a3a', h: '#5a4322', u: '#6a4a2e', d: '#4a3a22', w: '#cfd6e4', e: '#ff4040' },
+  ruffian: { o: '#2a2430', s: '#e8b88a', h: '#3a2a1a', u: '#a02a2a', d: '#6a1a1a', w: '#cfd6e4', e: '#f0f0f0' },
+  glasstaff: { o: '#2a2430', s: '#e8c8a0', h: '#8a8a98', u: '#4a3a7a', d: '#332a5a', w: '#cfd6e4', e: '#80e0ff' },
+  hobgoblin: { o: '#2a2430', s: '#c88a4a', h: '#4a3a2a', u: '#7a2a2a', d: '#5a1a1a', w: '#8a8a98', e: '#ffd040' },
+  bugbear: { o: '#2a2430', s: '#a07840', h: '#6a4a22', u: '#6a4a2e', d: '#4a3a22', w: '#cfd6e4', e: '#ffd040' },
+  grol: { o: '#2a2430', s: '#9a7038', h: '#5a3a1a', u: '#8a5a2a', d: '#6a4020', w: '#e8c15a', e: '#ff2020' },
+  doppelganger: { o: '#2a2430', s: '#d8d0c0', h: '#a8a8b0', u: '#7a7a88', d: '#5a5a66', w: '#cfd6e4', e: '#ff40ff' },
+  skeleton: { o: '#2a2430', s: '#e8e0d0', h: '#e8e0d0', u: '#d8d0c0', d: '#4a3a3a', w: '#f0f0f0', e: '#ff4040' },
+  zombie: { o: '#2a2430', s: '#8a9a6a', h: '#5a6a3a', u: '#5a5a4a', d: '#3a3a30', w: '#cfd6e4', e: '#ffd040' },
+  giantspider: { o: '#2a2430', s: '#3a3a4a', h: '#3a3a4a', u: '#4a4a5a', d: '#2a2a3a', w: '#cfd6e4', e: '#ff2020' },
+  nezznar: { o: '#2a2430', s: '#7a6a8a', h: '#e8e8f0', u: '#3a2a5a', d: '#2a1a4a', w: '#cfd6e4', e: '#ff40a0' },
+  barthen: { o: '#2a2430', s: '#e8b88a', h: '#8a5a2e', u: '#7a5a2e', d: '#5a3a1e', w: '#cfd6e4', e: '#f0f0f0' },
+  toblen: { o: '#2a2430', s: '#e8b88a', h: '#5b3a1e', u: '#8a6a3a', d: '#6a4a2a', w: '#cfd6e4', e: '#f0f0f0' },
+  linene: { o: '#2a2430', s: '#f0c8a0', h: '#c88a2e', u: '#6a6a78', d: '#4a4a56', w: '#a8a8b8', e: '#f0f0f0' },
+  galaelle: { o: '#2a2430', s: '#f0c8a0', h: '#e8e8f0', u: '#e8e0c8', d: '#b8b098', w: '#e8c15a', e: '#80a0ff' },
+  oldhag: { o: '#2a2430', s: '#c0a080', h: '#a8a8b0', u: '#3a3a4a', d: '#2a2a3a', w: '#cfd6e4', e: '#c0ffc0' },
+  sildar: { o: '#2a2430', s: '#e8b88a', h: '#5b3a1e', u: '#6a7a8a', d: '#4a5a6a', w: '#a8b8c8', e: '#80c0ff' },
+  gundren: { o: '#2a2430', s: '#e8b88a', h: '#c84848', u: '#8a5a2e', d: '#6a4020', w: '#cfd6e4', e: '#80c0ff' },
+  prisoner: { o: '#2a2430', s: '#d8b088', h: '#5b3a1e', u: '#8a8a7a', d: '#6a6a5a', w: '#cfd6e4', e: '#f0f0f0' },
+};
+function shade(hex) {
+  const n = parseInt(hex.slice(1), 16);
+  const r = Math.max(0, ((n >> 16) & 255) - 40), g = Math.max(0, ((n >> 8) & 255) - 40), b = Math.max(0, (n & 255) - 40);
+  return '#' + [r, g, b].map(c => c.toString(16).padStart(2, '0')).join('');
+}
+
+const MONSTER_GRID = { goblin: null, wolf: WOLF, skeleton: SKELETON, giantspider: SPIDER, nezznar: null };
+
+export function spritePalette(kind, defKey, colors) {
+  if (kind === 'player') return PALETTES.player(colors || { skin: SKIN_TONES[0], hair: HAIR_TONES[0], outfit: OUTFIT_TONES[0] });
+  if (PALETTES[defKey]) return PALETTES[defKey];
+  return PALETTES.goblin;
+}
+
+// 在canvas上绘制一个精灵（逻辑像素），(dx,dy)为左上角，scale=缩放
+export function drawSprite(ctx, kind, defKey, palette, dx, dy, { dir = 'down', frame = 0, scale = 1, bob = 0, cls = null } = {}) {
+  let grid;
+  let offsetX = 0, offsetY = 0;
+  if (kind === 'player' || MONSTER_GRID[defKey] === null) {
+    grid = cls && CLASS_TWEAK[cls] ? CLASS_TWEAK[cls](HUMANOID) : HUMANOID;
+    offsetX = 2;
+  } else {
+    grid = MONSTER_GRID[defKey] || HUMANOID;
+    if (defKey === 'wolf') offsetX = 0;
+    else if (defKey === 'spider' || defKey === 'giantspider') offsetX = 0;
+    else offsetX = 2;
+  }
+  const gw = grid[0].length, gh = grid.length;
+  // 朝上：脸部行替换为头发（背面）
+  if (dir === 'up' && (kind === 'player' || MONSTER_GRID[defKey] === null)) {
+    grid = grid.map((row, i) => (i === 5 ? row.replace(/e/g, 'h') : row));
+  }
+  const flip = dir === 'left';
+  ctx.save();
+  ctx.translate(dx, dy);
+  if (scale !== 1) ctx.scale(scale, scale);
+  if (flip) { ctx.translate(16, 0); ctx.scale(-1, 1); }
+  const bo = bob ? (frame % 2) : 0;
+  ctx.translate(offsetX, -bo);
+  for (let y = 0; y < gh; y++) {
+    const row = grid[y];
+    for (let x = 0; x < row.length; x++) {
+      const ch = row[x];
+      if (ch === '.') continue;
+      const col = palette[ch];
+      if (!col) continue;
+      ctx.fillStyle = col;
+      ctx.fillRect(x, y, 1, 1);
+    }
+  }
+  ctx.restore();
+}
+
+// 缓存单个精灵为离屏canvas（用于预览）
+export function spriteToCanvas(kind, defKey, palette, cls) {
+  const c = makeCanvas(16, 18);
+  const ctx = c.getContext('2d');
+  drawSprite(ctx, kind, defKey, palette, 0, 0, { cls });
+  return c;
+}

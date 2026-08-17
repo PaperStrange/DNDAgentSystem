@@ -1,0 +1,11 @@
+{
+  "port": 3000,
+  "seed": null,
+  "llm": {
+    "baseURL": "https://api.openai.com/v1",
+    "apiKey": "",
+    "model": "gpt-4o-mini",
+    "temperature": 0.8,
+    "timeoutMs": 45000
+  }
+}

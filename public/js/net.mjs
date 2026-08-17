@@ -1,0 +1,53 @@
+// WebSocket 网络层：自动重连（token）
+export class Net {
+  constructor() {
+    this.ws = null;
+    this.pid = null;
+    this.token = localStorage.getItem('dnd_token') || null;
+    this.name = localStorage.getItem('dnd_name') || '';
+    this.onState = null; this.onHello = null; this.onKicked = null; this.onError = null;
+    this._reconnectTimer = null;
+  }
+  connect() {
+    if (this.ws && this.ws.readyState === 1) return;
+    const proto = location.protocol === 'https:' ? 'wss' : 'ws';
+    const ws = new WebSocket(proto + '://' + location.host + '/ws');
+    this.ws = ws;
+    ws.onopen = () => {
+      ws.send(JSON.stringify({ t: 'hello', name: this.name || '冒险者', token: this.token, rename: !!this.token }));
+    };
+    ws.onmessage = (ev) => {
+      let msg;
+      try { msg = JSON.parse(ev.data); } catch { return; }
+      if (msg.t === 's:hello') {
+        this.pid = msg.pid;
+        this.token = msg.pid;
+        this.name = msg.name;
+        localStorage.setItem('dnd_token', this.token);
+        localStorage.setItem('dnd_name', this.name);
+        this.onHello && this.onHello(msg);
+      } else if (msg.t === 's:state') {
+        this.onState && this.onState(msg.view);
+      } else if (msg.t === 's:error') {
+        this.onError && this.onError(msg.msg);
+      } else if (msg.t === 's:kicked') {
+        this.onKicked && this.onKicked();
+      } else if (msg.t === 'pong') { /* noop */ }
+    };
+    ws.onclose = () => {
+      if (this._reconnectTimer) return;
+      this._reconnectTimer = setTimeout(() => { this._reconnectTimer = null; this.connect(); }, 1500);
+    };
+    ws.onerror = () => {};
+  }
+  send(t, payload = {}) {
+    if (!this.ws || this.ws.readyState !== 1) return false;
+    this.ws.send(JSON.stringify({ t, ...payload }));
+    return true;
+  }
+  setName(name) {
+    this.name = name;
+    localStorage.setItem('dnd_name', name);
+    if (this.ws && this.ws.readyState === 1) this.ws.send(JSON.stringify({ t: 'hello', name, token: this.token, rename: true }));
+  }
+}
