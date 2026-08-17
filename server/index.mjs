@@ -2,7 +2,8 @@
 import { createServer } from 'node:http';
 import { readFile } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
-import { join, extname, dirname } from 'node:path';
+import { join, extname, dirname, resolve, sep } from 'node:path';
+import { randomBytes } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { WebSocketServer } from 'ws';
 import { config } from './config.mjs';
@@ -10,14 +11,15 @@ import { setSeed, uid } from './util.mjs';
 import { Rooms, MAX_PLAYERS } from './game/rooms.mjs';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
-const pub = join(root, 'public');
+const pub = resolve(root, 'public');
 if (config.seed !== null && config.seed !== undefined) { setSeed(config.seed); console.log('[init] 随机种子:', config.seed); }
 
 const MIME = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.mjs': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8', '.json': 'application/json; charset=utf-8', '.png': 'image/png', '.ico': 'image/x-icon', '.svg': 'image/svg+xml', '.txt': 'text/plain; charset=utf-8', '.md': 'text/markdown; charset=utf-8' };
 
 const rooms = new Rooms();
 const players = new Map(); // pid -> {pid, name, ws, roomCode, online, token}
-const TOKEN = 'dnd_token_';
+const newToken = () => 'tk_' + randomBytes(18).toString('hex'); // 秘密重连令牌（绝不通过快照外发）
+// 安全：config 永不外发；令牌只经 s:hello 发送给持有者本人
 
 rooms.bindRegistry(
   (pid) => players.get(pid)?.name || pid,
@@ -82,40 +84,53 @@ const server = createServer(async (req, res) => {
   try {
     let path = decodeURIComponent(new URL(req.url, 'http://x').pathname);
     if (path === '/') path = '/index.html';
-    const file = join(pub, path);
-    if (!file.startsWith(pub) || !existsSync(file) || !(await import('node:fs/promises')).stat(file).then(s => s.isFile()).catch(() => false)) {
+    // 安全：路径规范化后必须严格位于 public 目录内（防目录穿越/前缀混淆）
+    const file = resolve(pub, '.' + path);
+    if (!(file === pub || file.startsWith(pub + sep)) || !existsSync(file) || !(await import('node:fs/promises')).stat(file).then(s => s.isFile()).catch(() => false)) {
       res.writeHead(404); res.end('Not Found'); return;
     }
     const ext = extname(file).toLowerCase();
     res.writeHead(200, { 'Content-Type': MIME[ext] || 'application/octet-stream', 'Cache-Control': 'no-cache' });
     res.end(await readFile(file));
-  } catch (e) { res.writeHead(500); res.end('ERR'); }
+  } catch (e) { res.writeHead(404); res.end('Not Found'); }
 });
 
 const wss = new WebSocketServer({ server, path: '/ws' });
-wss.on('connection', (ws) => {
+wss.on('connection', (ws, req) => {
+  // 安全：跨站WebSocket劫持防护 —— 浏览器请求必须同源
+  const origin = req.headers.origin;
+  if (origin) {
+    try {
+      const u = new URL(origin);
+      const host = String(req.headers.host || '');
+      if (u.host !== host && u.host !== 'localhost:' + config.port && u.host !== '127.0.0.1:' + config.port) {
+        ws.close(1008, 'origin-not-allowed');
+        return;
+      }
+    } catch { ws.close(1008, 'origin-not-allowed'); return; }
+  }
+  // 安全：连接级消息限流（防洪泛拖垮服务器）
+  ws._rate = { count: 0, window: Date.now() };
   let pid = null;
   ws.on('message', (raw) => {
+    const now = Date.now();
+    if (now - ws._rate.window > 1000) { ws._rate.window = now; ws._rate.count = 0; }
+    ws._rate.count++;
+    if (ws._rate.count > 60) return; // 超过60条/秒直接丢弃
     let msg;
     try { msg = JSON.parse(raw.toString()); } catch { return; }
     if (msg.t === 'hello') {
       const name = String(msg.name || '冒险者').slice(0, 16);
-      // token重连 / 改名
-      if (msg.token && players.has(msg.token)) {
-        const old = players.get(msg.token);
-        if (msg.rename) {
-          pid = old.pid; old.ws = ws; old.online = true; old.name = name;
+      // 秘密令牌重连/改名：令牌只由本人持有，快照中绝不外发
+      if (msg.token) {
+        const old = [...players.values()].find(p => p.token === msg.token);
+        if (old) {
+          if (old.ws && old.ws !== ws && old.ws.readyState === 1) { try { old.ws.close(); } catch (e) {} }
+          pid = old.pid;
+          old.ws = ws; old.online = true;
+          if (msg.rename && name) old.name = name;
           ws.__pid = pid;
-          send(pid, { t: 's:hello', pid, name: old.name, roomCode: old.roomCode });
-          const r = rooms.rooms.get(old.roomCode);
-          if (r) broadcastRoom(r);
-          else send(pid, { t: 's:state', view: rooms.snapshotFor(old) });
-          return;
-        }
-        if (!old.online || !old.ws || old.ws.readyState !== 1) {
-          pid = old.pid; old.ws = ws; old.online = true; old.name = name || old.name;
-          ws.__pid = pid;
-          send(pid, { t: 's:hello', pid, name: old.name, roomCode: old.roomCode });
+          send(pid, { t: 's:hello', pid, name: old.name, roomCode: old.roomCode, token: old.token });
           if (old.roomCode) { const r = rooms.rooms.get(old.roomCode); if (r) broadcastRoom(r); }
           else send(pid, { t: 's:state', view: rooms.snapshotFor(old) });
           return;
@@ -123,23 +138,24 @@ wss.on('connection', (ws) => {
       }
       pid = uid('p');
       ws.__pid = pid;
-      players.set(pid, { pid, name, ws, roomCode: null, online: true, token: pid });
-      send(pid, { t: 's:hello', pid, name, roomCode: null });
+      const token = newToken();
+      players.set(pid, { pid, name, ws, roomCode: null, online: true, token });
+      send(pid, { t: 's:hello', pid, name, roomCode: null, token });
       send(pid, { t: 's:state', view: rooms.snapshotFor(players.get(pid)) });
       return;
     }
     if (!pid) return;
     const p = players.get(pid);
-    if (!p || !p.online) return;
+    if (!p || !p.online || p.ws !== ws) return;
     handleMsg(p, raw.toString());
   });
   ws.on('close', () => {
     if (!pid) return;
     const p = players.get(pid);
-    if (!p) return;
+    if (!p || p.ws !== ws) return; // 旧连接被替换时忽略其关闭事件
     p.online = false;
     p.ws = null;
-    // 断线保留10分钟，房间游戏照常；房间大厅中离线5分钟后移除
+    // 断线保留10分钟，房间游戏照常；房间大厅中离线1分钟后移除
     const room = rooms.roomOf(p);
     if (room) {
       if (room.phase === 'prepare' || room.phase === 'ended') {

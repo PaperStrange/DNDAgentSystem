@@ -44,7 +44,7 @@ class Bot {
       ws.on('message', (raw) => {
         const msg = JSON.parse(raw.toString());
         if (msg.t === 's:hello') {
-          this.pid = msg.pid; this.token = msg.pid; this.roomCode = msg.roomCode;
+          this.pid = msg.pid; this.token = msg.token || msg.pid; this.roomCode = msg.roomCode;
           resolve();
         } else if (msg.t === 's:state') {
           this.view = msg.view;

@@ -21,7 +21,7 @@ export class Net {
       try { msg = JSON.parse(ev.data); } catch { return; }
       if (msg.t === 's:hello') {
         this.pid = msg.pid;
-        this.token = msg.pid;
+        this.token = msg.token || msg.pid; // 秘密重连令牌（仅本人持有）
         this.name = msg.name;
         localStorage.setItem('dnd_token', this.token);
         localStorage.setItem('dnd_name', this.name);

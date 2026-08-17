@@ -1283,7 +1283,7 @@ export class Game {
       flags: [...this.flags].filter(f => !f.startsWith('dlg:')), xpPool: this.xpPool,
       win: this.win,
       dialogue: dlg,
-      log: this.log.slice(-120),
+      log: this.log.filter(l => !l.private || l.private === pid).slice(-120), // 私密日志仅本人可见
       personaId: this.personaId,
       npcDefs: this._npcDefsFor(pid),
     };
