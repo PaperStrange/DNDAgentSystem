@@ -14,7 +14,8 @@ export function mountLobby(root, view) {
   const nameInput = el('input', '');
   nameInput.value = store.name || '';
   nameInput.placeholder = '你的昵称';
-  const nameBtn = el('button', 'btn primary', '进入');
+  const nameBtn = el('button', 'btn primary', '进入大厅');
+  nameBtn.title = '设置你的昵称并连接大厅（昵称可随时修改）';
   nameBtn.onclick = () => { const n = nameInput.value.trim(); if (n) { net.setName(n); store.name = n; } };
   nameBox.append(nameInput, nameBtn);
   head.appendChild(nameBox);
@@ -51,6 +52,43 @@ export function mountLobby(root, view) {
     roomList.appendChild(card);
   }
   left.appendChild(roomList);
+
+  // R-9: 冒险故事集（收藏系统铺垫：成就/分享/交易的入口）
+  const storyPanel = el('div', 'panel');
+  storyPanel.appendChild(el('h4', '', '📖 冒险故事集'));
+  const storyBox = el('div', 'story-list');
+  const renderStories = () => {
+    storyBox.innerHTML = '';
+    let cards = [];
+    try { cards = JSON.parse(localStorage.getItem('dnd_cards') || '[]'); } catch (e) { cards = []; }
+    if (!Array.isArray(cards) || !cards.length) {
+      storyBox.appendChild(el('div', 'muted', '暂无冒险记录。完成一场冒险后，AI DM 会自动为你生成冒险卡片。'));
+      return;
+    }
+    for (const c of cards.slice(0, 12)) {
+      const item = el('div', 'story-item');
+      const head = el('div', 'spread');
+      head.appendChild(el('div', '', (c.winKind === 'defeat' ? '💀' : '🏆') + ' 《' + c.dungeon + '》 · ' + c.name + '（' + c.race + c.class + ' Lv' + c.level + '）'));
+      head.appendChild(el('span', 'badge gold', c.rating + ' ' + c.score + '分'));
+      item.appendChild(head);
+      item.appendChild(el('div', 'muted', c.time + ' · DM：' + c.persona + ' · 用时' + c.duration + '分钟'));
+      item.appendChild(el('div', 'story-hl', (c.highlights || []).join(' · ')));
+      item.appendChild(el('div', 'story-cm', '「' + c.comment + '」'));
+      const del = el('button', 'btn small danger', '删除');
+      del.onclick = () => {
+        let all = [];
+        try { all = JSON.parse(localStorage.getItem('dnd_cards') || '[]'); } catch (e) {}
+        all = (all || []).filter(x => x.id !== c.id);
+        localStorage.setItem('dnd_cards', JSON.stringify(all));
+        renderStories();
+      };
+      item.appendChild(del);
+      storyBox.appendChild(item);
+    }
+  };
+  storyPanel.appendChild(storyBox);
+  renderStories();
+  left.appendChild(storyPanel);
   grid.appendChild(left);
 
   // 右侧：创建房间
@@ -90,6 +128,7 @@ export function mountLobby(root, view) {
   }
   right.appendChild(pg);
   const createBtn = el('button', 'btn gold big mt8', '创建房间并成为房主');
+  createBtn.title = '选择上方的AI DM人设后创建房间（房主可踢人）';
   createBtn.style.width = '100%';
   createBtn.disabled = true;
   createBtn.onclick = () => {

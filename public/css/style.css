@@ -102,8 +102,10 @@ input, select, textarea { font-family: var(--font); }
 .opt-card .oc-sub { color: var(--dim); font-size: 11px; margin-top: 2px; }
 .stat-row { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
 .stat-row label { width: 70px; color: var(--dim); }
-.stat-row .sr-val { width: 46px; text-align: center; font-weight: 700; }
-.stat-row .sr-mod { width: 52px; color: var(--gold); }
+.stat-row .sr-val { min-width: 46px; text-align: center; font-weight: 700; }
+.stat-row .sr-val .sr-bonus { display: block; font-size: 9px; color: var(--blue); font-weight: 400; white-space: nowrap; }
+.stat-row .sr-mod { width: 74px; color: var(--gold); font-size: 11px; white-space: nowrap; }
+.stat-row button:disabled { opacity: .3; }
 .stat-row button { width: 30px; height: 30px; }
 .stat-row .sr-bar { flex: 1; height: 10px; background: var(--panel2); border-radius: 5px; overflow: hidden; }
 .stat-row .sr-fill { height: 100%; background: linear-gradient(90deg, #5c4f94, #8a72b8); }
@@ -112,7 +114,8 @@ input, select, textarea { font-family: var(--font); }
 .color-swatch { width: 26px; height: 26px; border-radius: 5px; border: 2px solid var(--line); cursor: pointer; }
 .color-swatch.sel { border-color: var(--gold); box-shadow: 0 0 0 2px rgba(232,193,90,.3); }
 .cg-preview { position: sticky; top: 16px; }
-.cg-preview canvas { image-rendering: pixelated; width: 100%; border-radius: 8px; background: #181422; border: 2px solid var(--line); }
+.cg-preview .preview-label { color: var(--dim); font-size: 12px; margin-bottom: 6px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.cg-preview canvas { image-rendering: pixelated; width: 100%; max-height: 200px; object-fit: contain; border-radius: 8px; background: #181422; border: 2px solid var(--line); }
 .derived-list { font-size: 12px; color: var(--dim); line-height: 1.7; }
 .derived-list b { color: var(--txt); }
 
@@ -125,7 +128,8 @@ input, select, textarea { font-family: var(--font); }
 .game-body { flex: 1; display: flex; min-height: 0; }
 .game-canvas-wrap { flex: 1; position: relative; min-width: 0; background: #100d16; }
 #game-canvas { position: absolute; inset: 0; width: 100%; height: 100%; image-rendering: pixelated; }
-.game-side { width: 340px; display: flex; flex-direction: column; gap: 8px; padding: 10px; overflow-y: auto; background: var(--bg); }
+.game-side { width: 300px; display: flex; flex-direction: column; gap: 8px; padding: 10px; overflow-y: auto; background: var(--bg); }
+.game-canvas-wrap { flex: 1; position: relative; min-width: 0; min-height: 480px; background: #100d16; }
 .side-panel { padding: 10px; }
 .side-panel h4 { font-size: 12px; color: var(--gold); letter-spacing: 1px; margin-bottom: 6px; }
 .hpbar { height: 10px; background: #2c2530; border-radius: 5px; overflow: hidden; border: 1px solid var(--line); }
@@ -143,6 +147,10 @@ input, select, textarea { font-family: var(--font); }
 .log-box .lg.chat { color: #a8d8a8; }
 .log-box .lg.goal { color: #e8a05a; }
 .log-box .lg.system { color: #9a92b8; }
+.log-box .lg.important { color: #ffd040; font-weight: 700; background: rgba(255,208,64,.08); border-left: 2px solid #ffd040; padding-left: 5px; }
+.log-box .lg.dmg { color: #ff9a8a; }
+.log-box .lg.heal { color: #8ae08a; }
+.log-box .lg.gold { color: #ffd98a; }
 .action-bar { display: flex; flex-wrap: wrap; gap: 6px; }
 .action-bar .btn { flex: 1; min-width: 74px; }
 .mode-hint { font-size: 11px; color: var(--gold); min-height: 15px; }
@@ -178,9 +186,19 @@ input, select, textarea { font-family: var(--font); }
 .stat-table td { padding: 5px 8px; border-bottom: 1px solid var(--line); text-align: left; }
 .stat-table td:last-child { text-align: right; color: var(--gold); }
 .credits { color: var(--dim); font-size: 11px; margin-top: 10px; line-height: 1.6; }
+.adventure-card { margin: 14px 0 6px; padding: 12px; border: 1px solid #6b5624; border-radius: 8px; background: #262036; text-align: left; }
+.adventure-card.loading { text-align: center; border-style: dashed; }
+.adventure-card .ac-title { color: var(--gold); font-weight: 700; margin-bottom: 6px; letter-spacing: 2px; }
+.adventure-card .ac-line { color: #d8d2e8; font-size: 12px; line-height: 1.7; }
+.adventure-card .ac-rating { display: inline-block; margin-top: 6px; padding: 2px 10px; border-radius: 4px; background: #6b5624; color: #ffe9a8; font-weight: 700; }
+.adventure-card .ac-comment { margin-top: 6px; color: #c9b8f0; font-style: italic; font-size: 12px; }
 .muted { color: var(--dim); font-size: 12px; }
 .badge { display: inline-block; background: var(--panel2); border: 1px solid var(--line); border-radius: 4px; padding: 1px 6px; font-size: 11px; color: var(--dim); }
 .badge.gold { color: var(--gold); border-color: #6b5624; }
+.story-list { display: flex; flex-direction: column; gap: 8px; max-height: 260px; overflow-y: auto; }
+.story-item { border: 1px solid var(--line); border-radius: 6px; padding: 8px 10px; background: var(--panel2); font-size: 12px; }
+.story-item .story-hl { color: var(--blue); margin-top: 3px; }
+.story-item .story-cm { color: #c9b8f0; font-style: italic; margin-top: 3px; }
 .row { display: flex; gap: 8px; align-items: center; }
 .spread { display: flex; justify-content: space-between; align-items: center; }
 .mt8 { margin-top: 8px; } .mb8 { margin-bottom: 8px; } .mt16 { margin-top: 16px; }

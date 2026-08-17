@@ -42,6 +42,8 @@ playwright-report/
 test-results/
 tools/security-test.mjs
 tools/llm-test.mjs
+master_tests/
+docs/llm_session
 
 # large documentation extensions
 *.zip

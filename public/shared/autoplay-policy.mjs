@@ -1,7 +1,11 @@
 // 自动游玩策略：机器人与浏览器autoplay共用。输入游戏快照，输出一个行动。
-export function createPolicy() {
-  const mem = { talked: new Set(), lastAct: 0, claimed: new Set(), searchTried: new Set() };
-  return { decide: (gv, pid) => decide(gv, pid, mem), mem };
+export function createPolicy(throttleMs = 200) {
+  const mem = { talked: new Set(), lastAct: 0, claimed: new Set(), searchTried: new Set(), throttle: throttleMs };
+  return {
+    decide: (gv, pid) => decide(gv, pid, mem),
+    setThrottle: (ms) => { mem.throttle = ms; },
+    mem,
+  };
 }
 
 function manhattan(a, b) { return Math.abs(a.x - b.x) + Math.abs(a.y - b.y); }
@@ -47,7 +51,7 @@ function decide(gv, pid, mem) {
   if (!me || me.pid !== pid) return null;
   if (!gv.turn || gv.turn.playerId !== pid) return null;
   const now = Date.now();
-  if (now - mem.lastAct < 200) return null; // 温和节流（有节拍器兜底，不会死锁）
+  if (now - mem.lastAct < (mem.throttle || 200)) return null; // 温和节流（有节拍器兜底，不会死锁）
   // 对话（仅限自己回合，且受节流约束）：优先解救类，其次情报，再次其他援助，最后交易
   if (gv.dialogue) {
     const infoTags = ['investigation', 'persuasion', 'insight', 'religion', 'arcana'];

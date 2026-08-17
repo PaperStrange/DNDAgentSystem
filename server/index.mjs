@@ -55,6 +55,16 @@ function handleMsg(player, raw) {
       sendErr(player.pid, res.err);
       return;
     }
+    // R-9: 冒险评价结果单独回传给请求者
+    if (msg.t === 'game:eval' && res && res.ok) {
+      send(player.pid, { t: 's:eval', eval: res });
+      return;
+    }
+    // R-2: 背景故事生成结果回传
+    if (msg.t === 'room:bg-random' && res && res.ok) {
+      send(player.pid, { t: 's:bg', text: res.text });
+      return;
+    }
     if (res.kicked) {
       const victim = players.get(res.victimPid || player.pid);
       if (victim) {

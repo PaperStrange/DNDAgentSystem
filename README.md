@@ -1,5 +1,7 @@
 # 🎲 骰与篝火 · AI DM 像素跑团（DNDAgentSystem）
 
+> 📌 **新会话/新开发者请先读 [docs/llm_session/SESSION_SUMMARY.md](docs/llm_session/SESSION_SUMMARY.md)**——完整的项目状态、架构速查、踩坑记录与验证基线都在里面；本次开发的完整过程（目标/任务/进度/重大问题/解决经验）见 [docs/llm_session/DEVELOPMENT_LOG.md](docs/llm_session/DEVELOPMENT_LOG.md)。
+
 一款由 **AI DM 主持**的 DND 5E 像素风 WEB 联机跑团游戏。
 最多 **5 名玩家**开房联机，从 **12 位性格迥异的 AI DM** 中选择主持人，
 在《凡杜尔失落矿坑》（官方新手套组冒险）中车卡、探索、战斗，

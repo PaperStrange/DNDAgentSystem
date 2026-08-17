@@ -5,6 +5,7 @@ import { Director } from '../dm/director.mjs';
 import { DUNGEONS, MONSTERS } from './dungeon.mjs';
 import { PERSONAS, personaSummary, personaById } from '../dm/personas.mjs';
 import { buildSheet } from './charsheet.mjs';
+import { chat, llmAvailable } from '../llm.mjs';
 
 export const MAX_PLAYERS = 5;
 
@@ -18,7 +19,7 @@ export class Rooms {
       persona: r.personaId, personaName: r.personaName, phase: r.phase, members: r.members.length, max: MAX_PLAYERS,
     }));
   }
-  createRoom(host, { dungeonId, personaId }) {
+  createRoom(host, { dungeonId, personaId, mode }) {
     const dungeon = DUNGEONS.find(d => d.id === dungeonId);
     const persona = personaById(personaId);
     if (!dungeon || !persona) return { err: '副本或DM人设无效' };
@@ -27,6 +28,7 @@ export class Rooms {
     const room = {
       code, hostId: host.pid, hostName: host.name, dungeonId, dungeonName: dungeon.name,
       personaId: persona.id, personaName: persona.name, phase: 'prepare',
+      mode: mode === 'manual' ? 'manual' : 'auto', // 战斗模式：默认自动战斗
       members: [host.pid], sheets: new Map(), ready: new Set(),
       game: null, director: null, createdAt: Date.now(),
       lastTouched: Date.now(),
@@ -153,7 +155,7 @@ export class Rooms {
     return { err: '未知消息' };
   }
   _lobby(player, msg) {
-    if (msg.t === 'lobby:create') return this.createRoom(player, { dungeonId: msg.dungeonId, personaId: msg.personaId });
+    if (msg.t === 'lobby:create') return this.createRoom(player, { dungeonId: msg.dungeonId, personaId: msg.personaId, mode: msg.mode });
     if (msg.t === 'lobby:join') {
       const r = this.joinRoom(msg.code, player);
       return r;
@@ -174,7 +176,30 @@ export class Rooms {
       return { room };
     }
     if (msg.t === 'room:return') return this.returnToRoom(player);
+    if (msg.t === 'room:bg-random') return this.randomBackground(player, msg);
     return { err: '未知消息' };
+  }
+  // R-2: 由LLM为角色随机生成一句背景（离线模板降级）
+  async randomBackground(player, msg) {
+    const { RACES, CLASSES } = await import('../../public/shared/char-defs.mjs');
+    const race = RACES.find(r => r.id === msg.raceId);
+    const cls = CLASSES.find(c => c.id === msg.classId);
+    if (!race || !cls) return { err: '参数无效' };
+    if (llmAvailable()) {
+      try {
+        const res = await chat([
+          { role: 'system', content: '你是龙与地下城的DM。请为玩家角色即兴创作一句背景故事（25字以内，简体中文，一句话，不含名字）。' },
+          { role: 'user', content: '种族：' + race.name + '；职业：' + cls.name + '。请写一句富有画面感的背景。' },
+        ], { temperature: 1.0, timeoutMs: 12000 });
+        if (res && res.text) return { ok: true, text: res.text.slice(0, 50) };
+      } catch (e) { /* 降级 */ }
+    }
+    const tpl = [
+      '曾是' + race.name + '中的一员，如今带着' + cls.name + '的本领行走四方。',
+      '在' + race.name + '的聚落长大，一心想要成为传奇' + cls.name + '。',
+      '背井离乡的' + race.name + '，靠' + cls.name + '的手艺讨生活。',
+    ];
+    return { ok: true, text: tpl[Math.floor(Math.random() * tpl.length)] };
   }
   async _gameMsg(player, msg) {
     const room = this.roomOf(player);
@@ -194,6 +219,9 @@ export class Rooms {
     if (t === 'game:claim') return g.actClaim(player.pid);
     if (t === 'game:say') return g.actSay(player.pid, msg.text);
     if (t === 'game:endturn') return g.actEndTurn(player.pid);
+    if (t === 'game:speed') { g.speed = Math.min(4, Math.max(0.5, Number(msg.speed) || 1)); return { ok: true }; }
+    if (t === 'game:pause') { g.paused = !!msg.paused; return { ok: true }; }
+    if (t === 'game:eval') return g.evaluate(player.pid);
     if (t === 'game:leave') return this.leaveRoom(player);
     return { err: '未知消息' };
   }
@@ -213,7 +241,7 @@ export class Rooms {
     if (room.phase === 'prepare') {
       return {
         view: 'room', phase: 'prepare',
-        room: { code: room.code, hostId: room.hostId, dungeonId: room.dungeonId, dungeonName: room.dungeonName, personaId: room.personaId, personaName: room.personaName, max: MAX_PLAYERS },
+        room: { code: room.code, hostId: room.hostId, dungeonId: room.dungeonId, dungeonName: room.dungeonName, personaId: room.personaId, personaName: room.personaName, mode: room.mode, max: MAX_PLAYERS },
         dungeon: DUNGEONS.find(d => d.id === room.dungeonId),
         persona: personaSummary(personaById(room.personaId)),
         members, me: { pid: player.pid, name: player.name },

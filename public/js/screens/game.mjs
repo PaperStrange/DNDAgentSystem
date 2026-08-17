@@ -3,12 +3,12 @@ import { store, el } from '../app.mjs';
 import { TILE, drawTile, drawSprite, spritePalette } from '../pixel.mjs';
 import { createPolicy } from '../../shared/autoplay-policy.mjs';
 
-const SCALE = 3;
+let SCALE = 4;
 
 export function mountGame(root, view) {
   const net = store.net;
-  const g = { view, pending: null, floaters: [], anim: new Map(), introSeen: false, autoplay: false, policy: createPolicy(), sfx: true, lastSnapSeq: 0 };
-  let raf = null, canvas, ctx, wrap;
+  const g = { view, pending: null, floaters: [], anim: new Map(), introSeen: false, autoplay: false, policy: createPolicy(), sfx: true, lastSnapSeq: 0, speed: 1, logFilter: 'all', cardSent: false };
+  let raf = null, canvas, ctx, wrap, autoTicker = null;
 
   // ---------- DOM ----------
   const screen = el('div', 'screen-game');
@@ -16,13 +16,42 @@ export function mountGame(root, view) {
   const gtChapter = el('div', 'gt-chapter');
   const gtObj = el('div', 'gt-obj');
   const gtTurn = el('div', 'gt-turn');
+  const modeBadge = el('div', 'badge', '🤖 自动战斗');
+  modeBadge.title = '房主创建房间时设定的战斗模式';
+  // 速度选择器（R-5）
+  const speedSel = el('select', 'btn small');
+  speedSel.style.cssText = 'padding:3px 6px;';
+  for (const s of [0.5, 1, 2, 4]) {
+    const o = document.createElement('option');
+    o.value = String(s); o.textContent = s + 'x';
+    speedSel.appendChild(o);
+  }
+  speedSel.value = '1';
+  speedSel.onchange = () => {
+    g.speed = Number(speedSel.value);
+    net.send('game:speed', { speed: g.speed });
+    g.policy.setThrottle(Math.round(200 / g.speed));
+    restartTicker();
+  };
+  // 暂停按钮（R-5）
+  const pauseBtn = el('button', 'btn small', '⏸ 暂停');
+  pauseBtn.title = '暂停自动战斗（怪物停止行动，可安心查看日志）';
+  pauseBtn.onclick = () => {
+    g.paused = !g.paused;
+    net.send('game:pause', { paused: g.paused });
+    pauseBtn.textContent = g.paused ? '▶ 继续' : '⏸ 暂停';
+    pauseBtn.classList.toggle('gold', g.paused);
+  };
   const leaveBtn = el('button', 'btn small danger', '退出房间');
+  leaveBtn.title = '离开冒险并退出房间';
   leaveBtn.onclick = () => { if (confirm('确定离开冒险并退出房间吗？')) net.send('room:leave'); };
   const sfxBtn = el('button', 'btn small', '🔊');
+  sfxBtn.title = '音效开关';
   sfxBtn.onclick = () => { g.sfx = !g.sfx; sfxBtn.textContent = g.sfx ? '🔊' : '🔇'; };
   const autoBtn = el('button', 'btn small', '🤖 自动');
+  autoBtn.title = '自动游玩开关（手动模式下可随时开启）';
   autoBtn.onclick = () => { g.autoplay = !g.autoplay; autoBtn.classList.toggle('gold', g.autoplay); };
-  top.append(gtChapter, gtObj, gtTurn, autoBtn, sfxBtn, leaveBtn);
+  top.append(gtChapter, gtObj, gtTurn, modeBadge, speedSel, pauseBtn, autoBtn, sfxBtn, leaveBtn);
   screen.appendChild(top);
 
   const body = el('div', 'game-body');
@@ -64,17 +93,35 @@ export function mountGame(root, view) {
       mePanel.appendChild(bar);
       const info = el('div', 'stats-line mt8', '💰 ' + me.gold + '金 · 经验池 ' + gv.xpPool + ' · ' + (me.slots ? '法术位 ' + me.slots['1'] + '/' + (me.level >= 2 ? 3 : 2) : '无施法'));
       mePanel.appendChild(info);
-      const itemsRow = el('div', 'items-row mt8');
-      const potionChip = el('button', 'item-chip', '🧪 药水 ×' + (me.items.potion || 0));
-      potionChip.disabled = !me.items.potion;
-      potionChip.onclick = () => setPending({ kind: 'item', itemId: 'potion' });
-      const flaskChip = el('button', 'item-chip', '🧨 火焰瓶 ×' + (me.items.flask || 0));
-      flaskChip.disabled = !me.items.flask;
-      flaskChip.onclick = () => setPending({ kind: 'item', itemId: 'flask' });
-      itemsRow.append(potionChip, flaskChip);
-      mePanel.appendChild(itemsRow);
+      mePanel.appendChild(info);
     }
     side.appendChild(mePanel);
+
+    // R-8: 背包面板（金币/道具/剧情钥匙/武器强化状态）
+    const bagPanel = el('div', 'panel side-panel');
+    bagPanel.appendChild(el('h4', '', '🎒 背包'));
+    const bagList = el('div', '');
+    const keyName = { cage_key: '笼子钥匙', castle_key: '城堡钥匙' };
+    const bagAdd = (icon, name, cnt, desc, click) => {
+      const row = el('div', 'spread');
+      const left = el('div', '', icon + ' ' + name + (cnt !== undefined ? ' ×' + cnt : ''));
+      left.title = desc || '';
+      row.appendChild(left);
+      if (click) {
+        const b = el('button', 'btn small', '使用');
+        b.onclick = click;
+        row.appendChild(b);
+      }
+      bagList.appendChild(row);
+    };
+    bagAdd('💰', '金币', me.gold, '冒险中获得的金币，可在商店消费');
+    bagAdd('🧪', '治疗药水', me.items.potion, '附赠动作使用：恢复2d4+2生命（点击目标后使用）', me.items.potion > 0 ? () => setPending({ kind: 'item', itemId: 'potion' }) : null);
+    bagAdd('🧨', '炼金火焰瓶', me.items.flask, '动作使用：3x3范围2d6火焰伤害，敏捷豁免减半', me.items.flask > 0 ? () => setPending({ kind: 'item', itemId: 'flask' }) : null);
+    for (const k of me.keys || []) bagAdd('🔑', keyName[k] || k, undefined, '剧情钥匙（队伍共有）');
+    if (me.sheet.upgradeWeapon) bagAdd('⚔️', '附魔磨刀石', undefined, '已使用：武器伤害+1');
+    bagList.appendChild(el('div', 'muted', me.slots ? '法术位：' + me.slots['1'] + '/' + (me.level >= 2 ? 3 : 2) : ''));
+    bagPanel.appendChild(bagList);
+    side.appendChild(bagPanel);
 
     // 回合提示 + 动作
     const actPanel = el('div', 'panel side-panel');
@@ -172,12 +219,35 @@ export function mountGame(root, view) {
     roster.appendChild(rlist);
     side.appendChild(roster);
 
-    // 日志
+    // 日志（R-7：过滤标签 + 关键信息高亮）
     const logPanel = el('div', 'panel side-panel');
     logPanel.appendChild(el('h4', '', '📜 ' + v.room.personaName + ' 的冒险日志'));
+    const filterRow = el('div', 'row');
+    filterRow.style.marginBottom = '6px';
+    const filters = [['all', '全部'], ['combat', '⚔️战斗'], ['narr', '📖剧情'], ['dice', '🎲掷骰']];
+    for (const [key, label] of filters) {
+      const fb = el('button', 'btn small' + (g.logFilter === key ? ' gold' : ''), label);
+      fb.onclick = () => { g.logFilter = key; renderSide(); };
+      filterRow.appendChild(fb);
+    }
+    logPanel.appendChild(filterRow);
     const logBox = el('div', 'log-box');
+    const highlight = (text) => {
+      let cls = '';
+      if (/🎉|🏆|升到了|获得新特性|BOSS|涅兹纳尔/.test(text)) cls = ' important';
+      else if (/受到|💥/.test(text)) cls = ' dmg';
+      else if (/恢复|💖|治疗/.test(text)) cls = ' heal';
+      else if (/金币|💰/.test(text)) cls = ' gold';
+      return cls;
+    };
     for (const l of gv.log) {
-      logBox.appendChild(el('div', 'lg ' + (l.kind || ''), l.text));
+      if (g.logFilter !== 'all') {
+        if (g.logFilter === 'combat' && !['combat', 'dice'].includes(l.kind)) continue;
+        if (g.logFilter === 'narr' && l.kind !== 'narr') continue;
+        if (g.logFilter === 'dice' && l.kind !== 'dice') continue;
+      }
+      const div = el('div', 'lg ' + (l.kind || '') + highlight(l.text), l.text);
+      logBox.appendChild(div);
     }
     logBox.scrollTop = logBox.scrollHeight;
     logPanel.appendChild(logBox);
@@ -229,8 +299,11 @@ export function mountGame(root, view) {
   // ---------- 渲染循环 ----------
   function resize() {
     const r = wrap.getBoundingClientRect();
-    canvas.width = Math.max(100, r.width);
-    canvas.height = Math.max(100, r.height);
+    // 整数分辨率：防止CSS拉伸导致画面变形
+    canvas.width = Math.max(100, Math.round(r.width));
+    canvas.height = Math.max(100, Math.round(r.height));
+    // 自适应缩放：画布越大人物越大（3~5倍）
+    SCALE = Math.max(3, Math.min(5, Math.round(Math.min(canvas.width, canvas.height) / 250)));
   }
   resize();
   window.addEventListener('resize', resize);
@@ -247,8 +320,16 @@ export function mountGame(root, view) {
         cx = anim.x; cy = anim.y;
       }
     }
-    const vw = canvas.width / SCALE, vh = canvas.height / SCALE;
-    return { x: cx - vw / 2 / TILE + .5, y: cy - vh / 2 / TILE + .3 };
+    const vwT = canvas.width / SCALE / TILE, vhT = canvas.height / SCALE / TILE;
+    let x = cx - vwT / 2 + .5, y = cy - vhT / 2 + .3;
+    // 边界钳制：视野不超过地图范围，地图小于视野时居中（避免大片空白）
+    if (gv) {
+      if (vwT >= gv.map.w) x = (gv.map.w - vwT) / 2;
+      else x = Math.max(0, Math.min(x, gv.map.w - vwT));
+      if (vhT >= gv.map.h) y = (gv.map.h - vhT) / 2;
+      else y = Math.max(0, Math.min(y, gv.map.h - vhT));
+    }
+    return { x, y };
   }
 
   function draw(t) {
@@ -294,17 +375,17 @@ export function mountGame(root, view) {
       else anim.frame = 0;
       if (e.x < ox - 1 || e.x >= ox + vw || e.y < oy - 1 || e.y >= oy + vh) continue;
       const px = anim.x * TILE + (TILE - 16) / 2, py = anim.y * TILE + (TILE - 18) + 2;
-      let palette, cls = null, kind = 'player', defKey = null;
+      let palette, cls = null, race = null, kind = 'player', defKey = null;
       if (e.kind === 'player') {
         const p = gv.players.find(x => x.eid === e.eid);
-        if (p) { palette = spritePalette('player', null, p.sheet.colors); cls = p.sheet.class; }
+        if (p) { palette = spritePalette('player', null, p.sheet.colors); cls = p.sheet.class; race = p.sheet.race; }
       } else if (e.kind === 'monster') { kind = 'monster'; defKey = e.defKey; palette = spritePalette('monster', e.defKey); }
       else { kind = 'npc'; defKey = e.npcId; palette = spritePalette('npc', e.npcId); }
       // 阴影
       ctx.fillStyle = 'rgba(0,0,0,.3)';
       ctx.fillRect(px + 3, py + 16, 10, 2);
       if (e.downed) { ctx.globalAlpha = .55; }
-      drawSprite(ctx, kind, defKey, palette, px, py, { dir: anim.dir || 'down', frame: anim.frame, cls, bob: true });
+      drawSprite(ctx, kind, defKey, palette, px, py, { dir: anim.dir || 'down', frame: anim.frame, cls, race, bob: true });
       ctx.globalAlpha = 1;
       // 血条
       if ((e.kind === 'monster' || e.kind === 'player') && e.hp < e.maxHp && !e.dead) {
@@ -463,8 +544,19 @@ export function mountGame(root, view) {
   // ---------- 快照更新 ----------
   function update(view) {
     const prev = g.view;
+    const firstGame = !prev || prev.view !== 'game';
     g.view = view;
     const gv = view.game;
+    // R-4: 按房主设定的模式初始化自动战斗（默认自动）；手动模式玩家自行操作
+    if (firstGame && gv) {
+      const mode = gv.mode || view.room?.mode || 'auto';
+      g.autoplay = mode !== 'manual';
+      autoBtn.classList.toggle('gold', g.autoplay);
+      modeBadge.textContent = mode === 'manual' ? '🎮 手动操作' : '🤖 自动战斗';
+      modeBadge.className = 'badge' + (mode === 'manual' ? '' : ' gold');
+      if (gv.speed) { g.speed = gv.speed; speedSel.value = String(gv.speed); }
+      if (gv.paused) { g.paused = true; pauseBtn.textContent = '▶ 继续'; pauseBtn.classList.add('gold'); }
+    }
     // 伤害数字与闪烁
     if (gv && prev?.game) {
       for (const e of gv.entities) {
@@ -490,22 +582,26 @@ export function mountGame(root, view) {
     }
     renderSide();
     renderOverlays(view);
-    // 自动游玩
-    if (g.autoplay && gv && !gv.win && gv.state === 'playing') {
+    // 自动游玩（受速度影响；暂停时不驱动）
+    if (g.autoplay && !g.paused && gv && !gv.win && gv.state === 'playing') {
       const action = g.policy.decide(gv, store.pid);
       if (action) dispatchPolicyAction(action);
     }
   }
-  // 自动游玩节拍器：不依赖快照到达，每600ms驱动一次
-  const autoTicker = setInterval(() => {
-    if (!g.autoplay) return;
-    const gv = g.view?.game;
-    if (!gv || gv.win || gv.state !== 'playing') return;
-    try {
-      const action = g.policy.decide(gv, store.pid);
-      if (action) dispatchPolicyAction(action);
-    } catch (e) { /* 忽略 */ }
-  }, 600);
+  // 自动游玩节拍器：不依赖快照到达；间隔随速度倍率调整
+  function restartTicker() {
+    if (autoTicker) clearInterval(autoTicker);
+    autoTicker = setInterval(() => {
+      if (!g.autoplay || g.paused) return;
+      const gv = g.view?.game;
+      if (!gv || gv.win || gv.state !== 'playing') return;
+      try {
+        const action = g.policy.decide(gv, store.pid);
+        if (action) dispatchPolicyAction(action);
+      } catch (e) { /* 忽略 */ }
+    }, Math.max(150, Math.round(600 / (g.speed || 1))));
+  }
+  restartTicker();
   function dispatchPolicyAction(a) {
     const gv = g.view?.game;
     if (!gv) return;
@@ -572,7 +668,7 @@ export function mountGame(root, view) {
       ov.appendChild(card);
       document.body.appendChild(ov);
     }
-    // 结算覆盖
+    // 结算覆盖（R-9：附带自动生成的冒险卡片）
     if (gv.win && gv.state === 'ended') {
       const ov = el('div', 'overlay-screen');
       const card = el('div', 'overlay-card');
@@ -581,6 +677,36 @@ export function mountGame(root, view) {
       card.appendChild(el('h2', '', title));
       card.appendChild(el('div', 'ov-text', w.reason));
       card.appendChild(el('div', 'muted mt8', '用时 ' + Math.round(w.duration / 60000) + ' 分钟'));
+      // 请求AI DM评价（一次），返回后生成并自动保存冒险卡片
+      if (!g.cardSent && gv.me) {
+        g.cardSent = true;
+        net.send('game:eval');
+      }
+      const evalBox = el('div', 'adventure-card' + (g.cardEval ? '' : ' loading'));
+      if (g.cardEval) {
+        const e = g.cardEval;
+        evalBox.appendChild(el('div', 'ac-title', '📇 冒险卡片'));
+        evalBox.appendChild(el('div', 'ac-line', '剧本：《' + view.room.dungeonName + '》 · DM：' + view.room.personaName));
+        const me = gv.me;
+        const s = me.stats;
+        evalBox.appendChild(el('div', 'ac-line', '主角：' + me.name + '（' + me.sheet.raceName + ' ' + me.sheet.className + ' Lv' + me.level + '）'));
+        evalBox.appendChild(el('div', 'ac-line', '结局：' + (w.kind === 'defeat' ? '折戟沉沙' : '凯旋而归') + ' · 用时' + Math.round(w.duration / 60000) + '分钟'));
+        const highs = [];
+        if (s.damageDealt > 0) highs.push('输出' + s.damageDealt + '伤害');
+        if (s.kills > 0) highs.push('击杀' + s.kills);
+        if (s.crits > 0) highs.push('暴击' + s.crits + '次');
+        if (s.healed > 0) highs.push('治疗' + s.healed);
+        if (s.rescues.length) highs.push('救出' + s.rescues.length + '名NPC');
+        if (s.goldEarned > 0) highs.push('斩获' + s.goldEarned + '金币');
+        if (s.bossLastHit) highs.push('亲手终结黑蜘蛛');
+        evalBox.appendChild(el('div', 'ac-line', '高光时刻：' + (highs.join(' · ') || '平安是福')));
+        evalBox.appendChild(el('div', 'ac-rating', '评分 ' + e.rating.rank + '（' + e.rating.score + '分）'));
+        evalBox.appendChild(el('div', 'ac-comment', '「' + e.comment + '」'));
+        evalBox.appendChild(el('div', 'muted', '✅ 已自动收入你的冒险故事集（大厅可查看）'));
+      } else {
+        evalBox.appendChild(el('div', 'muted', '🖋 AI DM 正在为你的冒险撰写卡片…'));
+      }
+      card.appendChild(evalBox);
       const myGoal = gv.me?.goal;
       if (myGoal) {
         card.appendChild(el('div', 'ov-goal', '你的隐藏目标：「' + myGoal.name + '」' + (myGoal.status === 'confirmed' ? ' ✅ 已达成' : ' ❌ 未达成')));
@@ -622,10 +748,54 @@ export function mountGame(root, view) {
     clearPending: () => clearPending(),
   };
 
+  // R-9: 保存冒险卡片到故事集（localStorage）
+  function saveAdventureCard(e) {
+    try {
+      const gv = g.view?.game;
+      if (!gv || !gv.me) return;
+      const me = gv.me, s = me.stats, w = gv.win;
+      const highs = [];
+      if (s.damageDealt > 0) highs.push('输出' + s.damageDealt + '伤害');
+      if (s.kills > 0) highs.push('击杀' + s.kills + '名敌人');
+      if (s.crits > 0) highs.push('暴击' + s.crits + '次');
+      if (s.healed > 0) highs.push('治疗' + s.healed);
+      if (s.rescues.length) highs.push('救出' + s.rescues.length + '名NPC');
+      if (s.goldEarned > 0) highs.push('斩获' + s.goldEarned + '金币');
+      if (s.bossLastHit) highs.push('亲手终结黑蜘蛛');
+      const record = {
+        id: Date.now() + '_' + Math.floor(Math.random() * 1e6),
+        time: new Date().toLocaleString('zh-CN'),
+        dungeon: g.view.room.dungeonName,
+        persona: g.view.room.personaName,
+        winKind: w.kind,
+        duration: Math.round(w.duration / 60000),
+        name: me.name,
+        race: me.sheet.raceName,
+        class: me.sheet.className,
+        level: me.level,
+        highlights: highs,
+        rating: e.rating.rank,
+        score: e.rating.score,
+        comment: e.comment,
+      };
+      let cards = [];
+      try { cards = JSON.parse(localStorage.getItem('dnd_cards') || '[]'); } catch (err) { cards = []; }
+      if (!Array.isArray(cards)) cards = [];
+      cards = cards.filter(c => c && c.id !== record.id);
+      cards.unshift(record);
+      localStorage.setItem('dnd_cards', JSON.stringify(cards.slice(0, 50)));
+    } catch (err) { /* 存储失败静默 */ }
+  }
+
   renderSide();
   renderOverlays(view);
   return {
     update,
+    onEval: (e) => {
+      g.cardEval = e;
+      saveAdventureCard(e);
+      renderOverlays(g.view);
+    },
     unmount() { cancelAnimationFrame(raf); clearInterval(autoTicker); window.removeEventListener('resize', resize); window.__e2e = null; },
   };
 }

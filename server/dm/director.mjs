@@ -21,6 +21,8 @@ export class Director {
   narrate(game, key, ctx = {}) {
     return offlineNarrate(this.personaId, key, ctx);
   }
+  // 供Game.evaluate调用的一次性对话（失败返回null）
+  chatOnce(messages, opts) { return chat(messages, opts); }
 
   // 开场：叙述+隐藏目标下发
   async intro(game) {
@@ -49,6 +51,7 @@ export class Director {
             goalPromptContext(game.players),
             '请根据每位玩家的职业与背景，为每人设计1个贴合剧情、在本次冒险中可完成、有明确判定标准的【隐藏目标】（仅该玩家可见）。',
             '要求：目标必须可以在游戏数据中验证（如造成X伤害/击杀X敌人/救出某NPC/施法X次等），难度适中，5人目标各不相同。',
+            '硬性规则：目标必须由该玩家本人完成（领取人=本人车卡角色），目标对象只能是剧本中的NPC、怪物或BOSS，严禁涉及其他玩家（本版本无PVP）。',
             '以JSON输出：{"goals":[{"pid":"...","name":"目标名","text":"目标描述（含量化标准）"}]}，pid使用给定值。',
           ].join('\n') },
         ];

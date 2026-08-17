@@ -215,25 +215,156 @@ export function drawTile(ctx, type, x, y, t = 0) {
 }
 
 // ---------- 精灵 ----------
-// 通用人形 12x16，字符: o描边 s皮肤 h头发 u上衣 d深色/腰带 w金属 e眼白
+// 通用人形 12x16，字符: o描边 s皮肤 S皮肤阴影 h头发 H头发高光 u上衣 U上衣高光
+// d深色/腰带 w金属/牙 e眼白 p瞳孔
 const HUMANOID = [
   '....oooo....',
   '...osssso...',
-  '..oshhhsho..',
-  '..oshhhsho..',
-  '..oshhhsho..',
-  '..oseoesho..',
+  '..osssssso..',
+  '..ohhhHHho..',
+  '..ohhhhhho..',
+  '..osepoesho..',
   '...osssso...',
   '....oooo....',
   '..ouuuuuuo..',
-  '.ouuuuuuuuo.',
-  '.ouuuuuuuuo.',
-  '.ouuuuuuuuo.',
-  '.ouduuuduo..',
+  '.oUuuuuuuo..',
+  '.oUuuuuuuo..',
+  '.oUuuuuuuo..',
+  '.oUduuuduo..',
   '..ouuuuuuo..',
   '..oouooouo..',
-  '..oouooouo..',
+  '..oddoooddo.',
 ];
+// 种族特征网格（R-3）：不同种族有专属造型
+const RACE_GRIDS = {
+  human: HUMANOID,
+  elf: [
+    '....oooo....',
+    '...osssso...',
+    '..osssssso..',
+    '.oohhhHHhoo.',
+    '.oohhhhhhoo.',
+    '..osepoesho..',
+    '...osssso...',
+    '....oooo....',
+    '..ouuuuuuo..',
+    '.oUuuuuuuo..',
+    '.oUuuuuuuo..',
+    '.oUuuuuuuo..',
+    '.oUduuuduo..',
+    '..ouuuuuuo..',
+    '..oouooouo..',
+    '..oddoooddo.',
+  ],
+  dwarf: [
+    '....oooo....',
+    '...osssso...',
+    '..osssssso..',
+    '..ohhhHHho..',
+    '..ohhhhhho..',
+    '..osepoesho..',
+    '..ohhhhhho..',
+    '..ohhhhhho..',
+    '.oouuuuuuo..',
+    '.oUuuuuuuo..',
+    '.oUuuuuuuo..',
+    '.oUuuuuuuo..',
+    '.oUduuuduo..',
+    '..ouuuuuuo..',
+    '..oddoooddo.',
+    '............',
+  ],
+  halfling: [
+    '....oooo....',
+    '...osssso...',
+    '..osssssso..',
+    '..ohhhhhho..',
+    '..ohHHhhho..',
+    '..osepoesho..',
+    '...osssso...',
+    '....oooo....',
+    '..ouuuuuuo..',
+    '.oUuuuuuuo..',
+    '.oUuuuuuuo..',
+    '.oUuuuuuuo..',
+    '.oUduuuduo..',
+    '..ouuuuuuo..',
+    '..oddoooddo.',
+    '............',
+  ],
+  halforc: [
+    '....oooo....',
+    '...osssso...',
+    '..osssssso..',
+    '..ohhhhhho..',
+    '..ohhhHHho..',
+    '..osepoesho..',
+    '..oswsswso..',
+    '....oooo....',
+    '..ouuuuuuo..',
+    '.oUuuuuuuo..',
+    '.oUuuuuuuo..',
+    '.oUuuuuuuo..',
+    '.oUduuuduo..',
+    '..ouuuuuuo..',
+    '..oouooouo..',
+    '..oddoooddo.',
+  ],
+  dragonborn: [
+    '....oooo....',
+    '.o..osso..o.',
+    '..osssssso..',
+    '..osssssso..',
+    '..osssssso..',
+    '..osepoesho..',
+    '..osssssso..',
+    '....oooo....',
+    '..ouuuuuuo..',
+    '.oUuuuuuuo..',
+    '.oUuuuuuuo..',
+    '.oUuuuuuuo..',
+    '.oUduuuduo..',
+    '..ouuuuuuo..',
+    '..oouooouo..',
+    '..oddoooddo.',
+  ],
+  gnome: [
+    '.....oo.....',
+    '....ohho....',
+    '...ohhhho...',
+    '..ohhhhhho..',
+    '..ohhhHHho..',
+    '..osepoesho..',
+    '...osssso...',
+    '....oooo....',
+    '..ouuuuuuo..',
+    '.oUuuuuuuo..',
+    '.oUuuuuuuo..',
+    '.oUuuuuuuo..',
+    '.oUduuuduo..',
+    '..ouuuuuuo..',
+    '..oddoooddo.',
+    '............',
+  ],
+  halfelf: [
+    '....oooo....',
+    '...osssso...',
+    '..osssssso..',
+    '..ohhhHHho..',
+    '.oohhhhhhoo.',
+    '..osepoesho..',
+    '...osssso...',
+    '....oooo....',
+    '..ouuuuuuo..',
+    '.oUuuuuuuo..',
+    '.oUuuuuuuo..',
+    '.oUuuuuuuo..',
+    '.oUduuuduo..',
+    '..ouuuuuuo..',
+    '..oouooouo..',
+    '..oddoooddo.',
+  ],
+};
 const WOLF = [
   '....oo........',
   '...oooo..oo...',
@@ -291,8 +422,24 @@ export const SKIN_TONES = ['#e8b88a', '#f0c8a0', '#c88a5a', '#a06a3e', '#8a5a34'
 export const HAIR_TONES = ['#5b3a1e', '#2a2018', '#8a5a2e', '#c88a2e', '#b8b8c0', '#d84848', '#3a5a8a', '#e8e8f0'];
 export const OUTFIT_TONES = ['#4a6b8a', '#8a4a4a', '#4a8a5a', '#6a4a8a', '#8a7a3a', '#3a5a6a', '#7a4a6a', '#5a5a5a', '#c9a23f', '#3a3a4a'];
 
+function lighten(hex, amt = 38) {
+  const n = parseInt(hex.slice(1), 16);
+  const r = Math.min(255, ((n >> 16) & 255) + amt), g = Math.min(255, ((n >> 8) & 255) + amt), b = Math.min(255, (n & 255) + amt);
+  return '#' + [r, g, b].map(c => c.toString(16).padStart(2, '0')).join('');
+}
+// 为任意基础调色板补齐阴影/高光/瞳孔
+function withShades(pal) {
+  return {
+    ...pal,
+    S: pal.S || shade(pal.s || '#e8b88a'),
+    H: pal.H || lighten(pal.h || '#5b3a1e'),
+    U: pal.U || lighten(pal.u || '#4a6b8a'),
+    p: pal.p || '#2a2430',
+  };
+}
+
 const PALETTES = {
-  player: (colors) => ({ o: '#2a2430', s: colors.skin, h: colors.hair, u: colors.outfit, d: shade(colors.outfit), w: '#cfd6e4', e: '#f0f0f0' }),
+  player: (colors) => withShades({ o: '#2a2430', s: colors.skin, h: colors.hair, u: colors.outfit, d: shade(colors.outfit), w: '#cfd6e4', e: '#f0f0f0' }),
   goblin: { o: '#2a2430', s: '#7a9a3a', h: '#5a7a2a', u: '#6a4a2e', d: '#4a3a22', w: '#cfd6e4', e: '#ffd040' },
   wolf: { o: '#2a2430', s: '#6a6a72', h: '#6a6a72', u: '#4a4a52', d: '#3a3a42', w: '#cfd6e4', e: '#ffd040' },
   klarg: { o: '#2a2430', s: '#8a6a3a', h: '#5a4322', u: '#6a4a2e', d: '#4a3a22', w: '#cfd6e4', e: '#ff4040' },
@@ -325,17 +472,21 @@ const MONSTER_GRID = { goblin: null, wolf: WOLF, skeleton: SKELETON, giantspider
 
 export function spritePalette(kind, defKey, colors) {
   if (kind === 'player') return PALETTES.player(colors || { skin: SKIN_TONES[0], hair: HAIR_TONES[0], outfit: OUTFIT_TONES[0] });
-  if (PALETTES[defKey]) return PALETTES[defKey];
-  return PALETTES.goblin;
+  const base = PALETTES[defKey] || PALETTES.goblin;
+  return withShades(base);
 }
 
 // 在canvas上绘制一个精灵（逻辑像素），(dx,dy)为左上角，scale=缩放
-export function drawSprite(ctx, kind, defKey, palette, dx, dy, { dir = 'down', frame = 0, scale = 1, bob = 0, cls = null } = {}) {
+// race: 玩家种族（决定种族特征网格），cls: 职业（决定头饰/服装）
+export function drawSprite(ctx, kind, defKey, palette, dx, dy, { dir = 'down', frame = 0, scale = 1, bob = 0, cls = null, race = null } = {}) {
   let grid;
   let offsetX = 0, offsetY = 0;
   if (kind === 'player' || MONSTER_GRID[defKey] === null) {
-    grid = cls && CLASS_TWEAK[cls] ? CLASS_TWEAK[cls](HUMANOID) : HUMANOID;
+    const base = (race && RACE_GRIDS[race]) ? RACE_GRIDS[race] : HUMANOID;
+    grid = cls && CLASS_TWEAK[cls] ? CLASS_TWEAK[cls](base) : base;
     offsetX = 2;
+    // 小体型种族微缩（半身人/侏儒）
+    if (race === 'halfling' || race === 'gnome') scale = scale * 0.92;
   } else {
     grid = MONSTER_GRID[defKey] || HUMANOID;
     if (defKey === 'wolf') offsetX = 0;
@@ -369,9 +520,9 @@ export function drawSprite(ctx, kind, defKey, palette, dx, dy, { dir = 'down', f
 }
 
 // 缓存单个精灵为离屏canvas（用于预览）
-export function spriteToCanvas(kind, defKey, palette, cls) {
+export function spriteToCanvas(kind, defKey, palette, cls, race) {
   const c = makeCanvas(16, 18);
   const ctx = c.getContext('2d');
-  drawSprite(ctx, kind, defKey, palette, 0, 0, { cls });
+  drawSprite(ctx, kind, defKey, palette, 0, 0, { cls, race });
   return c;
 }

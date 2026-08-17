@@ -5,7 +5,7 @@ export class Net {
     this.pid = null;
     this.token = localStorage.getItem('dnd_token') || null;
     this.name = localStorage.getItem('dnd_name') || '';
-    this.onState = null; this.onHello = null; this.onKicked = null; this.onError = null;
+    this.onState = null; this.onHello = null; this.onKicked = null; this.onError = null; this.onEval = null; this.onBg = null;
     this._reconnectTimer = null;
   }
   connect() {
@@ -32,6 +32,10 @@ export class Net {
         this.onError && this.onError(msg.msg);
       } else if (msg.t === 's:kicked') {
         this.onKicked && this.onKicked();
+      } else if (msg.t === 's:eval') {
+        this.onEval && this.onEval(msg.eval);
+      } else if (msg.t === 's:bg') {
+        this.onBg && this.onBg(msg.text);
       } else if (msg.t === 'pong') { /* noop */ }
     };
     ws.onclose = () => {

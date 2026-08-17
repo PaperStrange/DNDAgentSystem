@@ -32,6 +32,8 @@ export class Game {
     this.dungeon = DUNGEONS.find(d => d.id === room.dungeonId) || DUNGEONS[0];
     this.director = director;
     this.state = 'intro';
+    this.speed = 1;      // 战斗速度倍率（玩家可调）
+    this.paused = false; // 暂停（冻结怪物计时器）
     this.chapterIdx = 0;
     this.chapter = null;
     this.map = null;
@@ -374,8 +376,10 @@ export class Game {
   }
 
   _scheduleMonsterTurn(eid) {
-    this.later(450, () => {
+    const delayMs = Math.max(120, Math.round(450 / (this.speed || 1))); // 速度倍率影响怪物行动节奏
+    this.later(delayMs, () => {
       if (this.state !== 'playing') return;
+      if (this.paused) { this._scheduleMonsterTurn(eid); return; } // 暂停：重新排队等待
       const e = this.entities.get(eid);
       if (!e || e.dead || e.hp <= 0) return this._endTurn();
       this._monsterAct(e);
@@ -1153,6 +1157,44 @@ export class Game {
     return { ok: true, traveled: true };
   }
 
+  // R-9: 结算评价（LLM一句话评价+评分，离线模板降级）
+  async evaluate(pid) {
+    const p = this.players.get(pid);
+    if (!p || !this.win) return { err: '现在不能评价' };
+    const s = p.stats;
+    const alive = !p.dead;
+    const rating = this._ratePlayer(s, alive);
+    let comment = '';
+    if (this.director.online) {
+      try {
+        const summary = this.director._eventSummary(this, p);
+        const res = await this.director.chatOnce([
+          { role: 'system', content: '你是' + this.director.persona.name + '。' + this.director.persona.systemPrompt },
+          { role: 'user', content: '冒险已结束。请为该玩家写一句话评价（30字以内，简体中文，不含评分数值）：角色' + p.name + '（' + p.sheet.raceName + ' ' + p.sheet.className + '），数据摘要：' + summary },
+        ]);
+        if (res && res.text) comment = res.text.slice(0, 60);
+      } catch (e) { /* 降级 */ }
+    }
+    if (!comment) {
+      const templates = ['命运记住了ta的名字。', '篝火旁会有人讲起ta的故事。', '这一路的风霜，都是勋章。', '骰子会想念ta的手气。'];
+      const idx = Math.abs([...p.name].reduce((a, c) => a + c.charCodeAt(0), 0)) % templates.length;
+      comment = templates[idx];
+    }
+    return { ok: true, rating, comment, name: p.name };
+  }
+  _ratePlayer(s, alive) {
+    let score = 0;
+    score += Math.min(40, Math.round(s.damageDealt / 5));      // 伤害贡献
+    score += Math.min(30, s.kills * 6);                        // 击杀
+    score += Math.min(20, Math.round(s.healed / 3));           // 治疗
+    score += Math.min(10, s.rescues.length * 5);               // 救援
+    score += Math.min(10, s.crits * 3);                        // 暴击
+    score += alive ? 10 : 0;                                   // 存活
+    if (s.bossLastHit) score += 15;
+    const rank = score >= 100 ? 'S' : score >= 75 ? 'A' : score >= 50 ? 'B' : score >= 25 ? 'C' : 'D';
+    return { rank, score };
+  }
+
   async actClaim(pid) {
     const p = this.players.get(pid);
     if (!p || this.state !== 'playing') return { ok: false, msg: '现在不能宣称目标' };
@@ -1282,6 +1324,7 @@ export class Game {
       combat: { active: this.combat.active, round: this.combat.round, order: this.combat.order },
       flags: [...this.flags].filter(f => !f.startsWith('dlg:')), xpPool: this.xpPool,
       win: this.win,
+      speed: this.speed, paused: this.paused, mode: this.room.mode || 'auto',
       dialogue: dlg,
       log: this.log.filter(l => !l.private || l.private === pid).slice(-120), // 私密日志仅本人可见
       personaId: this.personaId,
