@@ -302,11 +302,20 @@ export function mountGame(root, view) {
     // 整数分辨率：防止CSS拉伸导致画面变形
     canvas.width = Math.max(100, Math.round(r.width));
     canvas.height = Math.max(100, Math.round(r.height));
-    // 自适应缩放：画布越大人物越大（3~5倍）
-    SCALE = Math.max(3, Math.min(5, Math.round(Math.min(canvas.width, canvas.height) / 250)));
+    // 自适应缩放：目标可见约22列×13行，保证多人同屏时比例正常（3~6倍）
+    const byW = canvas.width / (TILE * 22), byH = canvas.height / (TILE * 13);
+    SCALE = Math.max(3, Math.min(6, Math.floor(Math.max(byW, byH))));
   }
   resize();
   window.addEventListener('resize', resize);
+  // 关键修复：ResizeObserver持续监听容器尺寸——任何布局时序/侧栏渲染变化都立即同步缓冲，
+  // 防止"缓冲小、CSS大"导致的画面拉伸
+  let resizeObserver = null;
+  if (window.ResizeObserver) {
+    resizeObserver = new ResizeObserver(() => resize());
+    resizeObserver.observe(wrap);
+  }
+  requestAnimationFrame(() => resize()); // 布局完全结算后再校准一次
 
   function cameraPos() {
     const gv = g.view?.game;
@@ -357,8 +366,10 @@ export function mountGame(root, view) {
       if (code) drawTile(ctx, code, pr.x, pr.y, t);
     }
     for (const ex of gv.exits) if (ex.x >= ox - 1 && ex.x < ox + vw && ex.y >= oy - 1 && ex.y < oy + vh) drawTile(ctx, 'x', ex.x, ex.y, t);
-    // 实体（按y排序）
+    // 实体（按y排序）；同格堆叠时错开绘制，多人同屏不重叠
     const ents = [...gv.entities].sort((a, b) => a.y - b.y || a.eid.localeCompare(b.eid));
+    const stackIdx = new Map(); // tileKey -> 已绘制数量
+    const STACK_OFFSETS = [[0, 0], [-3, -2], [3, -2], [0, -4], [-3, 2], [3, 2]];
     for (const e of ents) {
       // 平滑动画
       let anim = g.anim.get(e.eid);
@@ -374,7 +385,11 @@ export function mountGame(root, view) {
       if (anim.moving) anim.frame++;
       else anim.frame = 0;
       if (e.x < ox - 1 || e.x >= ox + vw || e.y < oy - 1 || e.y >= oy + vh) continue;
-      const px = anim.x * TILE + (TILE - 16) / 2, py = anim.y * TILE + (TILE - 18) + 2;
+      const tileKey = e.x + ',' + e.y;
+      const sIdx = stackIdx.get(tileKey) || 0;
+      stackIdx.set(tileKey, sIdx + 1);
+      const so = STACK_OFFSETS[sIdx % STACK_OFFSETS.length];
+      const px = anim.x * TILE + (TILE - 16) / 2 + so[0], py = anim.y * TILE + (TILE - 18) + 2 + so[1];
       let palette, cls = null, race = null, kind = 'player', defKey = null;
       if (e.kind === 'player') {
         const p = gv.players.find(x => x.eid === e.eid);
@@ -387,28 +402,43 @@ export function mountGame(root, view) {
       if (e.downed) { ctx.globalAlpha = .55; }
       drawSprite(ctx, kind, defKey, palette, px, py, { dir: anim.dir || 'down', frame: anim.frame, cls, race, bob: true });
       ctx.globalAlpha = 1;
-      // 血条
-      if ((e.kind === 'monster' || e.kind === 'player') && e.hp < e.maxHp && !e.dead) {
-        const w = 14;
-        ctx.fillStyle = '#2a1020';
-        ctx.fillRect(px + 1, py - 4, w, 2);
-        ctx.fillStyle = e.hp / e.maxHp > .35 ? '#7ec97a' : '#e06c5a';
-        ctx.fillRect(px + 1, py - 4, Math.max(1, w * e.hp / e.maxHp), 2);
-      }
-      // 名字
+      // 名字/血条：屏幕空间绘制（固定像素大小，不随缩放变形）
+      const sx = (anim.x + so[0] / TILE - cam.x) * TILE * SCALE;
+      const sy = (anim.y + so[1] / TILE - cam.y) * TILE * SCALE;
+      ctx.save();
+      ctx.setTransform(1, 0, 0, 1, 0, 0);
+      const nameW = Math.min(90, e.name.length * 11 + 10);
       if (e.kind === 'player') {
-        ctx.font = '7px sans-serif';
+        ctx.font = '10px sans-serif';
         ctx.textAlign = 'center';
-        ctx.fillStyle = 'rgba(0,0,0,.6)';
-        ctx.fillRect(px - 10, py - 12, 36, 8);
+        const by2 = sy - 16;
+        ctx.fillStyle = 'rgba(0,0,0,.62)';
+        ctx.fillRect(sx - nameW / 2, by2, nameW, 13);
         ctx.fillStyle = '#ffe9a8';
-        ctx.fillText(e.name.slice(0, 5), px + 8, py - 5.5);
-      } else if (e.boss || e.finalBoss) {
-        ctx.font = '7px sans-serif';
-        ctx.textAlign = 'center';
-        ctx.fillStyle = '#ff8080';
-        ctx.fillText('👑' + e.name, px + 8, py - 5);
+        ctx.fillText(e.name.slice(0, 6), sx, by2 + 9);
+        if (e.hp < e.maxHp) {
+          const bw = Math.min(44, nameW);
+          ctx.fillStyle = '#2a1020';
+          ctx.fillRect(sx - bw / 2, by2 + 14, bw, 4);
+          ctx.fillStyle = e.hp / e.maxHp > .35 ? '#7ec97a' : '#e06c5a';
+          ctx.fillRect(sx - bw / 2, by2 + 14, Math.max(1, bw * e.hp / e.maxHp), 4);
+        }
+      } else if ((e.kind === 'monster' || e.kind === 'npc') && e.hp < e.maxHp && e.hp > 0) {
+        const bw = 40;
+        ctx.fillStyle = '#2a1020';
+        ctx.fillRect(sx - bw / 2, sy - 14, bw, 4);
+        ctx.fillStyle = e.hp / e.maxHp > .35 ? '#7ec97a' : '#e06c5a';
+        ctx.fillRect(sx - bw / 2, sy - 14, Math.max(1, bw * e.hp / e.maxHp), 4);
       }
+      if (e.boss || e.finalBoss) {
+        ctx.font = '10px sans-serif';
+        ctx.textAlign = 'center';
+        ctx.fillStyle = 'rgba(0,0,0,.62)';
+        ctx.fillRect(sx - 44, sy - 30, 88, 14);
+        ctx.fillStyle = '#ff8080';
+        ctx.fillText('👑' + e.name.slice(0, 8), sx, sy - 19);
+      }
+      ctx.restore();
       // 目标指示
       if (g.pending && g.pending.target === e.eid) {
         ctx.strokeStyle = '#ffd040';
@@ -421,17 +451,20 @@ export function mountGame(root, view) {
         ctx.fillRect(px, py, 16, 18);
       }
     }
-    // 悬浮伤害数字
+    // 悬浮伤害数字（屏幕空间固定字号）
     g.floaters = g.floaters.filter(f => t - f.t0 < 1200);
+    ctx.save();
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
     for (const f of g.floaters) {
       const age = (t - f.t0) / 1200;
       ctx.globalAlpha = 1 - age;
-      ctx.font = '8px sans-serif';
+      ctx.font = 'bold 13px sans-serif';
       ctx.textAlign = 'center';
       ctx.fillStyle = f.color;
-      ctx.fillText(f.text, f.x * TILE + 8, f.y * TILE - 10 - age * 14);
+      ctx.fillText(f.text, (f.x - cam.x) * TILE * SCALE + TILE * SCALE / 2, (f.y - cam.y) * TILE * SCALE - 8 - age * 16);
       ctx.globalAlpha = 1;
     }
+    ctx.restore();
     // 悬停高亮
     if (g.hover) {
       const tile = gv.map.tiles[g.hover.y]?.[g.hover.x];
@@ -796,6 +829,6 @@ export function mountGame(root, view) {
       saveAdventureCard(e);
       renderOverlays(g.view);
     },
-    unmount() { cancelAnimationFrame(raf); clearInterval(autoTicker); window.removeEventListener('resize', resize); window.__e2e = null; },
+    unmount() { cancelAnimationFrame(raf); clearInterval(autoTicker); window.removeEventListener('resize', resize); if (resizeObserver) resizeObserver.disconnect(); window.__e2e = null; },
   };
 }
