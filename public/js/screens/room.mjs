@@ -29,7 +29,7 @@ export function mountRoom(root, view) {
   const layout = el('div', 'room-layout');
   const left = el('div', '');
   left.appendChild(el('h3', '', '👥 冒险者（' + view.members.length + '/5）'));
-  const memberList = el('div', 'room-list');
+  const memberList = el('div', 'member-grid');
   for (const m of view.members) {
     const card = el('div', 'panel member-card');
     card.appendChild(el('div', 'mc-icon', m.sheet ? (m.sheet.raceName === '人类' ? '🧑' : '🧝') : '❔'));
@@ -204,8 +204,8 @@ export function mountChargen(root, view, net) {
   previewWrap.appendChild(previewCanvas);
 
   const cg = el('div', 'cg-layout');
-  const mainCol = el('div', '');
-  const sideCol = el('div', '');
+  const mainCol = el('div', 'cg-main');
+  const sideCol = el('div', 'cg-side');
   cg.append(mainCol, sideCol);
 
   const renderPreview = () => {
@@ -290,7 +290,7 @@ export function mountChargen(root, view, net) {
   // 职业
   const secClass = el('div', 'cg-section');
   secClass.appendChild(el('h3', '', '③ 选择职业（' + CLASSES.length + '种）'));
-  const classGrid = el('div', 'opt-grid');
+  const classGrid = el('div', 'opt-grid cols3');
   for (const c of CLASSES) {
     const card = el('div', 'opt-card');
     card.appendChild(el('div', 'oc-name', c.icon + ' ' + c.name));

@@ -29,8 +29,9 @@ input, select, textarea { font-family: var(--font); }
 @keyframes toastIn { from { opacity: 0; transform: translateY(-8px); } to { opacity: 1; transform: none; } }
 
 .panel {
-  background: var(--panel); border: 2px solid var(--line); border-radius: 8px; padding: 12px;
+  background: var(--panel); border: 2px solid var(--line); border-radius: 8px; padding: 14px 16px;
 }
+.panel h4, .panel h3 { margin: 0 0 10px; }
 .btn {
   background: var(--panel2); color: var(--txt); border: 2px solid var(--line); border-radius: 6px;
   padding: 7px 14px; font-size: 14px; transition: all .12s;
@@ -53,22 +54,23 @@ input, select, textarea { font-family: var(--font); }
 
 /* ===== 大厅 ===== */
 .screen-lobby { max-width: 1060px; margin: 0 auto; padding: 24px 20px 60px; }
-.lobby-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 22px; }
+.lobby-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 28px; }
 .lobby-title { font-size: 30px; font-weight: 800; letter-spacing: 2px; color: var(--gold); text-shadow: 0 3px 0 #5a3c10; }
 .lobby-title small { display: block; font-size: 12px; color: var(--dim); letter-spacing: 4px; }
 .name-box { display: flex; gap: 8px; align-items: center; }
 .name-box input { background: var(--panel2); border: 2px solid var(--line); color: var(--txt); border-radius: 6px; padding: 8px 10px; width: 160px; }
-.lobby-grid { display: grid; grid-template-columns: 1.4fr 1fr; gap: 18px; }
-.room-list { display: flex; flex-direction: column; gap: 8px; }
+.lobby-grid { display: grid; grid-template-columns: 1.25fr 1fr; gap: 24px; }
+.lobby-left { display: flex; flex-direction: column; gap: 16px; } /* 看板式：左列模块间统一间距 */
+.room-list { display: flex; flex-direction: column; gap: 10px; }
 .room-card { display: flex; justify-content: space-between; align-items: center; padding: 10px 14px; }
 .room-card .rc-left b { font-size: 15px; color: var(--gold); margin-right: 8px; }
 .room-card .rc-dim { color: var(--dim); font-size: 12px; }
-.join-box { display: flex; gap: 8px; margin-bottom: 10px; }
+.join-box { display: flex; gap: 8px; }
 .join-box input { flex: 1; background: var(--panel2); border: 2px solid var(--line); color: var(--txt); border-radius: 6px; padding: 8px 10px; text-transform: uppercase; }
-.create-box .dungeon-card { margin-bottom: 10px; }
+.create-box .dungeon-card { margin-bottom: 14px; }
 .dungeon-card b { color: var(--gold); }
 .dungeon-card .dc-desc { color: var(--dim); font-size: 12px; margin: 4px 0; }
-.persona-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; max-height: 300px; overflow-y: auto; padding-right: 4px; }
+.persona-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; max-height: 340px; overflow-y: auto; padding-right: 4px; }
 .persona-card { border: 2px solid var(--line); border-radius: 8px; padding: 8px 10px; cursor: pointer; background: var(--panel); transition: all .12s; }
 .persona-card:hover { border-color: var(--blue); }
 .persona-card.sel { border-color: var(--gold); background: #2c2540; box-shadow: 0 0 0 2px rgba(232,193,90,.25); }
@@ -81,10 +83,12 @@ input, select, textarea { font-family: var(--font); }
 .pc-stats span { background: var(--panel2); border-radius: 3px; padding: 1px 5px; }
 
 /* ===== 房间 ===== */
-.screen-room { max-width: 900px; margin: 0 auto; padding: 24px 20px 80px; }
+.screen-room { max-width: 1080px; margin: 0 auto; padding: 24px 20px 80px; }
 .room-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; flex-wrap: wrap; gap: 10px; }
 .room-code { font-size: 26px; font-weight: 800; letter-spacing: 3px; color: var(--gold); }
-.room-layout { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+/* 看板式：成员列表顶部横向卡片，车卡独占全宽（避免右栏被挤压） */
+.room-layout { display: grid; grid-template-columns: 1fr; gap: 18px; }
+.member-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(210px, 1fr)); gap: 10px; }
 .member-card { display: flex; gap: 12px; align-items: center; padding: 10px 14px; }
 .member-card .mc-icon { font-size: 28px; }
 .member-card .mc-info { flex: 1; }
@@ -97,7 +101,8 @@ input, select, textarea { font-family: var(--font); }
 
 /* ===== 车卡 ===== */
 .screen-chargen { max-width: 980px; margin: 0 auto; padding: 24px 20px 80px; }
-.cg-layout { display: grid; grid-template-columns: 1fr 300px; gap: 16px; }
+.cg-layout { display: grid; grid-template-columns: minmax(0, 1fr) 300px; gap: 24px; } /* 默认stretch：预览列撑满高度才能吸顶 */
+.cg-main { min-width: 0; }
 .cg-section { margin-bottom: 14px; }
 .cg-section h3 { font-size: 13px; color: var(--gold); letter-spacing: 2px; margin-bottom: 8px; border-bottom: 1px dashed var(--line); padding-bottom: 4px; }
 .opt-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
@@ -243,7 +248,7 @@ input, select, textarea { font-family: var(--font); }
 .muted { color: var(--dim); font-size: 12px; }
 .badge { display: inline-block; background: var(--panel2); border: 1px solid var(--line); border-radius: 4px; padding: 1px 6px; font-size: 11px; color: var(--dim); }
 .badge.gold { color: var(--gold); border-color: #6b5624; }
-.story-list { display: flex; flex-direction: column; gap: 8px; max-height: 260px; overflow-y: auto; }
+.story-list { display: flex; flex-direction: column; gap: 10px; max-height: 260px; overflow-y: auto; }
 .story-item { border: 1px solid var(--line); border-radius: 6px; padding: 8px 10px; background: var(--panel2); font-size: 12px; }
 .story-item .story-hl { color: var(--blue); margin-top: 3px; }
 .story-item .story-cm { color: #c9b8f0; font-style: italic; margin-top: 3px; }
@@ -256,6 +261,8 @@ input, select, textarea { font-family: var(--font); }
 .pointer-tag { position: absolute; pointer-events: none; font-size: 11px; color: #ffe9a8; text-shadow: 0 1px 2px #000; transform: translate(-50%, -100%); white-space: nowrap; z-index: 5; }
 @media (max-width: 900px) {
   .game-side { width: 270px; }
-  .lobby-grid, .room-layout, .cg-layout { grid-template-columns: 1fr; }
+  .lobby-grid, .cg-layout { grid-template-columns: 1fr; }
   .persona-grid { grid-template-columns: repeat(2, 1fr); }
+  .cg-side { order: -1; } /* 窄屏：预览置顶 */
+  .cg-preview { position: static; }
 }

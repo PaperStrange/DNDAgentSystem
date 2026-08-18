@@ -77,8 +77,8 @@ export function mountLobby(root, view) {
 
   const grid = el('div', 'lobby-grid');
 
-  // 左侧：房间列表 + 加入
-  const left = el('div', '');
+  // 左侧：房间列表 + 加入（看板式模块间距）
+  const left = el('div', 'lobby-left');
   const joinBox = el('div', 'join-box');
   const codeInput = el('input', '');
   codeInput.placeholder = '房间码，如 AB3CD';
