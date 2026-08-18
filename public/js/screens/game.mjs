@@ -858,6 +858,13 @@ export function mountGame(root, view) {
       const leave2 = el('button', 'btn', '离开');
       leave2.onclick = () => net.send('room:leave');
       btnRow.append(backBtn, leave2);
+      // R-23: 房主可下载本次冒险完整日志（含私密条目）用于报错自查
+      if (store.pid === view.room.hostId) {
+        const dlBtn = el('button', 'btn small', '📥 下载完整日志');
+        dlBtn.title = '下载本次冒险的完整日志（含所有玩家的私密条目，仅房主可导出）';
+        dlBtn.onclick = () => { net.send('game:log-export'); toast('⏳ 正在导出完整日志…'); };
+        btnRow.appendChild(dlBtn);
+      }
       card.appendChild(btnRow);
       card.appendChild(el('div', 'credits', '由 ' + view.room.personaName + ' 主持 · 规则书：5E D&D 新手套组'));
       ov.appendChild(card);
@@ -960,6 +967,18 @@ export function mountGame(root, view) {
   renderOverlays(view);
   return {
     update,
+    onLogExport: (m) => {
+      // R-23: 触发浏览器下载完整日志文件
+      try {
+        const blob = new Blob([m.text], { type: 'text/plain;charset=utf-8' });
+        const a = document.createElement('a');
+        a.href = URL.createObjectURL(blob);
+        a.download = m.filename || '冒险日志.txt';
+        a.click();
+        setTimeout(() => URL.revokeObjectURL(a.href), 5000);
+        toast('✅ 完整日志已下载：' + m.filename);
+      } catch (e2) { toast('日志下载失败，请稍后重试', true); }
+    },
     onEval: (e) => {
       g.cardEval = e;
       saveAdventureCard(e);

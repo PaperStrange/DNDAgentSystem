@@ -21,7 +21,15 @@ async function main() {
     if (m.t === 's:state') { view = m.view; }
   });
   await new Promise(r => ws.on('open', r));
-  ws.send(JSON.stringify({ t: 'hello', name: '探针' }));
+  const acct = '探针' + (Date.now() % 10000);
+  ws.send(JSON.stringify({ t: 'hello', action: 'register', account: acct, password: 'probe123' }));
+  const origOnMsg = ws.listeners('message').pop();
+  ws.removeListener('message', origOnMsg);
+  ws.on('message', (raw) => {
+    const m = JSON.parse(raw.toString());
+    if (m.t === 's:error' && String(m.msg).includes('已被注册')) ws.send(JSON.stringify({ t: 'hello', action: 'login', account: acct, password: 'probe123' }));
+    origOnMsg(raw);
+  });
   await sleep(600);
   ws.send(JSON.stringify({ t: 'lobby:create', dungeonId: 'lmop', personaId: 'aldric' }));
   await sleep(600);

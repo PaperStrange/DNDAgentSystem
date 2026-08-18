@@ -1,5 +1,5 @@
 // 大厅：昵称 / 房间列表 / 创建房间（选副本+12位AI DM人设） / 加入房间 / 冒险者名册
-import { store, el } from '../app.mjs';
+import { store, el, loadErrLog, clearErrLog } from '../app.mjs';
 import { loadRoster } from '../roster.mjs';
 import { RACES, CLASSES } from '../../shared/char-defs.mjs';
 
@@ -12,17 +12,67 @@ export function mountLobby(root, view) {
   const title = el('div', 'lobby-title');
   title.innerHTML = '🎲 骰与篝火<small>AI DM · 像素跑团 · 凡杜尔失落矿坑</small>';
   head.appendChild(title);
-  const nameBox = el('div', 'name-box');
-  const nameInput = el('input', '');
-  nameInput.value = store.name || '';
-  nameInput.placeholder = '你的昵称';
-  // B-13: 原「进入大厅」按钮在大厅内无实际作用且语义误导 → 改为「确认昵称」
-  const nameBtn = el('button', 'btn primary', '确认昵称');
-  nameBtn.title = '设置你的昵称并连接大厅（昵称可随时修改）';
-  nameBtn.onclick = () => { const n = nameInput.value.trim(); if (n) { net.setName(n); store.name = n; nameBtn.textContent = '✓ 已确认'; setTimeout(() => { nameBtn.textContent = '确认昵称'; }, 1500); } };
-  nameBox.append(nameInput, nameBtn);
-  head.appendChild(nameBox);
+  // 账户系统：登录/注册（单点登录）+ 登录弹窗风格与大厅一致
+  const acctBox = el('div', 'account-box');
+  const renderAccount = () => {
+    acctBox.innerHTML = '';
+    if (store.account) {
+      acctBox.appendChild(el('span', 'acct-name', '👤 ' + store.account));
+      const out = el('button', 'btn small', '退出登录');
+      out.title = '退出当前账号（单点登录：新登录会挤掉旧会话）';
+      out.onclick = () => net.logout();
+      acctBox.appendChild(out);
+    } else {
+      const btn = el('button', 'btn primary', '🔑 登录 / 注册');
+      btn.onclick = () => openLoginModal('login');
+      acctBox.appendChild(btn);
+    }
+  };
+  head.appendChild(acctBox);
   box.appendChild(head);
+
+  // 登录/注册弹窗（通用表单格式，沿用大厅暗色面板风格）
+  let loginModal = null;
+  function openLoginModal(tab = 'login') {
+    if (loginModal) { loginModal.remove(); loginModal = null; }
+    const ov = el('div', 'dialog-overlay');
+    loginModal = ov;
+    const dbox = el('div', 'dialog-box');
+    dbox.appendChild(el('h3', '', '🔑 ' + (tab === 'login' ? '登录账号' : '注册账号')));
+    const seg = el('div', 'seg-row');
+    const tabL = el('button', 'seg-btn' + (tab === 'login' ? ' sel' : ''), '登录');
+    tabL.onclick = () => openLoginModal('login');
+    const tabR = el('button', 'seg-btn' + (tab === 'register' ? ' sel' : ''), '注册');
+    tabR.onclick = () => openLoginModal('register');
+    seg.append(tabL, tabR);
+    dbox.appendChild(seg);
+    const uInput = el('input', 'auth-input');
+    uInput.placeholder = '用户名（2~20位，可用中文）';
+    uInput.maxLength = 20;
+    const pInput = el('input', 'auth-input');
+    pInput.type = 'password';
+    pInput.placeholder = '密码（4~64位）';
+    pInput.maxLength = 64;
+    const err = el('div', 'auth-err', '');
+    const submit = el('button', 'btn gold', tab === 'login' ? '登 录' : '注 册');
+    submit.style.width = '100%';
+    const doAuth = () => {
+      const u = uInput.value.trim();
+      const p = pInput.value;
+      if (!u) { err.textContent = '⚠️ 请输入用户名'; return; }
+      if (!p) { err.textContent = '⚠️ 请输入密码'; return; }
+      err.textContent = '⏳ 正在' + (tab === 'login' ? '登录' : '注册') + '…';
+      submit.disabled = true;
+      net.login(u, p, tab === 'register');
+    };
+    submit.onclick = doAuth;
+    pInput.onkeydown = (e) => { if (e.key === 'Enter') doAuth(); };
+    dbox.append(uInput, pInput, err, submit);
+    dbox.appendChild(el('div', 'muted mt8', tab === 'login' ? '单点登录：同一账号在新位置登录会挤掉旧连接。' : '注册后自动登录。密码经加密哈希仅存于房主电脑，不会外发。'));
+    ov.appendChild(dbox);
+    document.body.appendChild(ov);
+    uInput.focus();
+  }
 
   const grid = el('div', 'lobby-grid');
 
@@ -172,6 +222,45 @@ export function mountLobby(root, view) {
   rosterPanel.appendChild(rosterBox);
   renderRoster();
   left.appendChild(rosterPanel);
+
+  // R-23: 本机报错自查面板（未捕获错误自动记录，可查看/清空）
+  const errPanel = el('div', 'panel');
+  const errHead = el('div', 'spread');
+  errHead.appendChild(el('h4', '', '🛠 本机报错自查'));
+  const errToggle = el('button', 'btn small', '展开');
+  errToggle.onclick = () => {
+    if (errBox.style.display === 'none') {
+      renderErrBox();
+      errBox.style.display = '';
+      errToggle.textContent = '收起';
+    } else {
+      errBox.style.display = 'none';
+      errToggle.textContent = '展开';
+    }
+  };
+  errHead.appendChild(errToggle);
+  errPanel.appendChild(errHead);
+  const errBox = el('div', 'err-box');
+  errBox.style.display = 'none';
+  const renderErrBox = () => {
+    errBox.innerHTML = '';
+    const list = loadErrLog();
+    if (!list.length) {
+      errBox.appendChild(el('div', 'muted', '暂无记录。未捕获的脚本/异步错误会自动记录在这里，供报错时自查。'));
+      return;
+    }
+    for (const e of list) {
+      const row = el('div', 'err-item');
+      row.appendChild(el('div', 'muted', e.t + ' · ' + e.src));
+      row.appendChild(el('div', '', e.msg));
+      errBox.appendChild(row);
+    }
+    const clear = el('button', 'btn small danger mt8', '清空记录');
+    clear.onclick = () => { clearErrLog(); renderErrBox(); };
+    errBox.appendChild(clear);
+  };
+  errPanel.appendChild(errBox);
+  left.appendChild(errPanel);
   grid.appendChild(left);
 
   // 右侧：创建房间
@@ -215,9 +304,8 @@ export function mountLobby(root, view) {
   createBtn.style.width = '100%';
   createBtn.disabled = true;
   createBtn.onclick = () => {
-    if (!store.name) { nameInput.focus(); return; }
+    if (!store.account) { openLoginModal('login'); return; }
     if (!selPersona) return;
-    net.setName(store.name || nameInput.value.trim());
     net.send('lobby:create', { dungeonId: selDungeon, personaId: selPersona });
   };
   right.appendChild(createBtn);
@@ -245,5 +333,20 @@ export function mountLobby(root, view) {
       roomList.appendChild(card);
     }
   }
-  return { update(v) { renderRooms(v); } };
+  // 登录弹窗自动弹出（每次会话首次）；登录成功后关闭并刷新账户栏
+  if (!store.account && !sessionStorage.getItem('auth_prompted')) {
+    sessionStorage.setItem('auth_prompted', '1');
+    openLoginModal('login');
+  }
+  return {
+    update(v) { renderRooms(v); renderAccount(); },
+    onAuthOk() { if (loginModal) { loginModal.remove(); loginModal = null; } renderAccount(); },
+    onAuthError(msg) {
+      if (!loginModal) openLoginModal('login');
+      const errEl = loginModal.querySelector('.auth-err');
+      if (errEl) errEl.textContent = '⚠️ ' + msg;
+      const sb = loginModal.querySelector('.btn.gold');
+      if (sb) sb.disabled = false;
+    },
+  };
 }

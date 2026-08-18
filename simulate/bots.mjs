@@ -39,7 +39,8 @@ class Bot {
       const ws = new WebSocket('ws://localhost:' + PORT + '/ws');
       this.ws = ws;
       ws.on('open', () => {
-        ws.send(JSON.stringify({ t: 'hello', name: this.name, token: token || this.token || undefined }));
+        if (token || this.token) ws.send(JSON.stringify({ t: 'hello', name: this.name, token: token || this.token }));
+        else ws.send(JSON.stringify({ t: 'hello', action: 'register', account: this.name, password: 'sim1234' })); // 账户系统：自动注册
       });
       ws.on('message', (raw) => {
         const msg = JSON.parse(raw.toString());
@@ -55,6 +56,7 @@ class Bot {
           if (this.onView) this.onView(this);
           this.maybeAct();
         } else if (msg.t === 's:error') {
+          if (String(msg.msg).includes('已被注册')) { ws.send(JSON.stringify({ t: 'hello', action: 'login', account: this.name, password: 'sim1234' })); return; }
           log('  ⚠ [' + this.name + '] 服务器错误: ' + msg.msg);
         } else if (msg.t === 's:kicked') {
           this.kicked = true;

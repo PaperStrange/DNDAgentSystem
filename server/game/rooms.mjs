@@ -1,4 +1,7 @@
 // 房间管理：大厅/准备/游戏中/结算 状态机 + 消息分发
+import { writeFileSync, existsSync, mkdirSync } from 'node:fs';
+import { join, dirname } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { roomCode, uid } from '../util.mjs';
 import { Game } from './game.mjs';
 import { Director } from '../dm/director.mjs';
@@ -48,7 +51,7 @@ export class Rooms {
   }
   joinRoom(code, player) {
     const room = this.rooms.get(code);
-    if (!room) return { err: '房间不存在' };
+    if (!room) return { err: '房间不存在或已解散，请确认房间码' };
     if (room.phase !== 'prepare') return { err: '游戏已开始，无法加入（掉线可重连）' };
     if (room.members.length >= MAX_PLAYERS) return { err: '房间已满（最多5名玩家）' };
     if (!room.members.includes(player.pid)) room.members.push(player.pid);
@@ -76,7 +79,7 @@ export class Rooms {
   kickRoom(host, targetPid) {
     const room = this.roomOf(host);
     if (!room || room.hostId !== host.pid) return { err: '只有房主可以踢人' };
-    if (!room.members.includes(targetPid)) return { err: '目标不在房间中' };
+    if (!room.members.includes(targetPid)) return { err: '该玩家已不在房间中' };
     if (targetPid === host.pid) return { err: '不能踢自己' };
     room.members = room.members.filter(p => p !== targetPid);
     room.ready.delete(targetPid);
@@ -87,7 +90,7 @@ export class Rooms {
   }
   setSheet(player, rawSheet) {
     const room = this.roomOf(player);
-    if (!room || room.phase !== 'prepare') return { err: '现在不能修改车卡' };
+    if (!room || room.phase !== 'prepare') return { err: '游戏已开始，不能修改车卡' };
     const sheet = buildSheet(rawSheet);
     room.sheets.set(player.pid, sheet);
     room.ready.delete(player.pid);
@@ -96,7 +99,7 @@ export class Rooms {
   }
   setReady(player, ready) {
     const room = this.roomOf(player);
-    if (!room || room.phase !== 'prepare') return { err: '现在不能准备' };
+    if (!room || room.phase !== 'prepare') return { err: '当前阶段不能准备' };
     if (ready && !room.sheets.has(player.pid)) return { err: '请先完成车卡' };
     if (ready) room.ready.add(player.pid); else room.ready.delete(player.pid);
     if (ready) this._checkAutoStart(room);
@@ -117,7 +120,7 @@ export class Rooms {
     room.game = new Game({ room: { code: room.code, dungeonId: room.dungeonId, hostId: room.hostId, mode: room.mode }, sheets, personaId: room.personaId, director: room.director, onChange: () => this._broadcastRoom(room), isPlayerOnline: (pid) => this._isOnline ? this._isOnline(pid) : true });
     const g = room.game;
     const origEnd = g._endGame.bind(g);
-    g._endGame = (kind, reason) => { origEnd(kind, reason); room.phase = 'ended'; this.touch(room); };
+    g._endGame = (kind, reason) => { origEnd(kind, reason); room.phase = 'ended'; this.touch(room); this._writeLogFile(room); }; // R-23: 冒险结束时在房主本地落盘完整日志
     // 开场：旁白+隐藏目标（LLM可能耗时，就绪后进入playing）
     room.director.intro(room.game).then(() => {
       room.phase = 'playing';
@@ -133,7 +136,7 @@ export class Rooms {
   }
   returnToRoom(player) {
     const room = this.roomOf(player);
-    if (!room || room.phase !== 'ended') return { err: '现在不能返回' };
+    if (!room || room.phase !== 'ended') return { err: '冒险结束前不能返回房间' };
     room.phase = 'prepare';
     room.game = null; room.director = null;
     room.ready.clear();
@@ -166,12 +169,14 @@ export class Rooms {
     return { err: '未知消息' };
   }
   _lobby(player, msg) {
+    // 账户系统：建房/加入必须先登录
+    if (!player.account) return { err: '请先登录账号后再创建或加入房间（点击右上角「登录 / 注册」）' };
     if (msg.t === 'lobby:create') return this.createRoom(player, { dungeonId: msg.dungeonId, personaId: msg.personaId, mode: msg.mode });
     if (msg.t === 'lobby:join') {
       const r = this.joinRoom(msg.code, player);
       return r;
     }
-    return { err: '未知消息' };
+    return { err: '无法识别的请求，请刷新页面后重试' };
   }
   _roomMsg(player, msg) {
     if (msg.t === 'room:leave') return this.leaveRoom(player);
@@ -189,7 +194,7 @@ export class Rooms {
     if (msg.t === 'room:start') {
       const room = this.roomOf(player);
       if (!room) return { err: '不在房间中' };
-      if (room.phase !== 'prepare') return { err: '无法开始' };
+      if (room.phase !== 'prepare') return { err: '当前无法开始游戏' };
       if (room.members.some(p => !room.ready.has(p))) return { err: '还有玩家未准备' };
       this.startGame(room);
       return { room };
@@ -203,7 +208,7 @@ export class Rooms {
     const { RACES, CLASSES } = await import('../../public/shared/char-defs.mjs');
     const race = RACES.find(r => r.id === msg.raceId);
     const cls = CLASSES.find(c => c.id === msg.classId);
-    if (!race || !cls) return { err: '参数无效' };
+    if (!race || !cls) return { err: '生成参数无效，请重新选择种族与职业后再试' };
     const styles = ['酒馆轶闻', '宿命预言', '老兵回忆', '街头艺人唱词', '朝圣者见闻', '旧日信笺'];
     const style = styles[Math.floor(Math.random() * styles.length)];
     if (llmAvailable()) {
@@ -221,7 +226,7 @@ export class Rooms {
   }
   async _gameMsg(player, msg) {
     const room = this.roomOf(player);
-    if (!room || !room.game) return { err: '没有进行中的游戏' };
+    if (!room || !room.game) return { err: '没有进行中的游戏，请返回大厅重新开始' };
     const g = room.game;
     const t = msg.t;
     if (t === 'game:move') return g.actMove(player.pid, { x: msg.x, y: msg.y });
@@ -241,8 +246,43 @@ export class Rooms {
     if (t === 'game:speed') { if (room.hostId !== player.pid) return { err: '只有房主可以调整战斗速度' }; g.speed = Math.min(4, Math.max(0.5, Number(msg.speed) || 1)); return { ok: true }; }
     if (t === 'game:pause') { if (room.hostId !== player.pid) return { err: '只有房主可以暂停' }; g.paused = !!msg.paused; return { ok: true }; }
     if (t === 'game:eval') return g.evaluate(player.pid);
+    if (t === 'game:log-export') return this.exportLog(player);
     if (t === 'game:leave') return this.leaveRoom(player);
-    return { err: '未知消息' };
+    return { err: '无法识别的请求，请刷新页面后重试' };
+  }
+
+  // R-23: 冒险结束把完整日志写到房主本地 data/logs/（含私密条目标注），便于报错自查
+  _writeLogFile(room) {
+    try {
+      const g = room.game;
+      if (!g) return;
+      const root = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
+      const dir = join(root, 'data', 'logs');
+      if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
+      const ts = new Date().toISOString().replace(/[:T]/g, '-').slice(0, 19);
+      const file = join(dir, room.code + '-' + ts + '.log');
+      const lines = [];
+      lines.push('冒险完整日志 房间=' + room.code + ' 副本=' + room.dungeonName + ' DM=' + room.personaName + ' 结局=' + (g.win?.kind || '?') + ' ' + (g.win?.reason || ''));
+      lines.push('生成时间=' + new Date().toLocaleString('zh-CN') + ' 成员=' + room.members.map(pid => g.players.get(pid)?.name || pid).join('、'));
+      for (const l of g.log) {
+        lines.push('[' + new Date(l.ts).toLocaleTimeString('zh-CN') + '] [' + (l.kind || '?') + ']' + (l.private ? ' [私密@' + l.private + ']' : '') + ' ' + l.text);
+      }
+      writeFileSync(file, lines.join('\n'), 'utf8');
+      console.log('[logs] 冒险日志已落盘:', file);
+    } catch (e) { console.error('[logs] 落盘失败', e?.message || e); }
+  }
+  // R-23: 房主可导出完整日志（含私密条目）用于自查
+  exportLog(player) {
+    const room = this.roomOf(player);
+    if (!room || !room.game) return { err: '没有进行中的游戏' };
+    if (room.hostId !== player.pid) return { err: '只有房主可以导出完整日志' };
+    const g = room.game;
+    const lines = ['冒险完整日志 房间=' + room.code + ' 副本=' + room.dungeonName + ' DM=' + room.personaName + ' 结局=' + (g.win?.kind || '进行中')];
+    for (const l of g.log) {
+      lines.push('[' + new Date(l.ts).toLocaleTimeString('zh-CN') + '] [' + (l.kind || '?') + ']' + (l.private ? ' [私密@' + l.private + ']' : '') + ' ' + l.text);
+    }
+    const filename = '冒险日志-' + room.code + '-' + Date.now() + '.txt';
+    return { ok: true, logText: lines.join('\n'), filename };
   }
 
   // ---------- 快照 ----------

@@ -6,13 +6,19 @@ import { mountGame } from './screens/game.mjs';
 
 const S = {
   view: null, snapshot: null, pid: null, name: '', net: null,
-  curScreen: null, curScreenName: null,
+  curScreen: null, curScreenName: null, account: null,
 };
+if (localStorage.getItem('dnd_account')) S.account = localStorage.getItem('dnd_account');
 window.__S = S;
 
 export const store = S;
 
+let _lastToast = { msg: '', at: 0 };
 export function toast(msg, isErr) {
+  // R-22: 相同提示 1.5 秒内去重，避免错误刷屏
+  const now = Date.now();
+  if (msg === _lastToast.msg && now - _lastToast.at < 1500) return;
+  _lastToast = { msg, at: now };
   const root = document.getElementById('toast-root');
   const el = document.createElement('div');
   el.className = 'toast' + (isErr ? ' err' : '');
@@ -28,6 +34,24 @@ export function el(tag, cls, text) {
   return n;
 }
 
+// R-23: 客户端报错自查——未捕获错误/未处理Promise拒绝自动记录到本地环形缓冲（最多50条）
+const ERR_KEY = 'dnd_errlog';
+export function captureErr(src, msg) {
+  try {
+    const list = loadErrLog();
+    list.unshift({ t: new Date().toLocaleString('zh-CN'), src, msg: String(msg).slice(0, 300) });
+    localStorage.setItem(ERR_KEY, JSON.stringify(list.slice(0, 50)));
+  } catch (e) { /* 静默 */ }
+}
+export function loadErrLog() {
+  try { const v = JSON.parse(localStorage.getItem(ERR_KEY) || '[]'); return Array.isArray(v) ? v : []; } catch (e) { return []; }
+}
+export function clearErrLog() {
+  try { localStorage.removeItem(ERR_KEY); } catch (e) {}
+}
+window.addEventListener('error', (e) => captureErr('脚本错误', (e.message || '未知错误') + ' @ ' + String(e.filename || '').split('/').pop() + ':' + e.lineno));
+window.addEventListener('unhandledrejection', (e) => captureErr('异步错误', String(e.reason?.message || e.reason)));
+
 const net = new Net();
 S.net = net;
 net.onState = (view) => {
@@ -38,9 +62,12 @@ net.onState = (view) => {
 };
 net.onError = (msg) => toast(msg, true);
 net.onKicked = () => { toast('你被房主移出了房间', true); };
-net.onHello = () => {};
+net.onHello = (msg) => { S.account = msg.account || null; };
+net.onAuthOk = () => { if (S.curScreen && S.curScreen.onAuthOk) S.curScreen.onAuthOk(); };
+net.onAuthError = (msg) => { if (S.curScreen && S.curScreen.onAuthError) S.curScreen.onAuthError(msg); };
 net.onEval = (ev) => { if (S.curScreen && S.curScreen.onEval) S.curScreen.onEval(ev); };
 net.onBg = (text) => { if (S.curScreen && S.curScreen.onBg) S.curScreen.onBg(text); };
+net.onLogExport = (m) => { if (S.curScreen && S.curScreen.onLogExport) S.curScreen.onLogExport(m); };
 
 function route(view) {
   const name = view.view; // lobby | room | game

@@ -67,7 +67,8 @@ async function main() {
   }
 
   await new Promise(r => ws.on('open', r));
-  ws.send(JSON.stringify({ t: 'hello', name: '独行侠' }));
+  const acct = '独行侠' + (Date.now() % 100000);
+  ws.send(JSON.stringify({ t: 'hello', action: 'register', account: acct, password: 'solo1234' }));
   await sleep(500);
 
   ws.send(JSON.stringify({ t: 'lobby:create', dungeonId: 'lmop', personaId: 'aldric' }));

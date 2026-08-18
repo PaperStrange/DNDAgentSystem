@@ -21,6 +21,23 @@ let browser = null;
 const NAMES = ['艾莉', '布莱克', '希尔德', '诺拉', '灰隼'];
 const CLASSES = ['fighter', 'cleric', 'wizard', 'rogue', 'ranger'];
 
+// 账户系统：登录弹窗（自动弹出）→ 注册；若已注册则回退登录
+async function loginPage(page, name) {
+  await page.waitForSelector('.dialog-overlay .auth-input', { timeout: 8000 });
+  await page.click('.dialog-overlay .seg-btn:has-text("注册")');
+  await page.fill('.dialog-overlay input[placeholder*="用户名"]', name);
+  await page.fill('.dialog-overlay input[type="password"]', 'sim1234');
+  await page.click('.dialog-overlay .btn.gold');
+  const ok = await page.waitForSelector('.dialog-overlay', { state: 'detached', timeout: 6000 }).then(() => true).catch(() => false);
+  if (!ok) {
+    await page.click('.dialog-overlay .seg-btn:has-text("登录")');
+    await page.fill('.dialog-overlay input[placeholder*="用户名"]', name);
+    await page.fill('.dialog-overlay input[type="password"]', 'sim1234');
+    await page.click('.dialog-overlay .btn.gold');
+    await page.waitForSelector('.dialog-overlay', { state: 'detached', timeout: 6000 });
+  }
+}
+
 async function main() {
   await new Promise(r => setTimeout(r, 1200));
   browser = await chromium.launch();
@@ -34,8 +51,7 @@ async function main() {
     page.on('console', m => { if (m.type() === 'error') recordErr('console[' + i + ']: ' + m.text()); });
     await page.goto('http://localhost:' + PORT + '/');
     await page.waitForSelector('.lobby-title');
-    await page.fill('.name-box input', NAMES[i]);
-    await page.click('.name-box .btn');
+    await loginPage(page, NAMES[i]);
     pages.push(page);
   }
   log('5个浏览器页面已进入大厅');

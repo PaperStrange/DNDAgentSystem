@@ -17,8 +17,13 @@ async function main() {
     const page = await browser.newPage({ viewport: { width: vp.w, height: vp.h } });
     await page.goto('http://localhost:' + PORT + '/');
     await page.waitForSelector('.lobby-title');
-    await page.fill('.name-box input', '探针');
-    await page.click('.name-box .btn');
+    // 账户系统：注册唯一账号并自动登录
+    await page.waitForSelector('.dialog-overlay .auth-input', { timeout: 8000 });
+    await page.click('.dialog-overlay .seg-btn:has-text("注册")');
+    await page.fill('.dialog-overlay input[placeholder*="用户名"]', '探针' + (Date.now() % 1000000));
+    await page.fill('.dialog-overlay input[type="password"]', 'probe1234');
+    await page.click('.dialog-overlay .btn.gold');
+    await page.waitForSelector('.dialog-overlay', { state: 'detached', timeout: 10000 });
     await page.click('.persona-grid .persona-card:nth-child(1)');
     await page.click('.create-box .btn.gold');
     await page.waitForSelector('.room-code');

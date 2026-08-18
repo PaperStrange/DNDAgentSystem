@@ -173,6 +173,15 @@ input, select, textarea { font-family: var(--font); }
 .order-chip.sel { border-color: var(--blue); color: var(--blue); }
 /* R-11：名册中已阵亡角色置灰 */
 .story-item.dead { opacity: .62; }
+/* 账户系统：大厅账户栏 + 登录弹窗 */
+.account-box { display: flex; align-items: center; gap: 8px; }
+.acct-name { color: var(--gold); font-size: 14px; }
+.auth-input { width: 100%; box-sizing: border-box; margin: 6px 0; background: var(--panel2); border: 2px solid var(--line); color: var(--txt); border-radius: 6px; padding: 9px 10px; }
+.auth-input:focus { border-color: var(--gold); outline: none; }
+.auth-err { min-height: 18px; margin: 6px 0 2px; color: #ffb0a4; font-size: 12px; }
+/* R-23：本机报错自查面板 */
+.err-box { margin-top: 8px; max-height: 180px; overflow-y: auto; }
+.err-item { padding: 6px 0; border-bottom: 1px solid var(--line); font-size: 12px; line-height: 1.5; }
 /* R-10：藏书室（书架/书籍/翻开详情） */
 .library { background: rgba(8, 6, 12, .92); }
 .library-wrap { width: 900px; max-width: 94vw; max-height: 92vh; overflow-y: auto; }

@@ -9,6 +9,7 @@ import { WebSocketServer } from 'ws';
 import { config } from './config.mjs';
 import { setSeed, uid } from './util.mjs';
 import { Rooms, MAX_PLAYERS } from './game/rooms.mjs';
+import { registerAccount, verifyAccount } from './accounts.mjs';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 const pub = resolve(root, 'public');
@@ -17,7 +18,8 @@ if (config.seed !== null && config.seed !== undefined) { setSeed(config.seed); c
 const MIME = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.mjs': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8', '.json': 'application/json; charset=utf-8', '.png': 'image/png', '.ico': 'image/x-icon', '.svg': 'image/svg+xml', '.txt': 'text/plain; charset=utf-8', '.md': 'text/markdown; charset=utf-8' };
 
 const rooms = new Rooms();
-const players = new Map(); // pid -> {pid, name, ws, roomCode, online, token}
+const players = new Map(); // pid -> {pid, name, ws, roomCode, online, token, account, ip}
+const accountSessions = new Map(); // account -> token（单点登录：同一账号同时只有一条有效会话）
 const newToken = () => 'tk_' + randomBytes(18).toString('hex'); // 秘密重连令牌（绝不通过快照外发）
 // 安全：config 永不外发；令牌只经 s:hello 发送给持有者本人
 
@@ -55,6 +57,12 @@ function handleMsg(player, raw) {
       sendErr(player.pid, res.err);
       return;
     }
+    // R-22: 手动模式下把操作失败原因反馈给玩家（自动模式静默，避免节拍器刷屏）
+    if (res && res.ok === false && res.msg) {
+      const r2 = rooms.roomOf(player);
+      if (r2 && r2.phase === 'playing' && r2.mode === 'manual') sendErr(player.pid, res.msg);
+      return;
+    }
     // R-9: 冒险评价结果单独回传给请求者
     if (msg.t === 'game:eval' && res && res.ok) {
       send(player.pid, { t: 's:eval', eval: res });
@@ -63,6 +71,11 @@ function handleMsg(player, raw) {
     // R-2: 背景故事生成结果回传
     if (msg.t === 'room:bg-random' && res && res.ok) {
       send(player.pid, { t: 's:bg', text: res.text });
+      return;
+    }
+    // R-23: 房主导出完整日志
+    if (msg.t === 'game:log-export' && res && res.ok) {
+      send(player.pid, { t: 's:log-export', text: res.logText, filename: res.filename });
       return;
     }
     if (res.kicked) {
@@ -131,6 +144,40 @@ wss.on('connection', (ws, req) => {
     try { msg = JSON.parse(raw.toString()); } catch { return; }
     if (msg.t === 'hello') {
       const name = String(msg.name || '冒险者').slice(0, 16);
+      // 账户登录/注册（单点登录：同一账号新登录会挤掉旧会话）
+      if (msg.action === 'login' || msg.action === 'register') {
+        const account = String(msg.account || '').trim();
+        const authRes = msg.action === 'register' ? registerAccount(account, msg.password) : verifyAccount(account, msg.password);
+        if (authRes.err) {
+          try { ws.send(JSON.stringify({ t: 's:error', msg: authRes.err, auth: true })); } catch (e) {}
+          return;
+        }
+        const ip = String(req.socket.remoteAddress || '').replace(/^::ffff:/, '');
+        const oldToken = accountSessions.get(account);
+        if (oldToken) {
+          const old = [...players.values()].find(p => p.token === oldToken);
+          accountSessions.delete(account);
+          if (old) {
+            const oldIp = old.ip || '未知';
+            try {
+              if (old.ws && old.ws.readyState === 1) {
+                old.ws.send(JSON.stringify({ t: 's:auth-kicked', msg: oldIp !== ip ? '你的账号已在其他位置登录（新IP ' + ip + '），本连接已断开' : '你的账号已在本机其他会话登录，本连接已断开' }));
+              }
+            } catch (e) {}
+            try { if (old.ws) old.ws.close(4001, 'replaced-by-new-login'); } catch (e) {}
+            if (old.roomCode) rooms.leaveRoom(old); // 旧会话退出房间（房主自动移交）
+            players.delete(old.pid);
+          }
+        }
+        const token = newToken();
+        accountSessions.set(account, token);
+        pid = uid('p');
+        ws.__pid = pid;
+        players.set(pid, { pid, name: account, ws, roomCode: null, online: true, token, account, ip });
+        send(pid, { t: 's:hello', pid, name: account, roomCode: null, token, account, ip });
+        send(pid, { t: 's:state', view: rooms.snapshotFor(players.get(pid)) });
+        return;
+      }
       // 秘密令牌重连/改名：令牌只由本人持有，快照中绝不外发
       if (msg.token) {
         const old = [...players.values()].find(p => p.token === msg.token);
@@ -140,11 +187,14 @@ wss.on('connection', (ws, req) => {
           old.ws = ws; old.online = true;
           if (msg.rename && name) old.name = name;
           ws.__pid = pid;
-          send(pid, { t: 's:hello', pid, name: old.name, roomCode: old.roomCode, token: old.token });
+          send(pid, { t: 's:hello', pid, name: old.name, roomCode: old.roomCode, token: old.token, account: old.account || null });
           if (old.roomCode) { const r = rooms.rooms.get(old.roomCode); if (r) broadcastRoom(r); }
           else send(pid, { t: 's:state', view: rooms.snapshotFor(old) });
           return;
         }
+        // 令牌无效（被新登录挤掉或服务器重启）→ 要求重新登录，不再静默建新身份
+        try { ws.send(JSON.stringify({ t: 's:error', msg: '登录状态已失效（可能在其他位置登录或服务器已重启），请重新登录', auth: true })); } catch (e) {}
+        return;
       }
       pid = uid('p');
       ws.__pid = pid;

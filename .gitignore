@@ -38,6 +38,8 @@ venv/
 node_modules/
 config.json
 data/rules/*.txt
+data/accounts.json
+data/logs/
 playwright-report/
 test-results/
 tools/security-test.mjs

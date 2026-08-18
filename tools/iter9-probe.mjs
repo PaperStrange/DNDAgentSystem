@@ -28,9 +28,12 @@ function mkClient(name) {
       const m = JSON.parse(raw.toString());
       if (m.t === 's:hello') { c.pid = m.pid; res(); }
       if (m.t === 's:state') c.view = m.view;
-      if (m.t === 's:error') c.errs.push(m.msg);
+      if (m.t === 's:error') {
+        if (String(m.msg).includes('已被注册')) { ws.send(JSON.stringify({ t: 'hello', action: 'login', account: name, password: 'probe123' })); return; }
+        c.errs.push(m.msg);
+      }
     });
-    ws.on('open', () => ws.send(JSON.stringify({ t: 'hello', name })));
+    ws.on('open', () => ws.send(JSON.stringify({ t: 'hello', action: 'register', account: name, password: 'probe123' })));
   });
   c.send = (t, payload = {}) => c.ws.send(JSON.stringify({ t, ...payload }));
   return c;

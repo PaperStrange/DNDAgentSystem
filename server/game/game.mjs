@@ -3,6 +3,9 @@ import { parseMap, DUNGEONS, MONSTERS, NPCS, ITEMS } from './dungeon.mjs';
 import { roll, d20, pick, shuffle, clamp, findPath, losClear, dist, manhattan, uid } from '../util.mjs';
 import { ATTR_NAMES } from '../rules/rulesdb.mjs';
 import { assignOfflineGoals, offlineVerify } from './hiddengoals.mjs';
+import { installEntities } from './entities.mjs';
+import { installDialogue } from './systems/dialogue.mjs';
+import { installProgress } from './systems/progress.mjs';
 
 const SPELLS = {
   firebolt: { id: 'firebolt', name: '火焰箭', icon: '🔥', kind: 'spellAttack', bonusAttr: 'INT', dice: '1d10', range: 12, cost: 'cantrip', type: '火焰', desc: '对单体掷法术攻击，1d10火焰伤害' },
@@ -69,6 +72,10 @@ export class Game {
         goals: [], claimCooldown: 0,
       });
     }
+    // 架构迁移：实体/对话/进度系统以安装器挂载（各系统独立演进，路线见 docs/llm_session/ARCHITECTURE.md）
+    installEntities(this);
+    installDialogue(this);
+    installProgress(this);
     this._loadChapter(0);
   }
 
@@ -158,59 +165,6 @@ export class Game {
       if (target > p.level) this._levelUp(p, target);
     }
   }
-  _randomWalkable() {
-    const list = [];
-    for (let y = 1; y < this.map.h - 1; y++) for (let x = 1; x < this.map.w - 1; x++) {
-      const t = this.map.tiles[y][x];
-      if (!t.blockMove && !this.entitiesAt(x, y).length) list.push({ x, y });
-    }
-    return pick(list) || { x: 1, y: 1 };
-  }
-  entitiesAt(x, y) {
-    const out = [];
-    for (const e of this.entities.values()) if (e.x === x && e.y === y && !e.dead) out.push(e);
-    return out;
-  }
-  pathMap(forPlayer = true) {
-    return { w: this.map.w, h: this.map.h, tiles: this.map.tiles, _entityAt: (x, y) => {
-      const list = this.entitiesAt(x, y);
-      if (!list.length) return null;
-      if (forPlayer) return list.find(e => e.kind === 'monster') || null; // 玩家路径：只有怪物挡路
-      return list[0]; // 怪物路径：任何实体都挡路
-    } };
-  }
-  _playerEntity(p, x, y) {
-    const s = p.sheet;
-    return { eid: uid('pl'), kind: 'player', name: s.name, icon: s.className[0], x, y, hp: p.sheet.hp, maxHp: s.maxHp,
-      ac: s.ac, speed: s.speed, faction: 'party', playerId: p.pid, level: p.level, size: 1, downed: p.downed, dead: p.dead,
-      initiative: s.initiative, stats: s.stats, mods: s.mods };
-  }
-  _monsterEntity(defKey, meta, x, y, squad) {
-    const m = MONSTERS[defKey];
-    const hp = Math.max(1, Math.round(m.hp * (this.partyHpScale || 1))); // B-11：小队<4人时怪物生命按比例下调
-    return { eid: uid('mo'), kind: 'monster', defKey, name: m.name, icon: m.icon, x, y, hp, maxHp: hp,
-      ac: m.ac, speed: m.speed, faction: 'foe', squad: squad, size: m.size || 1, downed: false, dead: false,
-      attacks: m.attacks.map(a => ({ ...a })), boss: !!m.boss, finalBoss: !!m.finalBoss, undead: !!m.undead,
-      gold: m.gold, xp: m.xp, lootKey: meta.lootKey || null, webSkip: false, prone: false, desc: m.desc };
-  }
-  _npcEntity(defKey, x, y) {
-    const n = NPCS[defKey];
-    return { eid: uid('np'), kind: 'npc', npcId: defKey, name: n.name, icon: n.icon, x, y, hp: 1, maxHp: 1, size: 1, faction: 'neutral' };
-  }
-
-  _levelUp(p, level) {
-    p.level = level;
-    const s = p.sheet;
-    s.maxHp = s.hitDie + s.mods.CON + (s.race === 'dwarf' ? 1 : 0) + (level - 1) * (s.hpPerLv + s.mods.CON + (s.race === 'dwarf' ? 1 : 0));
-    s.hp = s.maxHp;
-    if (level === 2 && (s.class === 'wizard' || s.class === 'cleric')) p.slots = { 1: 3 };
-    const e = this.entities.get(p.eid);
-    if (e) { e.hp = s.maxHp; e.maxHp = s.maxHp; e.level = level; }
-    const newFeats = s.features.filter(f => f.lv > 1 && f.lv <= level).map(f => f.name);
-    this.narrate('levelUp', { actor: s.name, n: level });
-    if (newFeats.length) this.logMsg('system', '✨ ' + s.name + ' 获得新特性：' + newFeats.join('、'));
-  }
-
   // ---------- 回合 ----------
   beginPlay() {
     this.state = 'playing';
@@ -988,189 +942,10 @@ export class Game {
     }
     return { ok: true };
   }
-  actShortRest(pid) {
-    const p = this.players.get(pid);
-    const t = this.turn;
-    if (!p || !t || t.playerId !== pid) return { ok: false, msg: '不是你的回合' };
-    if (this.combat.active) return { ok: false, msg: '战斗中无法休息' };
-    if (t.actionUsed) return { ok: false, msg: '本回合已使用动作' };
-    const e = this.entities.get(p.eid);
-    if ((p.charges.shortrest || 0) <= 0) return { ok: false, msg: '本章的短休次数已用完' };
-    t.actionUsed = true;
-    p.charges.shortrest--;
-    p.stats.restsUsed++;
-    const d = roll('1d' + p.sheet.hitDie);
-    const heal = d.total + p.sheet.mods.CON;
-    this._heal(e, heal, e);
-    this.narrate('rest', { actor: e.name });
-    this.logMsg('system', '🍖 ' + e.name + ' 短休，恢复 ' + heal + ' 点生命');
-    return { ok: true };
-  }
-
-  actInteract(pid, { targetEid, tx, ty }) {
-    const p = this.players.get(pid);
-    const t = this.turn;
-    if (!p || !t || t.playerId !== pid) return { ok: false, msg: '不是你的回合' };
-    if (t.actionUsed) return { ok: false, msg: '本回合已使用动作' };
-    const e = this.entities.get(p.eid);
-    // 目标实体（NPC/箱子）
-    if (targetEid) {
-      const ent = this.entities.get(targetEid);
-      if (!ent) return { ok: false, msg: '目标无效' };
-      const d = manhattan(e, ent);
-      if (ent.kind === 'npc') {
-        if (d > 2) return { ok: false, msg: '距离太远' };
-        t.actionUsed = true;
-        return this._openDialogue(p, ent);
-      }
-      return { ok: false, msg: '无法与这个目标互动' };
-    }
-    // 地块互动（门/宝箱/出口/篝火）
-    const tile = this.map.tiles[ty][tx];
-    const d = manhattan(e, { x: tx, y: ty });
-    if (d > 1) return { ok: false, msg: '距离太远' };
-    if (tile && tile.door) {
-      t.actionUsed = true;
-      tile.type = 'floor'; tile.blockMove = false; tile.blockSight = false; tile.door = false;
-      this.logMsg('system', '🚪 ' + e.name + ' 打开了门');
-      return { ok: true };
-    }
-    const chest = this.map.chests.find(c => c.x === tx && c.y === ty && !this.openedChests.has(this.chapter.id + ':' + c.x + ':' + c.y));
-    if (chest) {
-      t.actionUsed = true;
-      this.openedChests.add(this.chapter.id + ':' + chest.x + ':' + chest.y);
-      const g = roll(chest.gold || '1d10');
-      p.gold += g.total; p.stats.goldEarned += g.total; p.stats.chestsOpened++;
-      this.narrate('chest', { actor: e.name, item: g.total + '枚金币' });
-      this.logMsg('system', '🎁 ' + e.name + ' 打开' + chest.desc + '，获得 ' + g.total + ' 金币');
-      return { ok: true };
-    }
-    const exit = this.map.exit && this.map.exit.x === tx && this.map.exit.y === ty ? this.map.exit : null;
-    const exit2 = this.map.exit2 && this.map.exit2.x === tx && this.map.exit2.y === ty ? this.map.exit2 : null;
-    const targetExit = exit || exit2;
-    if (targetExit) {
-      t.actionUsed = true;
-      return this._tryTravel(targetExit, p);
-    }
-    const prop = this.map.props?.find(pr => pr.x === tx && pr.y === ty);
-    if (prop && prop.type === 'campfire') {
-      t.actionUsed = true;
-      if ((p.charges.longrest || 0) <= 0) return { ok: false, msg: '本章已长休过了', undo: true };
-      p.charges.longrest = 0;
-      p.stats.restsUsed++;
-      const pe = this.entities.get(p.eid);
-      pe.hp = pe.maxHp; p.sheet.hp = pe.maxHp;
-      if (p.slots) p.slots = { 1: p.level >= 2 ? 3 : 2 };
-      p.charges.shortrest = 2;
-      p.downed = false; pe.downed = false; p.deathSaves = { s: 0, f: 0 };
-      this.narrate('rest', { actor: e.name });
-      this.logMsg('system', '🔥 篝火旁长休：' + e.name + ' 完全恢复了！');
-      return { ok: true };
-    }
-    return { ok: false, msg: '这里没有可互动的东西' };
-  }
-
-  _openDialogue(p, npcE) {
-    const npcDef = NPCS[npcE.npcId];
-    if (!npcDef) return { ok: false, msg: 'NPC数据缺失' };
-    p.stats.npcTalks++;
-    const options = npcDef.options.map(o => {
-      let available = true, hint = null;
-      if (o.need && !p.keys.includes(o.need) && !this.keys.has(o.need)) { available = false; hint = o.missingText || '缺少道具'; }
-      if (o.once && this.flags.has('dlg:' + npcE.npcId + ':' + o.id)) available = false;
-      if (o.cost && o.cost.gold > p.gold) { available = false; hint = '金币不足'; }
-      return { id: o.id, text: o.text, tag: o.tag, available, hint };
-    });
-    this.dialogues.set(p.pid, { npcEid: npcE.eid, npcName: npcDef.name, greet: npcDef.greet, options });
-    this.narrate('npcTalk', { actor: p.name, target: npcDef.name });
-    return { ok: true, dialogue: true };
-  }
-  actDialogueOption(pid, { optionId }) {
-    const p = this.players.get(pid);
-    const dlg = this.dialogues.get(pid);
-    if (!p || !dlg) return { ok: true }; // 对话已关闭：静默成功，防竞态刷屏
-    const npcE = this.entities.get(dlg.npcEid);
-    const npcDef = NPCS[npcE?.npcId];
-    if (!npcDef) return { ok: false, msg: 'NPC数据缺失' };
-    const opt = npcDef.options.find(o => o.id === optionId);
-    if (!opt) return { ok: false, msg: '选项无效' };
-    if (opt.need && !p.keys.includes(opt.need) && !this.keys.has(opt.need)) return { ok: false, msg: opt.missingText || '缺少道具' };
-    if (opt.once && this.flags.has('dlg:' + npcE.npcId + ':' + opt.id)) return { ok: false, msg: '已经做过了' };
-    if (opt.cost) {
-      if (opt.cost.gold && p.gold < opt.cost.gold) return { ok: false, msg: '金币不足' };
-      p.gold -= opt.cost.gold || 0;
-      if (opt.cost.item) p.items[opt.cost.item]++; // 购买类：花费金币，获得道具
-    }
-    this.flags.add('dlg:' + npcE.npcId + ':' + opt.id);
-    this.dialogues.delete(pid);
-    if (opt.tag) {
-      p.stats.talkTags.push(opt.tag);
-      if (['persuasion', 'deception', 'intimidation'].includes(opt.tag)) { /* 交涉标签已记录 */ }
-    }
-    const res = opt.result || {};
-    if (res.flag) { this.flags.add(res.flag); if (res.flag === 'rescue_sildar' && !p.stats.rescues.includes('sildar')) p.stats.rescues.push('sildar'); if (res.flag === 'rescue_gundren' && !p.stats.rescues.includes('gundren')) p.stats.rescues.push('gundren'); if (res.flag === 'rescue_villager' && !p.stats.rescues.includes('villager')) p.stats.rescues.push('villager'); }
-    if (res.gold) { p.gold += res.gold; p.stats.goldEarned += res.gold; }
-    if (res.heal) { const pe = this.entities.get(p.eid); if (pe) this._heal(pe, res.heal, pe); }
-    if (res.upgrade === 'weapon') { p.sheet.upgradeWeapon = true; }
-    const reply = res.log || '……';
-    this.logMsg('narr', '💬 ' + p.name + ' → ' + npcDef.name + '：「' + opt.text.replace(/^\[[^\]]+\]\s*/, '') + '」');
-    this.logMsg('narr', '💬 ' + npcDef.name + '：' + reply, { dm: true });
-    // 目标完成检查（救出西达尔 → 章节目标）
-    this._checkChapterObjective();
-    this._checkPublicWin();
-    return { ok: true };
-  }
-
-  _checkChapterObjective() {
-    const obj = this.chapter.objective;
-    if (!obj || this.flags.has('obj:' + obj.id)) return;
-    let done = false;
-    if (obj.id === 'rescue_sildar') done = this.flags.has('rescue_sildar');
-    if (obj.id === 'defeat_glasstaff') done = [...this.entities.values()].some(e => e.defKey === 'glasstaff' && e.dead);
-    if (obj.id === 'rescue_gundren') done = this.flags.has('rescue_gundren');
-    if (obj.id === 'clear_ambush') done = this.deadSquads.has(this.chapter.id + ':ambush');
-    if (obj.id === 'beat_nezznar') done = this.flags.has('nezznar_dead');
-    if (done) {
-      this.flags.add('obj:' + obj.id);
-      this.logMsg('system', '✅ 章节目标达成：' + obj.text);
-      this.narrate('goalAssign', { goal: obj.doneHint });
-      this.logMsg('narr', obj.doneHint, { dm: true });
-    }
-  }
-  _tryTravel(targetExit, p) {
-    const need = targetExit.need;
-    if (need && !this.flags.has(need) && !this.flags.has('obj:' + need)) {
-      this.logMsg('system', '🚧 出口未解锁：' + (need === 'town_info' ? '你们还需要更多凡达林镇的情报。' : '先完成当前目标。'));
-      return { ok: false, msg: '出口未解锁' };
-    }
-    if (targetExit.to === null || targetExit.interact === 'forge') {
-      if (this.flags.has('nezznar_dead')) return { ok: false, msg: '冒险已经结束了' };
-      this.logMsg('system', '🔮 法术熔炉散发着幽光。击败黑蜘蛛后，它才会真正苏醒。');
-      return { ok: false, msg: '还不是时候' };
-    }
-    const nextIdx = this.dungeon.chapters.findIndex(c => c.id === targetExit.to);
-    if (nextIdx < 0) return { ok: false, msg: '未知地点' };
-    const forward = nextIdx > this.chapterIdx;
-    const wasBossChapter = this.chapter.boss && this.flags.has('obj:' + this.chapter.objective?.id);
-    this.narrate('travel', { place: this.dungeon.chapters[nextIdx].place });
-    this.logMsg('system', '🚶 队伍前往：' + this.dungeon.chapters[nextIdx].place);
-    this._loadChapter(nextIdx);
-    const ch = this.chapter;
-    this.logMsg('system', '━━━ ' + ch.name + ' ━━━');
-    this.narrate('chapterStart', { n: nextIdx, place: ch.place });
-    this.logMsg('narr', ch.intro, { dm: true });
-    this.logMsg('system', '🎯 ' + ch.objective.text + (ch.objective.isPublic ? '（公开目标！）' : ''));
-    for (const [pid, pl] of this.players) pl.charges.shortrest = 2;
-    for (const [pid, pl] of this.players) pl.charges.longrest = 1;
-    if (!this.combat.active) { this.turn = null; this._startFirstTurn(); }
-    this.onChange();
-    return { ok: true, traveled: true };
-  }
-
   // R-9: 结算评价（LLM一句话评价+评分，离线模板降级）
   async evaluate(pid) {
     const p = this.players.get(pid);
-    if (!p || !this.win) return { err: '现在不能评价' };
+    if (!p || !this.win) return { err: '冒险结束后才能生成评价' };
     const s = p.stats;
     const alive = !p.dead;
     const rating = this._ratePlayer(s, alive);

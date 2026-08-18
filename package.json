@@ -8,7 +8,9 @@
     "start": "node server/index.mjs",
     "extract:pdf": "node tools/extract-pdf.mjs",
     "sim": "node simulate/bots.mjs",
-    "e2e": "node simulate/e2e.mjs"
+    "e2e": "node simulate/e2e.mjs",
+    "auth": "node tools/auth-test.mjs",
+    "layout": "node tools/layout-probe.mjs"
   },
   "dependencies": {
     "pdfjs-dist": "^4.10.38",
