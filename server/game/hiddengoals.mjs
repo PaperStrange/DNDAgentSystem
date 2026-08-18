@@ -53,8 +53,8 @@ export const GOAL_TEMPLATES = [
   { id: 'vanguard', name: '先登勇士', bias: ['fighter', 'ranger'],
     text: (p) => '以至少15点的先攻值赢下2场战斗',
     verify: (s) => s.initiativeWins >= 2 },
-  { id: 'ascetic', name: '苦修者', bias: [],
-    text: (p) => '全程不使用任何休息，并活到终局',
+  { id: 'ascetic', name: '苦修者·不眠不休', bias: [],
+    text: (p) => '全程不使用任何休息（短休/长休），并活到终局',
     verify: (s, alive) => s.restsUsed === 0 && alive },
 ];
 

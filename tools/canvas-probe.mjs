@@ -23,12 +23,15 @@ async function main() {
     await page.click('.create-box .btn.gold');
     await page.waitForSelector('.room-code');
     await page.fill('input[placeholder="为你的角色起个名字"]', '探针侠');
-    await page.locator('.cg-section').nth(1).locator('.opt-card').first().click();
-    await page.locator('.cg-section').nth(2).locator('.opt-card').first().click();
+    await page.locator('.opt-grid').nth(0).locator('.opt-card').first().click();
+    await page.locator('.opt-grid').nth(1).locator('.opt-card').first().click();
     await page.waitForTimeout(300);
     await page.click('button:has-text("保存车卡")');
     await page.waitForTimeout(500);
     await page.click('button:has-text("准备就绪")');
+    // B-10: 单人准备后需在确认框中选择"立即开始"
+    await page.waitForSelector('.dialog-overlay', { timeout: 5000 });
+    await page.click('.dialog-overlay button:has-text("立即开始")');
     await page.waitForSelector('.screen-game', { timeout: 15000 });
     await page.waitForTimeout(2500);
     const data = await page.evaluate(() => {

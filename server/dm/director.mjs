@@ -3,6 +3,7 @@ import { personaById } from './personas.mjs';
 import { offlineNarrate } from './narrator.mjs';
 import { chat, extractJson, llmAvailable } from '../llm.mjs';
 import { RULES_REFERENCE } from '../rules/rulesdb.mjs';
+import { NPCS, MONSTERS } from '../game/dungeon.mjs';
 import { assignOfflineGoals, offlineVerify, goalPromptContext } from '../game/hiddengoals.mjs';
 
 // 提示词注入防护：玩家可控文本（昵称/发言/事件）仅视为游戏内数据
@@ -42,6 +43,8 @@ export class Director {
   async _assignGoals(game) {
     if (this.online) {
       try {
+        const npcNames = [...new Set(this.dungeon.chapters.flatMap(c => (c.npcs || []).map(n => NPCS[n.def]?.name).filter(Boolean)))];
+        const bossNames = [...new Set(this.dungeon.chapters.flatMap(c => (c.monsters || []).filter(m => m.squad === 'boss').map(m => MONSTERS[m.def]?.name).filter(Boolean)))];
         const msgs = [
           { role: 'system', content: '你是' + this.persona.name + '（' + this.persona.title + '）。' + this.persona.systemPrompt + ' ' + INJECTION_GUARD },
           { role: 'user', content: [
@@ -52,6 +55,7 @@ export class Director {
             '请根据每位玩家的职业与背景，为每人设计1个贴合剧情、在本次冒险中可完成、有明确判定标准的【隐藏目标】（仅该玩家可见）。',
             '要求：目标必须可以在游戏数据中验证（如造成X伤害/击杀X敌人/救出某NPC/施法X次等），难度适中，5人目标各不相同。',
             '硬性规则：目标必须由该玩家本人完成（领取人=本人车卡角色），目标对象只能是剧本中的NPC、怪物或BOSS，严禁涉及其他玩家（本版本无PVP）。',
+            '称谓约束（B-12）：目标名必须使用简明的动词/名词短语（如「力挽狂澜」「救出西达尔」），禁止使用含义模糊的称号；若目标涉及具体对象，必须在text中写出剧本里的真实名称与身份（如：西达尔——克拉格莫洞穴中被囚的战士；黑蜘蛛涅兹纳尔——回声波洞穴的最终BOSS），禁止使用「苦修者」「神秘旅人」等无法定位的称谓。剧本NPC：' + npcNames.join('、') + '；剧本BOSS：' + bossNames.join('、') + '。',
             '以JSON输出：{"goals":[{"pid":"...","name":"目标名","text":"目标描述（含量化标准）"}]}，pid使用给定值。',
           ].join('\n') },
         ];
@@ -72,23 +76,35 @@ export class Director {
   }
 
   // 宣称裁定（异步：在线LLM裁定，失败降级离线验证）
+  // R-17：裁定必须严格依据规则书（唯一真相来源），不得编造；裁定依据写入'ruling'日志，仅房主可见
   async judgeClaim(game, p, goal, alive) {
+    const hostPid = game.room?.hostId || p.pid;
+    const logRuling = (okRes, basis) => {
+      game.logMsg('ruling', '⚖️ [裁定] ' + p.name + ' 的隐藏目标宣称：' + (okRes ? '成立' : '不成立') + '｜规则依据：' + basis, { private: hostPid, ruling: true });
+    };
     if (this.online && !goal.offline) {
       const summary = this._eventSummary(game, p);
       const msgs = [
         { role: 'system', content: '你是' + this.persona.name + '。' + this.persona.systemPrompt + ' ' + INJECTION_GUARD },
-        { role: 'user', content: '玩家' + p.name + '宣称其隐藏目标已达成：' + goal.text + '。\n该玩家本次冒险的行为摘要：\n' + summary + '\n请严格依据摘要与5E规则裁定是否成立，只输出JSON：{"ok":true或false,"comment":"简短评语"}' },
+        { role: 'user', content: '以下是5E规则速查（你裁定的唯一依据，禁止编造其中不存在的规则）：\n' + RULES_REFERENCE + '\n\n玩家' + p.name + '宣称其隐藏目标已达成：' + goal.text + '。\n该玩家本次冒险的行为摘要：\n' + summary + '\n请严格依据上述规则与摘要裁定是否成立。只输出JSON：{"ok":true或false,"rule":"所依据的规则编号或名称","comment":"简短评语"}' },
       ];
       const res = await chat(msgs, { json: true, temperature: 0.3, timeoutMs: 20000 });
       const data = res ? extractJson(res.text) : null;
       if (data && typeof data.ok === 'boolean') {
         if (data.comment) game.logMsg('narr', '⚖️ ' + this.persona.name + '：' + data.comment, { dm: true });
+        logRuling(data.ok, String(data.rule || '5E规则速查').slice(0, 60));
         return { ok: data.ok };
       }
-      if (goal.offline) return { ok: offlineVerify(goal, p.stats, alive) };
+      if (goal.offline) {
+        const okRes = offlineVerify(goal, p.stats, alive);
+        logRuling(okRes, '隐藏目标机械验收标准（服务器自动验证，未采用AI裁定）');
+        return { ok: okRes };
+      }
       return { ok: false };
     }
-    return { ok: offlineVerify(goal, p.stats, alive) };
+    const okRes = offlineVerify(goal, p.stats, alive);
+    logRuling(okRes, '隐藏目标机械验收标准（服务器自动验证，无AI介入）');
+    return { ok: okRes };
   }
 
   _eventSummary(game, p) {

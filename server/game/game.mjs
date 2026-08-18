@@ -55,10 +55,11 @@ export class Game {
     this.dialogues = new Map();
     this.xpPool = 0;
     this.seatOrder = [...sheets.keys()];
+    const soloStartPotion = sheets.size === 1 ? 3 : 1; // B-11：单人开局多带治疗药水，避免1分钟内团灭
     for (const [pid, sheet] of sheets) {
       this.players.set(pid, {
         pid, name: sheet.name, sheet, eid: null, gold: 30, level: 1, xp: 0,
-        items: { potion: 1, flask: 0 }, keys: [],
+        items: { potion: soloStartPotion, flask: 0 }, keys: [],
         slots: sheet.spells?.length ? { 1: 2 } : null,
         charges: {}, blessed: false, mark: null, hiddenThisRound: false, halflingReroll: true,
         deathSaves: { s: 0, f: 0 }, downed: false, stable: false, dead: false,
@@ -114,13 +115,20 @@ export class Game {
       p.deathSaves = { s: 0, f: 0 };
       if (p.downed && !p.dead) { e.hp = Math.max(1, p.sheet.maxHp); p.downed = false; }
     }
-    // 章节怪物
+    // 章节怪物（B-11：小队不足4人时按比例缩减数量与生命，保证单人可玩；4/5人队维持原样）
+    const partySize = Math.max(1, [...this.players.values()].filter(p => !p.dead).length);
+    this.partyHpScale = partySize < 4 ? 0.5 + 0.5 * partySize / 4 : 1;
+    const scaledCount = (c) => partySize < 4 ? Math.max(1, Math.min(c, Math.round(c * partySize / 4))) : c;
     const placedByDef = new Map();
     for (const ent of this.map.entities) {
       if (ent.kind !== 'monster') continue;
       const meta = (this.chapter.monsters || []).find(m => m.def === ent.def) || { def: ent.def, squad: 'auto' };
       const squadKey = this.chapter.id + ':' + meta.squad;
       if (this.deadSquads.has(squadKey)) continue;
+      if (meta.count !== undefined) {
+        const placed = placedByDef.get(ent.def)?.length || 0;
+        if (placed >= scaledCount(meta.count)) continue;
+      }
       const e = this._monsterEntity(meta.def, meta, ent.x, ent.y, meta.squad);
       this.entities.set(e.eid, e);
       if (!placedByDef.has(ent.def)) placedByDef.set(ent.def, []);
@@ -131,7 +139,8 @@ export class Game {
       const placed = placedByDef.get(meta.def)?.length || 0;
       const squadKey = this.chapter.id + ':' + meta.squad;
       if (this.deadSquads.has(squadKey)) continue;
-      for (let i = placed; i < meta.count; i++) {
+      const target = scaledCount(meta.count);
+      for (let i = placed; i < target; i++) {
         const pt = this._randomWalkable();
         const e = this._monsterEntity(meta.def, meta, pt.x, pt.y, meta.squad);
         this.entities.set(e.eid, e);
@@ -178,7 +187,8 @@ export class Game {
   }
   _monsterEntity(defKey, meta, x, y, squad) {
     const m = MONSTERS[defKey];
-    return { eid: uid('mo'), kind: 'monster', defKey, name: m.name, icon: m.icon, x, y, hp: m.hp, maxHp: m.hp,
+    const hp = Math.max(1, Math.round(m.hp * (this.partyHpScale || 1))); // B-11：小队<4人时怪物生命按比例下调
+    return { eid: uid('mo'), kind: 'monster', defKey, name: m.name, icon: m.icon, x, y, hp, maxHp: hp,
       ac: m.ac, speed: m.speed, faction: 'foe', squad: squad, size: m.size || 1, downed: false, dead: false,
       attacks: m.attacks.map(a => ({ ...a })), boss: !!m.boss, finalBoss: !!m.finalBoss, undead: !!m.undead,
       gold: m.gold, xp: m.xp, lootKey: meta.lootKey || null, webSkip: false, prone: false, desc: m.desc };

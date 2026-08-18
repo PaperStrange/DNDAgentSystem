@@ -61,9 +61,9 @@ async function main() {
   for (let i = 0; i < 5; i++) {
     const p = pages[i];
     await p.fill('input[placeholder="为你的角色起个名字"]', NAMES[i]);
-    await p.locator('.cg-section').nth(1).locator('.opt-card').first().click(); // 种族：人类
+    await p.locator('.opt-grid').nth(0).locator('.opt-card').first().click(); // 种族：人类
     const clsIdx = ['fighter', 'cleric', 'wizard', 'rogue', 'ranger'].indexOf(CLASSES[i]);
-    await p.locator('.cg-section').nth(2).locator('.opt-card').nth(clsIdx).click(); // 职业
+    await p.locator('.opt-grid').nth(1).locator('.opt-card').nth(clsIdx).click(); // 职业
     await p.waitForTimeout(400);
     await p.click('button:has-text("保存车卡")');
     await p.waitForTimeout(400);

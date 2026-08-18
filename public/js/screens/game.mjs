@@ -1,13 +1,14 @@
 // 游戏主界面：像素画布 + 回合交互 + 战斗 + 对话 + 结算
-import { store, el } from '../app.mjs';
-import { TILE, drawTile, drawSprite, spritePalette } from '../pixel.mjs';
+import { store, el, toast } from '../app.mjs';
+import { TILE, drawTile, drawSprite, spritePalette, spriteToCanvas } from '../pixel.mjs';
 import { createPolicy } from '../../shared/autoplay-policy.mjs';
+import { markDeathByName } from '../roster.mjs';
 
 let SCALE = 4;
 
 export function mountGame(root, view) {
   const net = store.net;
-  const g = { view, pending: null, floaters: [], anim: new Map(), introSeen: false, autoplay: false, policy: createPolicy(), sfx: true, lastSnapSeq: 0, speed: 1, logFilter: 'all', cardSent: false };
+  const g = { view, pending: null, floaters: [], anim: new Map(), introSeen: false, autoplay: false, policy: createPolicy(), sfx: true, lastSnapSeq: 0, speed: 1, logFilter: 'all', cardSent: false, panelTab: 'log', unitFilter: null, rosterMarked: false };
   let raf = null, canvas, ctx, wrap, autoTicker = null;
 
   // ---------- DOM ----------
@@ -33,14 +34,19 @@ export function mountGame(root, view) {
     g.policy.setThrottle(Math.round(200 / g.speed));
     restartTicker();
   };
-  // 暂停按钮（R-5）
+  // 暂停按钮（R-5）+ R-15：仅房主可操作，空格键同效
   const pauseBtn = el('button', 'btn small', '⏸ 暂停');
   pauseBtn.title = '暂停自动战斗（怪物停止行动，可安心查看日志）';
-  pauseBtn.onclick = () => {
+  function togglePause() {
     g.paused = !g.paused;
     net.send('game:pause', { paused: g.paused });
     pauseBtn.textContent = g.paused ? '▶ 继续' : '⏸ 暂停';
     pauseBtn.classList.toggle('gold', g.paused);
+    toast(g.paused ? '⏸ 已暂停（怪物停止行动）' : '▶ 已继续', false);
+  }
+  pauseBtn.onclick = () => {
+    if (!isHostMe) { toast('⚖️ 只有房主可以暂停', true); return; }
+    togglePause();
   };
   const leaveBtn = el('button', 'btn small danger', '退出房间');
   leaveBtn.title = '离开冒险并退出房间';
@@ -53,6 +59,16 @@ export function mountGame(root, view) {
   autoBtn.onclick = () => { g.autoplay = !g.autoplay; autoBtn.classList.toggle('gold', g.autoplay); };
   top.append(gtChapter, gtObj, gtTurn, modeBadge, speedSel, pauseBtn, autoBtn, sfxBtn, leaveBtn);
   screen.appendChild(top);
+  // R-15：房主身份 + 非房主禁用调速控件 + 快捷键提示行
+  const isHostMe = store.pid === g.view?.room?.hostId;
+  if (!isHostMe) {
+    speedSel.disabled = true;
+    pauseBtn.disabled = true;
+    speedSel.title = '只有房主可以调整速度';
+    pauseBtn.title = '只有房主可以暂停';
+  }
+  const hintRow = el('div', 'game-hint', '💡 快捷键：空格=暂停/继续 · 小键盘←/→=减速/加速（仅房主）' + (isHostMe ? '' : ' · 你非房主，仅可旁观'));
+  screen.appendChild(hintRow);
 
   const body = el('div', 'game-body');
   const canvasWrap = el('div', 'game-canvas-wrap');
@@ -75,6 +91,13 @@ export function mountGame(root, view) {
     if (!v || !v.game) return;
     const gv = v.game;
     side.innerHTML = '';
+    // R-16: 顶部回合指示（第N回合 · 轮到谁）
+    if (gv.combat?.active) {
+      const activeEnt = gv.entities.find(e => e.eid === gv.turn?.actorEid);
+      gtTurn.textContent = '⚔️ 第' + gv.combat.round + '回合' + (activeEnt ? ' · 轮到 ' + activeEnt.name : '');
+    } else {
+      gtTurn.textContent = '';
+    }
 
     // 我的状态
     const mePanel = el('div', 'panel side-panel');
@@ -219,47 +242,92 @@ export function mountGame(root, view) {
     roster.appendChild(rlist);
     side.appendChild(roster);
 
-    // 日志（R-7：过滤标签 + 关键信息高亮）
+    // R-16：行动顺序条（手动模式核心：显示先攻顺序+当前回合者，点击头像查看其行动结果）
+    if (gv.combat?.active && gv.combat.order?.length) {
+      const orderPanel = el('div', 'panel side-panel');
+      orderPanel.appendChild(el('h4', '', '🎯 行动顺序 · 第' + gv.combat.round + '回合（点击头像查看行动）'));
+      const ob = el('div', 'order-bar');
+      for (const eid of gv.combat.order) {
+        const ent = gv.entities.find(x => x.eid === eid);
+        if (!ent) continue;
+        const chip = el('button', 'order-chip' + (gv.turn?.actorEid === ent.eid ? ' active' : '') + (g.unitFilter === ent.name ? ' sel' : ''), (ent.icon || '') + ' ' + ent.name);
+        chip.title = '查看 ' + ent.name + ' 的行动记录';
+        chip.onclick = () => {
+          g.unitFilter = g.unitFilter === ent.name ? null : ent.name;
+          g.panelTab = 'log';
+          renderSide();
+        };
+        ob.appendChild(chip);
+      }
+      orderPanel.appendChild(ob);
+      side.appendChild(orderPanel);
+    }
+
+    // 日志（R-7：过滤标签 + 关键信息高亮）+ R-18：日志/聊天切换
     const logPanel = el('div', 'panel side-panel');
     logPanel.appendChild(el('h4', '', '📜 ' + v.room.personaName + ' 的冒险日志'));
-    const filterRow = el('div', 'row');
-    filterRow.style.marginBottom = '6px';
-    const filters = [['all', '全部'], ['combat', '⚔️战斗'], ['narr', '📖剧情'], ['dice', '🎲掷骰']];
-    for (const [key, label] of filters) {
-      const fb = el('button', 'btn small' + (g.logFilter === key ? ' gold' : ''), label);
-      fb.onclick = () => { g.logFilter = key; renderSide(); };
-      filterRow.appendChild(fb);
-    }
-    logPanel.appendChild(filterRow);
-    const logBox = el('div', 'log-box');
-    const highlight = (text) => {
-      let cls = '';
-      if (/🎉|🏆|升到了|获得新特性|BOSS|涅兹纳尔/.test(text)) cls = ' important';
-      else if (/受到|💥/.test(text)) cls = ' dmg';
-      else if (/恢复|💖|治疗/.test(text)) cls = ' heal';
-      else if (/金币|💰/.test(text)) cls = ' gold';
-      return cls;
-    };
-    for (const l of gv.log) {
-      if (g.logFilter !== 'all') {
-        if (g.logFilter === 'combat' && !['combat', 'dice'].includes(l.kind)) continue;
-        if (g.logFilter === 'narr' && l.kind !== 'narr') continue;
-        if (g.logFilter === 'dice' && l.kind !== 'dice') continue;
+    const tabRow = el('div', 'row');
+    tabRow.style.marginBottom = '6px';
+    const logTabBtn = el('button', 'btn small' + (g.panelTab === 'log' ? ' gold' : ''), '📜 日志');
+    logTabBtn.onclick = () => { g.panelTab = 'log'; renderSide(); };
+    const chatTabBtn = el('button', 'btn small' + (g.panelTab === 'chat' ? ' gold' : ''), '💬 聊天');
+    chatTabBtn.onclick = () => { g.panelTab = 'chat'; renderSide(); };
+    tabRow.append(logTabBtn, chatTabBtn);
+    logPanel.appendChild(tabRow);
+    if (g.panelTab === 'chat') {
+      // R-18：玩家聊天（与日志分页展示）
+      const chatBox = el('div', 'log-box');
+      const chats = gv.log.filter(l => l.kind === 'chat');
+      if (!chats.length) chatBox.appendChild(el('div', 'lg system', '还没有人说话，来打个招呼吧～'));
+      for (const l of chats) chatBox.appendChild(el('div', 'lg chat', l.text));
+      chatBox.scrollTop = chatBox.scrollHeight;
+      logPanel.appendChild(chatBox);
+      const chatRow = el('div', 'chat-input-row mt8');
+      const chatInput = el('input', '');
+      chatInput.placeholder = '对队伍说点什么…（回车发送）';
+      chatInput.onkeydown = (e) => {
+        if (e.key === 'Enter' && chatInput.value.trim()) { net.send('game:say', { text: chatInput.value.trim() }); chatInput.value = ''; }
+      };
+      chatRow.appendChild(chatInput);
+      logPanel.appendChild(chatRow);
+    } else {
+      const filterRow = el('div', 'row');
+      filterRow.style.marginBottom = '6px';
+      const filters = [['all', '全部'], ['combat', '⚔️战斗'], ['narr', '📖剧情'], ['dice', '🎲掷骰'], ['ruling', '⚖️裁定']];
+      for (const [key, label] of filters) {
+        const fb = el('button', 'btn small' + (g.logFilter === key && !g.unitFilter ? ' gold' : ''), label);
+        fb.onclick = () => { g.logFilter = key; g.unitFilter = null; renderSide(); };
+        filterRow.appendChild(fb);
       }
-      const div = el('div', 'lg ' + (l.kind || '') + highlight(l.text), l.text);
-      logBox.appendChild(div);
+      if (g.unitFilter) {
+        const clear = el('button', 'btn small gold', '只看「' + g.unitFilter + '」 ✕');
+        clear.onclick = () => { g.unitFilter = null; renderSide(); };
+        filterRow.appendChild(clear);
+      }
+      logPanel.appendChild(filterRow);
+      const logBox = el('div', 'log-box');
+      const highlight = (text) => {
+        let cls = '';
+        if (/🎉|🏆|升到了|获得新特性|BOSS|涅兹纳尔/.test(text)) cls = ' important';
+        else if (/受到|💥/.test(text)) cls = ' dmg';
+        else if (/恢复|💖|治疗/.test(text)) cls = ' heal';
+        else if (/金币|💰/.test(text)) cls = ' gold';
+        return cls;
+      };
+      for (const l of gv.log) {
+        if (g.unitFilter && !l.text.includes(g.unitFilter)) continue;
+        if (!g.unitFilter && g.logFilter !== 'all') {
+          if (g.logFilter === 'combat' && !['combat', 'dice'].includes(l.kind)) continue;
+          if (g.logFilter === 'narr' && l.kind !== 'narr') continue;
+          if (g.logFilter === 'dice' && l.kind !== 'dice') continue;
+          if (g.logFilter === 'ruling' && l.kind !== 'ruling') continue;
+        }
+        const div = el('div', 'lg ' + (l.kind || '') + highlight(l.text), l.text);
+        logBox.appendChild(div);
+      }
+      logBox.scrollTop = logBox.scrollHeight;
+      logPanel.appendChild(logBox);
     }
-    logBox.scrollTop = logBox.scrollHeight;
-    logPanel.appendChild(logBox);
-    // 聊天
-    const chatRow = el('div', 'chat-input-row mt8');
-    const chatInput = el('input', '');
-    chatInput.placeholder = '对队伍说点什么…（回车发送）';
-    chatInput.onkeydown = (e) => {
-      if (e.key === 'Enter' && chatInput.value.trim()) { net.send('game:say', { text: chatInput.value.trim() }); chatInput.value = ''; }
-    };
-    chatRow.appendChild(chatInput);
-    logPanel.appendChild(chatRow);
     side.appendChild(logPanel);
   }
 
@@ -551,9 +619,34 @@ export function mountGame(root, view) {
     }
     net.send('game:move', { x: tile.x, y: tile.y });
   });
+  // R-15: 快捷键——空格=暂停/继续（房主）、小键盘←/→=减速/加速（房主）；非房主空格=结束回合（手动模式）
   document.addEventListener('keydown', (ev) => {
-    if (ev.key === 'Escape') clearPending();
-    if (ev.key === ' ' && g.view?.game?.turn?.playerId === store.pid) { ev.preventDefault(); net.send('game:endturn'); }
+    if (ev.key === 'Escape') { clearPending(); return; }
+    const tag = ev.target?.tagName;
+    if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return; // 输入框内不拦截
+    const gv = g.view?.game;
+    if (ev.key === ' ') {
+      ev.preventDefault();
+      if (isHostMe) { togglePause(); return; }
+      if (gv?.turn?.playerId === store.pid) { net.send('game:endturn'); return; }
+      toast('⚖️ 空格=暂停是房主专属操作', true);
+      return;
+    }
+    if (ev.key === 'Numpad4' || ev.key === 'Numpad6' || ev.key === 'ArrowLeft' || ev.key === 'ArrowRight') {
+      ev.preventDefault();
+      if (!isHostMe) { toast('⚖️ 小键盘←/→调速是房主专属操作', true); return; }
+      const steps = [0.5, 1, 2, 4];
+      let idx = steps.indexOf(g.speed || 1);
+      if (idx < 0) idx = 1;
+      const slower = ev.key === 'Numpad4' || ev.key === 'ArrowLeft';
+      const ns = steps[slower ? Math.max(0, idx - 1) : Math.min(steps.length - 1, idx + 1)];
+      g.speed = ns;
+      speedSel.value = String(ns);
+      net.send('game:speed', { speed: ns });
+      g.policy.setThrottle(Math.round(200 / ns));
+      restartTicker();
+      toast('⚡ 战斗速度 ' + ns + 'x');
+    }
   });
 
   function manhattan(a, b) { return Math.abs(a.x - b.x) + Math.abs(a.y - b.y); }
@@ -715,6 +808,11 @@ export function mountGame(root, view) {
         g.cardSent = true;
         net.send('game:eval');
       }
+      // R-11: 冒险结束时更新名册——阵亡角色标记为已死亡（永久禁战）
+      if (!g.rosterMarked && gv.me) {
+        g.rosterMarked = true;
+        if (gv.me.dead) markDeathByName(gv.me.name);
+      }
       const evalBox = el('div', 'adventure-card' + (g.cardEval ? '' : ' loading'));
       if (g.cardEval) {
         const e = g.cardEval;
@@ -781,6 +879,43 @@ export function mountGame(root, view) {
     clearPending: () => clearPending(),
   };
 
+  // R-10: 生成高光时刻配图（程序化像素画：主角+最终BOSS同框）
+  function makeHighlightArt(me, w) {
+    try {
+      const cv = document.createElement('canvas');
+      cv.width = 96; cv.height = 64;
+      const c2 = cv.getContext('2d');
+      const grad = c2.createLinearGradient(0, 0, 0, 64);
+      grad.addColorStop(0, '#14101f');
+      grad.addColorStop(1, '#2a1c33');
+      c2.fillStyle = grad;
+      c2.fillRect(0, 0, 96, 64);
+      c2.fillStyle = '#3a2c22';
+      c2.fillRect(0, 52, 96, 12);
+      c2.fillStyle = '#4a3a2c';
+      c2.fillRect(0, 52, 96, 2);
+      for (let i = 0; i < 16; i++) {
+        c2.fillStyle = 'rgba(255,190,90,' + (0.1 + Math.random() * 0.22).toFixed(2) + ')';
+        c2.fillRect(Math.floor(Math.random() * 96), Math.floor(Math.random() * 48), 2, 2);
+      }
+      c2.imageSmoothingEnabled = false;
+      const pal = spritePalette('player', 'human', me.sheet.colors || {});
+      const pc = spriteToCanvas('player', 'human', pal, me.sheet.class, me.sheet.race);
+      c2.drawImage(pc, 8, 10, 32, 36);
+      const foeKey = w.kind === 'defeat' ? 'goblin' : (w.kind === 'hidden' ? 'giantspider' : 'nezznar');
+      const fc = spriteToCanvas('monster', foeKey, spritePalette('monster', foeKey), null, null);
+      c2.drawImage(fc, 56, 10, 32, 36);
+      if (w.kind === 'defeat') {
+        c2.fillStyle = 'rgba(120,10,10,.28)';
+        c2.fillRect(0, 0, 96, 64);
+      } else {
+        c2.fillStyle = 'rgba(255,208,80,.14)';
+        c2.fillRect(0, 0, 96, 64);
+      }
+      return cv.toDataURL('image/png');
+    } catch (err) { return null; }
+  }
+
   // R-9: 保存冒险卡片到故事集（localStorage）
   function saveAdventureCard(e) {
     try {
@@ -810,6 +945,7 @@ export function mountGame(root, view) {
         rating: e.rating.rank,
         score: e.rating.score,
         comment: e.comment,
+        art: makeHighlightArt(me, w), // R-10: 高光时刻配图
       };
       let cards = [];
       try { cards = JSON.parse(localStorage.getItem('dnd_cards') || '[]'); } catch (err) { cards = []; }

@@ -9,6 +9,16 @@ import { chat, llmAvailable } from '../llm.mjs';
 
 export const MAX_PLAYERS = 5;
 
+// R-12：离线背景故事模板（每条≥150字、风格各异，供随机生成）
+export const BG_TEMPLATES = [
+  (race, cls) => '凡达林的酒馆里流传着这样一则轶闻：一位' + race + '出身的' + cls + '，曾在某个雨夜独自击退了三名闹事的醉汉，只因他们踢翻了他的酒杯。有人说他流浪至此是为了躲避旧日的债，有人说他在寻找一件失传的宝物。无论真假，每当炉火噼啪作响，人们总会压低声音，把这件事讲给新来的旅人听，仿佛他早已是这座小镇命运的一部分。如今，故事仍在继续。',
+  (race, cls) => '占卜师在烛光下翻开了泛黄的纸牌，指着其中一张说道："你将踏上一条布满箭矢与阴影的路，最终站在黑蜘蛛的王座之前。"这位' + race + '起初只当是疯话，直到连日梦见同一座洞穴与同一双眼睛。于是他收拾行囊、告别故土，把占卜的残片缝进行囊的衬里，循着命运的丝线一路向西，走向那座名为凡达林的镇子。据说，那副泛黄的牌从未出过错。',
+  (race, cls) => '他曾经是商队护卫队的一员，在那场哥布林伏击中失去了所有的同伴，只有身为' + race + '的' + cls + '活了下来。从那以后，他不再相信任何没有刀鞘的承诺，并在残破的马车旁立下誓言：再也不会让任何同行者倒在自己前面。如今他背着修补过无数次的行囊，重新走上通往凡达林的道路，只为完成一桩早已无人记得的委托，和一场迟来的告别。此志不移。',
+  (race, cls) => '拨动三弦，且听我唱一段' + race + '的故事：这位' + cls + '生来不合群，白日里磨剑擦弓，黑夜里对着篝火和自己的影子说话。镇上的孩子笑他是疯子，直到野狼夜袭羊圈的那一晚，他独自提着火把走进黑暗，天亮时拖回三张狼皮。从此再无人敢嘲笑他。如今他哼着自编的小调出了镇子，说要到凡达林去，看看那里是不是真有比狼更坏的东西。歌还没唱完。',
+  (race, cls) => '朝圣途中，我在十字路口遇见一位' + race + '。他自称' + cls + '，却对神殿的规矩一知半解，只反复擦拭一枚磨得发亮的护符。他说自己并非朝圣，而是要去凡达林寻找一个失踪多年的旧友。临别时他告诉我，若是听到北边洞穴里传来狼嚎，就替他点一盏灯。我不明白那是什么意思，但多年以后想起那双眼睛，总觉得有些故事，从一开始就注定与黑夜为伴。',
+  (race, cls) => '这是一封从未寄出的信："母亲，我如今成了一名' + cls + '。别担心，' + race + '的血液让我比看上去更结实。我在路上听说凡达林的矿洞出了事，冈德伦兄弟的马车在岔路口被掀翻。也许我只是个外乡人，可总得有人去看看。等春天，等我把洞里的黑蜘蛛揪出来，就回家看您。"信纸的边角已经发黄，落款处没有名字，只有一枚沾着尘土的指印。而旅程才刚刚开始。',
+];
+
 export class Rooms {
   constructor() {
     this.rooms = new Map(); // code -> room
@@ -94,7 +104,8 @@ export class Rooms {
   }
   _checkAutoStart(room) {
     if (room.phase !== 'prepare') return;
-    if (room.members.length >= 1 && room.members.every(p => room.ready.has(p))) {
+    // B-10：单人不再自动开局——需玩家确认后显式发送 room:start（或等队友加入全员就绪）
+    if (room.members.length >= 2 && room.members.every(p => room.ready.has(p))) {
       this.startGame(room);
     }
   }
@@ -103,7 +114,7 @@ export class Rooms {
     room.phase = 'intro';
     room.director = new Director({ personaId: room.personaId, dungeon: DUNGEONS.find(d => d.id === room.dungeonId) });
     const sheets = new Map([...room.members].map(pid => [pid, room.sheets.get(pid)]));
-    room.game = new Game({ room: { code: room.code, dungeonId: room.dungeonId }, sheets, personaId: room.personaId, director: room.director, onChange: () => this._broadcastRoom(room), isPlayerOnline: (pid) => this._isOnline ? this._isOnline(pid) : true });
+    room.game = new Game({ room: { code: room.code, dungeonId: room.dungeonId, hostId: room.hostId, mode: room.mode }, sheets, personaId: room.personaId, director: room.director, onChange: () => this._broadcastRoom(room), isPlayerOnline: (pid) => this._isOnline ? this._isOnline(pid) : true });
     const g = room.game;
     const origEnd = g._endGame.bind(g);
     g._endGame = (kind, reason) => { origEnd(kind, reason); room.phase = 'ended'; this.touch(room); };
@@ -167,6 +178,14 @@ export class Rooms {
     if (msg.t === 'room:kick') return this.kickRoom(player, msg.targetPid);
     if (msg.t === 'room:charsheet') return this.setSheet(player, msg.sheet);
     if (msg.t === 'room:ready') return this.setReady(player, !!msg.ready);
+    // R-14：车卡阶段房主可随时切换自动/手动战斗模式
+    if (msg.t === 'room:mode') {
+      const room = this.roomOf(player);
+      if (!room || room.phase !== 'prepare') return { err: '现在不能修改战斗模式' };
+      if (room.hostId !== player.pid) return { err: '只有房主可以修改战斗模式' };
+      room.mode = msg.mode === 'manual' ? 'manual' : 'auto';
+      return { room };
+    }
     if (msg.t === 'room:start') {
       const room = this.roomOf(player);
       if (!room) return { err: '不在房间中' };
@@ -179,27 +198,26 @@ export class Rooms {
     if (msg.t === 'room:bg-random') return this.randomBackground(player, msg);
     return { err: '未知消息' };
   }
-  // R-2: 由LLM为角色随机生成一句背景（离线模板降级）
+  // R-2/R-12: 由LLM为角色随机生成背景故事（≥150字、随机独特风格；离线模板降级）
   async randomBackground(player, msg) {
     const { RACES, CLASSES } = await import('../../public/shared/char-defs.mjs');
     const race = RACES.find(r => r.id === msg.raceId);
     const cls = CLASSES.find(c => c.id === msg.classId);
     if (!race || !cls) return { err: '参数无效' };
+    const styles = ['酒馆轶闻', '宿命预言', '老兵回忆', '街头艺人唱词', '朝圣者见闻', '旧日信笺'];
+    const style = styles[Math.floor(Math.random() * styles.length)];
     if (llmAvailable()) {
       try {
         const res = await chat([
-          { role: 'system', content: '你是龙与地下城的DM。请为玩家角色即兴创作一句背景故事（25字以内，简体中文，一句话，不含名字）。' },
-          { role: 'user', content: '种族：' + race.name + '；职业：' + cls.name + '。请写一句富有画面感的背景。' },
-        ], { temperature: 1.0, timeoutMs: 12000 });
-        if (res && res.text) return { ok: true, text: res.text.slice(0, 50) };
+          { role: 'system', content: '你是龙与地下城的DM，擅长为冒险者撰写背景故事。请以「' + style + '」的口吻写一段背景故事：150~220字，简体中文，不分段，风格独特、有画面感；不出现角色名字，用第三人称或「你」叙述均可。' },
+          { role: 'user', content: '种族：' + race.name + '；职业：' + cls.name + '。请直接输出故事正文。' },
+        ], { temperature: 1.1, timeoutMs: 25000 });
+        const text = res?.text?.trim();
+        if (text && text.replace(/\s/g, '').length >= 145) return { ok: true, text: text.slice(0, 400) }; // 不足145字则降级到≥150字模板
       } catch (e) { /* 降级 */ }
     }
-    const tpl = [
-      '曾是' + race.name + '中的一员，如今带着' + cls.name + '的本领行走四方。',
-      '在' + race.name + '的聚落长大，一心想要成为传奇' + cls.name + '。',
-      '背井离乡的' + race.name + '，靠' + cls.name + '的手艺讨生活。',
-    ];
-    return { ok: true, text: tpl[Math.floor(Math.random() * tpl.length)] };
+    const tpl = BG_TEMPLATES;
+    return { ok: true, text: tpl[Math.floor(Math.random() * tpl.length)](race.name, cls.name) };
   }
   async _gameMsg(player, msg) {
     const room = this.roomOf(player);
@@ -219,8 +237,9 @@ export class Rooms {
     if (t === 'game:claim') return g.actClaim(player.pid);
     if (t === 'game:say') return g.actSay(player.pid, msg.text);
     if (t === 'game:endturn') return g.actEndTurn(player.pid);
-    if (t === 'game:speed') { g.speed = Math.min(4, Math.max(0.5, Number(msg.speed) || 1)); return { ok: true }; }
-    if (t === 'game:pause') { g.paused = !!msg.paused; return { ok: true }; }
+    // R-15：速度/暂停仅房主可操作（服务器端强制）
+    if (t === 'game:speed') { if (room.hostId !== player.pid) return { err: '只有房主可以调整战斗速度' }; g.speed = Math.min(4, Math.max(0.5, Number(msg.speed) || 1)); return { ok: true }; }
+    if (t === 'game:pause') { if (room.hostId !== player.pid) return { err: '只有房主可以暂停' }; g.paused = !!msg.paused; return { ok: true }; }
     if (t === 'game:eval') return g.evaluate(player.pid);
     if (t === 'game:leave') return this.leaveRoom(player);
     return { err: '未知消息' };

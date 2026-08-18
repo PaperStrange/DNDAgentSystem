@@ -2,12 +2,14 @@
 import { store, el, toast } from '../app.mjs';
 import { RACES, CLASSES, MAX_STAT, MIN_STAT, POINT_POOL } from '../../shared/char-defs.mjs';
 import { SKIN_TONES, HAIR_TONES, OUTFIT_TONES, spriteToCanvas } from '../pixel.mjs';
+import { aliveEntries, upsertEntry, loadRoster } from '../roster.mjs';
 
 export function mountRoom(root, view) {
   const net = store.net;
   const me = view.me;
   const host = view.room.hostId;
   const room = view.room;
+  let lastView = view; // 供确认框读取最新成员数
 
   const box = el('div', 'screen-room');
   const head = el('div', 'room-head');
@@ -55,6 +57,22 @@ export function mountRoom(root, view) {
 
   // 右侧：车卡面板
   const right = el('div', 'panel');
+  // R-14：车卡阶段可选择自动/手动战斗模式（房主设定，开局前生效）
+  const modeBox = el('div', 'mode-box');
+  modeBox.appendChild(el('h3', '', '⚔️ 战斗模式'));
+  const seg = el('div', 'seg-row');
+  const autoBtn = el('button', 'seg-btn' + (room.mode !== 'manual' ? ' sel' : ''), '🤖 自动战斗');
+  const manBtn = el('button', 'seg-btn' + (room.mode === 'manual' ? ' sel' : ''), '🎲 手动战斗');
+  const isHostMe = me.pid === host;
+  autoBtn.disabled = !isHostMe;
+  manBtn.disabled = !isHostMe;
+  if (!isHostMe) { autoBtn.title = '战斗模式由房主设定'; manBtn.title = '战斗模式由房主设定'; }
+  autoBtn.onclick = () => net.send('room:mode', { mode: 'auto' });
+  manBtn.onclick = () => net.send('room:mode', { mode: 'manual' });
+  seg.append(autoBtn, manBtn);
+  modeBox.appendChild(seg);
+  modeBox.appendChild(el('div', 'muted', isHostMe ? '自动：全自动战斗，支持倍速/暂停；手动：逐回合手动操作。开局前可随时切换。' : '由房主设定'));
+  right.appendChild(modeBox);
   right.appendChild(el('h3', '', '📜 你的角色'));
   const chargen = mountChargen(right, view, net);
   let chargenRef = chargen;
@@ -65,11 +83,37 @@ export function mountRoom(root, view) {
   const readyState = el('div', 'muted', '全部成员准备后自动开局');
   const readyBtn = el('button', 'btn big gold', view.mySheet ? (view.members.find(m => m.pid === me.pid)?.ready ? '取消准备' : '✅ 准备就绪') : '请先完成车卡');
   readyBtn.disabled = !view.mySheet;
+  // B-10：单人点击准备就绪时弹确认框——立即开始 或 继续等待队友
   readyBtn.onclick = () => {
-    const cur = view.members.find(m => m.pid === me.pid)?.ready;
+    const members = lastView ? lastView.members : view.members;
+    const cur = members.find(m => m.pid === me.pid)?.ready;
+    if (!cur && members.length === 1) {
+      showSoloReadyConfirm();
+      return;
+    }
     net.send('room:ready', { ready: !cur });
   };
   foot.append(readyState, readyBtn);
+
+  function showSoloReadyConfirm() {
+    const ov = el('div', 'dialog-overlay');
+    const box = el('div', 'dialog-box');
+    box.appendChild(el('h3', '', '🕯️ 孤身上路？'));
+    box.appendChild(el('div', 'dg-greet', '队伍中目前只有你一人。现在就独自开始冒险，还是继续等待其他玩家加入？'));
+    const go = el('button', 'btn gold', '⚔️ 立即开始冒险');
+    go.style.cssText = 'width:100%;margin-bottom:6px;';
+    go.onclick = () => {
+      ov.remove();
+      net.send('room:ready', { ready: true });
+      net.send('room:start');
+    };
+    const wait = el('button', 'btn', '⏳ 继续等待其他玩家');
+    wait.style.cssText = 'width:100%;';
+    wait.onclick = () => { ov.remove(); net.send('room:ready', { ready: true }); };
+    box.append(go, wait);
+    ov.appendChild(box);
+    document.body.appendChild(ov);
+  }
   box.appendChild(foot);
   root.appendChild(box);
 
@@ -83,6 +127,7 @@ export function mountRoom(root, view) {
 
   // 动态刷新：成员列表与准备按钮
   function renderMembers(v) {
+    lastView = v;
     memberList.innerHTML = '';
     for (const m of v.members) {
       const card = el('div', 'panel member-card');
@@ -109,6 +154,9 @@ export function mountRoom(root, view) {
     const myM = v.members.find(m => m.pid === v.me.pid);
     readyBtn.textContent = v.mySheet ? (myM?.ready ? '取消准备' : '✅ 准备就绪') : '请先完成车卡';
     readyBtn.disabled = !v.mySheet;
+    readyState.textContent = v.members.length === 1 ? '当前仅你一人：准备后需确认开始，或等待队友加入' : '全部成员准备后自动开局';
+    autoBtn.classList.toggle('sel', v.room.mode !== 'manual');
+    manBtn.classList.toggle('sel', v.room.mode === 'manual');
     // B-6: 保存成功检测（mySheet从无到有）
     if (!hadSheet && v.mySheet) toast('✅ 车卡已保存');
     hadSheet = !!v.mySheet;
@@ -137,13 +185,19 @@ export function mountChargen(root, view, net) {
   let name = sheet ? sheet.name : '';
   let background = sheet ? sheet.background : '';
   let saved = !!view.mySheet;
+  // R-11: 载入的角色条目id（阵亡角色不可载入）；已有车卡按同名在世条目衔接，避免重复建档
+  let loadedId = null;
+  if (view.mySheet) {
+    const existing = loadRoster().find(x => x.name === view.mySheet.name && x.status !== 'dead');
+    if (existing) loadedId = existing.id;
+  }
 
   const race = () => RACES.find(r => r.id === selRace);
   const cls = () => CLASSES.find(c => c.id === selClass);
 
   const wrap = el('div', 'cg-wrap');
   const previewCanvas = el('canvas', '');
-  previewCanvas.width = 16 * 6; previewCanvas.height = 18 * 6;
+  previewCanvas.width = 16 * 8; previewCanvas.height = 18 * 8; // R-13: 提高内部分辨率，轮廓更清晰
   const previewWrap = el('div', 'cg-preview');
   const previewLabel = el('div', 'preview-label', '👤 外观预览（种族·职业·配色）');
   previewWrap.appendChild(previewLabel);
@@ -162,8 +216,51 @@ export function mountChargen(root, view, net) {
     ctx.fillRect(0, 0, previewCanvas.width, previewCanvas.height);
     const c = spriteToCanvas('player', 'human', { o: '#2a2430', s: colors.skin, h: colors.hair, u: colors.outfit, d: shade(colors.outfit), w: '#cfd6e4', e: '#f0f0f0' }, selClass, selRace);
     ctx.imageSmoothingEnabled = false;
-    ctx.drawImage(c, 0, 0, 16 * 6, 18 * 6);
+    ctx.drawImage(c, 0, 0, 16 * 8, 18 * 8);
   };
+
+  // R-11: 读取已保存的在世角色（已阵亡角色不列出 → 禁止出战）
+  const secRoster = el('div', 'cg-section');
+  secRoster.appendChild(el('h3', '', '📖 读取已保存角色'));
+  const rosterSel = document.createElement('select');
+  rosterSel.style.cssText = 'width:100%;background:var(--panel2);border:2px solid var(--line);color:var(--txt);border-radius:6px;padding:8px;';
+  const rosterDeadHint = el('div', 'muted', '');
+  secRoster.appendChild(rosterDeadHint);
+  secRoster.appendChild(rosterSel);
+  const refreshRosterSel = () => {
+    const alive = aliveEntries();
+    const dead = loadRoster().filter(x => x.status === 'dead').length;
+    rosterSel.innerHTML = '';
+    const defOpt = document.createElement('option');
+    defOpt.value = '';
+    defOpt.textContent = alive.length ? '—— 选择一名角色载入（' + alive.length + '位在世）——' : '—— 暂无已保存角色 ——';
+    rosterSel.appendChild(defOpt);
+    for (const e of alive) {
+      const o = document.createElement('option');
+      o.value = e.id;
+      const rn = RACES.find(r => r.id === e.raceId)?.name || e.raceId;
+      const cn = CLASSES.find(c => c.id === e.classId)?.name || e.classId;
+      o.textContent = e.name + '（' + rn + '·' + cn + '）';
+      rosterSel.appendChild(o);
+    }
+    rosterDeadHint.textContent = dead ? '☠️ ' + dead + ' 位角色已阵亡，无法再次出战（请在名册中查看）' : '';
+  };
+  rosterSel.onchange = () => {
+    const e = loadRoster().find(x => x.id === rosterSel.value);
+    if (!e) return;
+    loadedId = e.id;
+    name = e.name; nameInput.value = e.name;
+    selRace = e.raceId; selClass = e.classId;
+    stats = e.stats ? { ...e.stats } : null;
+    flexList = e.flex ? Object.keys(e.flex).flatMap(a => Array(Math.min(6, e.flex[a] || 0)).fill(a)) : [];
+    colors = { ...(e.colors || { skin: SKIN_TONES[0], hair: HAIR_TONES[0], outfit: OUTFIT_TONES[0] }) };
+    background = e.background || '';
+    bgInput.value = background;
+    sync();
+    toast('📖 已载入角色「' + e.name + '」');
+  };
+  refreshRosterSel();
+  mainCol.appendChild(secRoster);
 
   // 名字
   const secName = el('div', 'cg-section');
@@ -221,19 +318,19 @@ export function mountChargen(root, view, net) {
 
   // 背景（R-2：自由输入 + LLM随机生成）
   const secBg = el('div', 'cg-section');
-  secBg.appendChild(el('h3', '', '⑥ 背景故事（一句话，可自由输入）'));
+  secBg.appendChild(el('h3', '', '⑥ 背景故事（AI随机生成150字以上，可自由编辑）'));
   const bgRow = el('div', '');
   bgRow.style.display = 'flex';
   bgRow.style.gap = '6px';
   const bgInput = el('textarea', '');
-  bgInput.rows = 2;
+  bgInput.rows = 4;
   bgInput.style.cssText = 'flex:1;background:var(--panel2);border:2px solid var(--line);color:var(--txt);border-radius:6px;padding:8px;resize:vertical;';
   bgInput.placeholder = '写下角色的来历与梦想，或点击右侧按钮让AI DM为你即兴创作…';
   bgInput.value = background || '';
   bgInput.oninput = () => { background = bgInput.value.trim(); };
   bgRow.appendChild(bgInput);
   const randBgBtn = el('button', 'btn small gold', '🎲 随机');
-  randBgBtn.title = '由AI DM根据角色的种族与职业即兴生成一句背景';
+  randBgBtn.title = '由AI DM根据角色的种族与职业即兴生成一段150字以上的独特背景故事';
   randBgBtn.onclick = () => {
     if (!selRace || !selClass) { toast('请先选择种族与职业', true); return; }
     randBgBtn.disabled = true;
@@ -258,6 +355,9 @@ export function mountChargen(root, view, net) {
     if (!selRace || !selClass) { toast('请先选择种族与职业', true); return; }
     const flexObj = {};
     for (const a of flexList) flexObj[a] = (flexObj[a] || 0) + 1;
+    // R-11: 保存车卡同时收入冒险者名册（载入的角色原地更新），并刷新读取列表
+    loadedId = upsertEntry({ name, raceId: selRace, classId: selClass, stats: currentStats(), flex: flexObj, colors, background }, loadedId);
+    refreshRosterSel();
     net.send('room:charsheet', { sheet: { name, raceId: selRace, classId: selClass, stats: currentStats(), flex: flexObj, colors, background } });
     toast('⏳ 正在保存车卡…');
   };

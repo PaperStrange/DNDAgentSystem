@@ -26,8 +26,8 @@ async function main() {
   await page.waitForSelector('.room-code');
   // 车卡：人类 + 战士
   await page.fill('input[placeholder="为你的角色起个名字"]', '剑心');
-  await page.locator('.cg-section').nth(1).locator('.opt-card').first().click(); // 人类
-  await page.locator('.cg-section').nth(2).locator('.opt-card').first().click(); // 战士
+  await page.locator('.opt-grid').nth(0).locator('.opt-card').first().click(); // 人类
+  await page.locator('.opt-grid').nth(1).locator('.opt-card').first().click(); // 战士
   await page.waitForTimeout(500);
   // 检查初始显示
   const statVals = await page.locator('.stat-row .sr-val').allTextContents();
@@ -57,14 +57,17 @@ async function main() {
   await flexSels.nth(1).selectOption('CHA');
   const sel0after = await flexSels.nth(0).inputValue();
   check('B-3 改第2槽不影响第1槽', sel0after === 'WIS', '槽1=' + sel0after + ' 槽2=' + await flexSels.nth(1).inputValue());
-  // R-2: 背景自由输入 + 随机按钮
+  // R-2/R-12: 背景自由输入 + 随机按钮（要求≥150字）
   const bgArea = page.locator('textarea[placeholder*="来历"]');
   await bgArea.fill('生于山野，剑出如风。');
   check('R-2 背景可自由输入', (await bgArea.inputValue()).includes('山野'));
   await page.click('button:has-text("随机")');
-  await page.waitForTimeout(6000);
+  await page.waitForFunction(() => {
+    const t = document.querySelector('textarea[placeholder*="来历"]');
+    return t && t.value.replace(/\s/g, '').length >= 150;
+  }, { timeout: 40000 });
   const bgAfter = await bgArea.inputValue();
-  check('R-2 LLM随机背景返回', bgAfter.length > 5 && bgAfter !== '生于山野，剑出如风。', '背景=' + bgAfter.slice(0, 20));
+  check('R-12 随机背景≥150字', bgAfter.replace(/\s/g, '').length >= 150, '字数=' + bgAfter.replace(/\s/g, '').length + ' 开头=' + bgAfter.slice(0, 18));
   // 预览截图 + B-5 排版
   await page.screenshot({ path: 'e2e-shots/ui-chargen.png' });
   const labelVisible = await page.locator('.preview-label').isVisible();
@@ -77,6 +80,49 @@ async function main() {
   await page.waitForTimeout(500);
   const readyBtn = page.locator('button:has-text("准备就绪")');
   check('B-6 保存成功后可准备', await readyBtn.isEnabled());
+  // R-11: 保存车卡自动收入冒险者名册（状态=在世）
+  const rosterAfterSave = await page.evaluate(() => JSON.parse(localStorage.getItem('dnd_roster') || '[]'));
+  check('R-11 保存车卡自动收入名册', rosterAfterSave.some(e => e.name === '剑心' && e.status === 'alive'), '条目数=' + rosterAfterSave.length);
+  check('R-11 车卡界面有读取角色下拉', (await page.locator('.cg-section select').first().locator('option').count()) >= 2);
+  // R-14: 车卡界面战斗模式切换（房主）
+  const segBtns = page.locator('.seg-btn');
+  check('R-14 车卡界面有战斗模式选择器', (await segBtns.count()) === 2, '数量=' + await segBtns.count());
+  await page.click('.seg-btn:has-text("手动战斗")');
+  await page.waitForTimeout(700);
+  check('R-14 切换到手动后高亮', (await page.locator('.seg-btn.sel').textContent()).includes('手动'));
+  await page.click('.seg-btn:has-text("自动战斗")');
+  await page.waitForTimeout(700);
+  check('R-14 切回自动后高亮', (await page.locator('.seg-btn.sel').textContent()).includes('自动'));
+  // B-10: 单人准备确认框（等待→取消→再准备→立即开始）
+  await readyBtn.click();
+  await page.waitForSelector('.dialog-overlay', { timeout: 5000 });
+  const ovTxt = await page.locator('.dialog-overlay .dialog-box').textContent();
+  check('B-10 单人准备弹出确认框', ovTxt.includes('立即开始') && ovTxt.includes('等待'), ovTxt.slice(0, 26));
+  await page.click('.dialog-overlay button:has-text("继续等待")');
+  await page.waitForTimeout(800);
+  check('B-10 选择等待后仍在房间', await page.locator('.room-code').isVisible());
+  await page.click('button:has-text("取消准备")');
+  await page.waitForTimeout(600);
+  await page.click('button:has-text("准备就绪")');
+  await page.waitForSelector('.dialog-overlay', { timeout: 5000 });
+  await page.click('.dialog-overlay button:has-text("立即开始")');
+  await page.waitForSelector('.screen-game', { timeout: 20000 });
+  check('B-10 确认后进入游戏', await page.locator('.screen-game').isVisible());
+  // R-11: 阵亡标记（模拟冒险结束角色死亡）→ 名册状态→ 大厅展示 → 死亡角色不可再读取
+  await page.evaluate(() => {
+    const r = JSON.parse(localStorage.getItem('dnd_roster') || '[]');
+    const e = r.find(x => x.name === '剑心');
+    if (e) { e.status = 'dead'; localStorage.setItem('dnd_roster', JSON.stringify(r)); }
+  });
+  await page.evaluate(() => window.__S.net.send('room:leave'));
+  await page.waitForSelector('.lobby-title', { timeout: 10000 });
+  const rosterTxt = await page.locator('.panel:has(h4:has-text("冒险者名册"))').textContent();
+  check('R-11 大厅名册显示已阵亡状态', rosterTxt.includes('剑心') && rosterTxt.includes('已阵亡'), rosterTxt.slice(0, 40));
+  await page.click('.persona-grid .persona-card:nth-child(1)');
+  await page.click('.create-box .btn.gold');
+  await page.waitForSelector('.room-code');
+  const rosterOpts = await page.locator('.cg-section select').first().locator('option').allTextContents();
+  check('R-11 已阵亡角色不出现在读取列表', !rosterOpts.some(t => t.includes('剑心')), '选项=' + rosterOpts.join('/'));
   log('\n结果: ' + pass + ' 通过 / ' + fail + ' 失败');
   await browser.close();
   server.kill();

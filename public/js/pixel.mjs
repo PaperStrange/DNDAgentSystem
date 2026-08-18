@@ -224,13 +224,13 @@ const HUMANOID = [
   '..ohhhHHho..',
   '..ohhhhhho..',
   '..osepoesho..',
-  '...osssso...',
+  '...ososo....',
   '....oooo....',
   '..ouuuuuuo..',
   '.oUuuuuuuo..',
   '.oUuuuuuuo..',
   '.oUuuuuuuo..',
-  '.oUduuuduo..',
+  '.oUduwwduo..',
   '..ouuuuuuo..',
   '..oouooouo..',
   '..oddoooddo.',
@@ -505,6 +505,22 @@ export function drawSprite(ctx, kind, defKey, palette, dx, dy, { dir = 'down', f
   if (flip) { ctx.translate(16, 0); ctx.scale(-1, 1); }
   const bo = bob ? (frame % 2) : 0;
   ctx.translate(offsetX, -bo);
+  // R-13: 自动描边——先在所有实心像素外侧补一圈轮廓色，让轮廓更清晰锐利
+  const filled = new Set();
+  for (let y = 0; y < gh; y++) {
+    const row = grid[y];
+    for (let x = 0; x < row.length; x++) if (row[x] !== '.') filled.add(y * 32 + x);
+  }
+  ctx.fillStyle = palette.o || '#1a1626';
+  for (let y = 0; y < gh; y++) {
+    const row = grid[y];
+    for (let x = 0; x < row.length; x++) {
+      if (row[x] !== '.') continue;
+      const nb = (y > 0 && filled.has((y - 1) * 32 + x)) || (y < gh - 1 && filled.has((y + 1) * 32 + x)) ||
+                 (x > 0 && filled.has(y * 32 + x - 1)) || (x < row.length - 1 && filled.has(y * 32 + x + 1));
+      if (nb) ctx.fillRect(x, y, 1, 1);
+    }
+  }
   for (let y = 0; y < gh; y++) {
     const row = grid[y];
     for (let x = 0; x < row.length; x++) {
