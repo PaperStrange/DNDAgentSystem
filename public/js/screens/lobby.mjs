@@ -30,6 +30,7 @@ export function mountLobby(root, view) {
   };
   head.appendChild(acctBox);
   box.appendChild(head);
+  renderAccount(); // 挂载即渲染账户栏：登出后按钮立即可见（否则要等下一张快照才出现）
 
   // 登录/注册弹窗（通用表单格式，沿用大厅暗色面板风格）
   let loginModal = null;

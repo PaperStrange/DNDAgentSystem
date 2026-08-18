@@ -171,6 +171,11 @@ wss.on('connection', (ws, req) => {
         }
         const token = newToken();
         accountSessions.set(account, token);
+        // 同一连接上的访客身份作废（登录前是访客态），避免幽灵条目常驻
+        if (ws.__pid && ws.__pid !== pid) {
+          const ghost = players.get(ws.__pid);
+          if (ghost && !ghost.account) players.delete(ws.__pid);
+        }
         pid = uid('p');
         ws.__pid = pid;
         players.set(pid, { pid, name: account, ws, roomCode: null, online: true, token, account, ip });

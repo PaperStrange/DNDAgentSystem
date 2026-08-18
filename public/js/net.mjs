@@ -44,7 +44,8 @@ export class Net {
           this.token = null;
           this.account = null;
         }
-        if (msg.auth && this.onAuthError && !this.pid) { this.onAuthError(msg.msg); return; }
+        // 未登录（含访客态）时的认证错误 → 弹窗内红字提示（访客也有pid，不能以!pid判断）
+        if (msg.auth && this.onAuthError && !this.account) { this.onAuthError(msg.msg); return; }
         this.onError && this.onError(msg.msg);
       } else if (msg.t === 's:kicked') {
         this.onKicked && this.onKicked();
@@ -52,6 +53,7 @@ export class Net {
         // 单点登录：本连接被新登录挤掉 → 清除本地凭证并回到登录态
         localStorage.removeItem(LS_TOKEN);
         localStorage.removeItem(LS_ACCOUNT);
+        try { sessionStorage.removeItem('auth_prompted'); } catch (e) {}
         this.token = null; this.account = null;
         this.onError && this.onError(msg.msg || '账号已在其他位置登录');
         setTimeout(() => location.reload(), 1800);
@@ -77,8 +79,9 @@ export class Net {
   logout() {
     localStorage.removeItem(LS_TOKEN);
     localStorage.removeItem(LS_ACCOUNT);
+    try { sessionStorage.removeItem('auth_prompted'); } catch (e) {}
     this.token = null; this.account = null; this.pid = null;
-    location.reload(); // 回到登录态大厅
+    location.reload(); // 回到登录态大厅（登录框自动弹出）
   }
   send(t, payload = {}) {
     if (!this.ws || this.ws.readyState !== 1) return false;

@@ -130,6 +130,27 @@ async function main() {
   await page.waitForSelector('.room-code');
   const rosterOpts = await page.locator('.cg-section select').first().locator('option').allTextContents();
   check('R-11 已阵亡角色不出现在读取列表', !rosterOpts.some(t => t.includes('剑心')), '选项=' + rosterOpts.join('/'));
+  // 登录流程闭环：退出登录→按钮重新出现→登录框自动弹出→错误密码弹窗提示→重新登录成功
+  await page.evaluate(() => window.__S.net.send('room:leave'));
+  await page.waitForSelector('.lobby-title', { timeout: 10000 });
+  await page.click('.account-box button:has-text("退出登录")');
+  await page.waitForSelector('.lobby-title', { timeout: 10000 });
+  check('退出登录后重新展示登录按钮', await page.locator('.account-box button:has-text("登录 / 注册")').isVisible());
+  check('退出登录后登录框自动弹出', await page.locator('.dialog-overlay .auth-input').first().isVisible());
+  await page.click('.dialog-overlay .seg-btn:has-text("登录")');
+  await page.fill('.dialog-overlay input[placeholder*="用户名"]', acct);
+  await page.fill('.dialog-overlay input[type="password"]', 'wrong-password');
+  await page.click('.dialog-overlay .btn.gold');
+  await page.waitForFunction(() => {
+    const el = document.querySelector('.dialog-overlay .auth-err');
+    return el && el.textContent.includes('密码不正确');
+  }, { timeout: 8000 });
+  check('错误密码在弹窗内红字提示', true);
+  check('错误后提交按钮未卡死', !(await page.locator('.dialog-overlay .btn.gold').isDisabled()));
+  await page.fill('.dialog-overlay input[type="password"]', 'test1234');
+  await page.click('.dialog-overlay .btn.gold');
+  await page.waitForSelector('.dialog-overlay', { state: 'detached', timeout: 10000 });
+  check('重新登录成功（账户栏恢复）', (await page.locator('.account-box .acct-name').textContent()).includes(acct));
   log('\n结果: ' + pass + ' 通过 / ' + fail + ' 失败');
   await browser.close();
   server.kill();
