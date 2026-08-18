@@ -37,6 +37,13 @@ export class Net {
       } else if (msg.t === 's:state') {
         this.onState && this.onState(msg.view);
       } else if (msg.t === 's:error') {
+        if (msg.auth) {
+          // 凭证失效：清除本地旧令牌，避免刷新后再次走到失效路径
+          localStorage.removeItem(LS_TOKEN);
+          localStorage.removeItem(LS_ACCOUNT);
+          this.token = null;
+          this.account = null;
+        }
         if (msg.auth && this.onAuthError && !this.pid) { this.onAuthError(msg.msg); return; }
         this.onError && this.onError(msg.msg);
       } else if (msg.t === 's:kicked') {

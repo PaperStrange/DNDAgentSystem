@@ -192,9 +192,9 @@ wss.on('connection', (ws, req) => {
           else send(pid, { t: 's:state', view: rooms.snapshotFor(old) });
           return;
         }
-        // 令牌无效（被新登录挤掉或服务器重启）→ 要求重新登录，不再静默建新身份
+        // 令牌无效（被新登录挤掉或服务器重启）→ 提示重新登录，并继续走访客流程下发大厅快照（否则页面空白）
         try { ws.send(JSON.stringify({ t: 's:error', msg: '登录状态已失效（可能在其他位置登录或服务器已重启），请重新登录', auth: true })); } catch (e) {}
-        return;
+        // 不 return：落到下方访客身份创建，客户端能正常渲染大厅并弹出登录框
       }
       pid = uid('p');
       ws.__pid = pid;
