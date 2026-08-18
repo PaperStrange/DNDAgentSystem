@@ -69,6 +69,59 @@ async function main() {
   });
   if (pos0.x === pos1.x && pos0.y === pos1.y) ok('手动模式9秒后角色未自动移动（位置 ' + pos1.x + ',' + pos1.y + '）');
   else fail('手动模式角色自动移动了：(' + pos0.x + ',' + pos0.y + ')→(' + pos1.x + ',' + pos1.y + ')');
+  // 严格回合制：怪物回合必须等待玩家确认推进
+  const gate = await m.page.evaluate(async () => {
+    const gv = () => window.__e2e.view().game;
+    const net = window.__S.net;
+    const sleep = (ms) => new Promise(r => setTimeout(r, ms));
+    const foe = gv().entities.find(e => e.kind === 'monster');
+    if (!foe) return { error: '无怪物' };
+    // 靠近怪物
+    for (let i = 0; i < 14; i++) {
+      const g = gv();
+      const me = g.entities.find(e => e.eid === g.me.eid);
+      const f = g.entities.find(e => e.kind === 'monster' && !e.dead);
+      if (!f) break;
+      const d = Math.abs(me.x - f.x) + Math.abs(me.y - f.y);
+      if (d <= 1) break;
+      const step = { x: me.x, y: me.y };
+      if (me.x < f.x) step.x++; else if (me.x > f.x) step.x--;
+      else if (me.y < f.y) step.y++; else step.y--;
+      net.send('game:move', step);
+      await sleep(350);
+    }
+    // 攻击触发战斗
+    const f2 = gv().entities.find(e => e.kind === 'monster' && !e.dead);
+    if (f2) net.send('game:attack', { targetEid: f2.eid });
+    await sleep(800);
+    // 结束自己回合直到轮到怪物
+    for (let i = 0; i < 6; i++) {
+      const g3 = gv();
+      if (g3.turn?.kind === 'monster') break;
+      net.send('game:endturn');
+      await sleep(500);
+    }
+    const g4 = gv();
+    if (g4.turn?.kind !== 'monster') return { error: '未到达怪物回合', turn: g4.turn };
+    const mon = g4.entities.find(e => e.eid === g4.turn.actorEid);
+    const before = { x: mon.x, y: mon.y, logLen: g4.log.length };
+    await sleep(2500); // 等待：怪物不得自动行动
+    const g5 = gv();
+    const mon2 = g5.entities.find(e => e.eid === g5.turn.actorEid);
+    const during = { x: mon2.x, y: mon2.y, logLen: g5.log.length, stillMonsterTurn: g5.turn?.kind === 'monster' };
+    net.send('game:endturn'); // 玩家确认推进
+    await sleep(600);
+    const g6 = gv();
+    return { before, during, afterKind: g6.turn ? g6.turn.kind : null, logGrew: g6.log.length > during.logLen };
+  });
+  if (gate.error) fail('怪物回合测试失败：' + gate.error);
+  else {
+    if (gate.during.stillMonsterTurn && gate.during.x === gate.before.x && gate.during.y === gate.before.y && gate.during.logLen === gate.before.logLen) {
+      ok('手动模式怪物回合等待确认（2.5秒未自动行动，位置/日志未变）');
+    } else fail('怪物回合未等待确认：' + JSON.stringify(gate));
+    if (gate.logGrew || gate.afterKind !== 'monster') ok('确认推进后怪物完成行动（日志+' + (gate.logGrew ? '有新增' : '0') + '，回合移交 ' + gate.afterKind + '）');
+    else fail('推进后怪物未行动：' + JSON.stringify(gate));
+  }
   await m.ctx.close();
   // 自动模式
   const a = await enterGame('auto');

@@ -336,6 +336,11 @@ export class Game {
       if (top && top.e.kind === 'player' && top.init >= 15) { const p = this.players.get(top.e.playerId); if (p) p.stats.initiativeWins++; }
       this.logMsg('combat', '━━━ 第1回合 ━━━');
       this.narrate('combatStart', {});
+      // 手动模式：战斗在玩家行动中触发时保留其当前回合，结束后按先攻顺序继续（严格回合制）
+      if (this.room.mode === 'manual' && this.turn && this.turn.kind === 'player') {
+        this.onChange();
+        return;
+      }
       this.turn = null;
       this._endTurn();
     }
@@ -362,13 +367,24 @@ export class Game {
   }
 
   _scheduleMonsterTurn(eid) {
-    const delayMs = Math.max(120, Math.round(450 / (this.speed || 1))); // 速度倍率影响怪物行动节奏
-    this.later(delayMs, () => {
+    const run = () => {
       if (this.state !== 'playing') return;
-      if (this.paused) { this._scheduleMonsterTurn(eid); return; } // 暂停：重新排队等待
       const e = this.entities.get(eid);
       if (!e || e.dead || e.hp <= 0) return this._endTurn();
       this._monsterAct(e);
+    };
+    // 手动模式：严格回合制——怪物回合等待玩家确认推进（game:endturn），不自动行动
+    if (this.room.mode === 'manual') {
+      this._pendingMonster = run;
+      this.logMsg('system', '⚔️ 敌方回合：' + (this.entities.get(eid)?.name || '？') + ' 待命（点击「推进敌方回合」或回车）');
+      this.onChange();
+      return;
+    }
+    const delayMs = Math.max(120, Math.round(450 / (this.speed || 1))); // 自动模式：速度倍率影响怪物行动节奏
+    this.later(delayMs, () => {
+      if (this.state !== 'playing') return;
+      if (this.paused) { this._scheduleMonsterTurn(eid); return; } // 暂停：重新排队等待
+      run();
     });
   }
   _monsterAct(e) {
@@ -1043,6 +1059,13 @@ export class Game {
   }
 
   actEndTurn(pid) {
+    // 手动模式：怪物回合等待玩家确认推进
+    if (this.turn?.kind === 'monster' && this._pendingMonster && this.room.mode === 'manual') {
+      const run = this._pendingMonster;
+      this._pendingMonster = null;
+      run();
+      return { ok: true };
+    }
     if (!this.isPlayerTurn(pid)) return { ok: false, msg: '不是你的回合' };
     this.dialogues.delete(pid); // 结束回合时关闭进行中的对话
     this._endTurn();
@@ -1150,7 +1173,7 @@ export class Game {
         objective: this.chapter.objective, objectiveDone: this.flags.has('obj:' + this.chapter.objective.id) },
       map: { w: this.map.w, h: this.map.h, tiles, chests, props, theme: this.mapTheme || null },
       entities, players, me, exits,
-      turn: this.turn ? { playerId: this.turn.playerId, moveLeft: this.turn.moveLeft, actionUsed: this.turn.actionUsed, bonusUsed: this.turn.bonusUsed, actorEid: this.turn.actorEid } : null,
+      turn: this.turn ? { playerId: this.turn.playerId, moveLeft: this.turn.moveLeft, actionUsed: this.turn.actionUsed, bonusUsed: this.turn.bonusUsed, actorEid: this.turn.actorEid, kind: this.turn.kind || 'player' } : null,
       combat: { active: this.combat.active, round: this.combat.round, order: this.combat.order },
       flags: [...this.flags].filter(f => !f.startsWith('dlg:')), xpPool: this.xpPool,
       clues: this.clues.slice(-50).map(c => ({ seq: c.seq, text: c.text, ts: c.ts })),

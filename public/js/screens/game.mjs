@@ -103,6 +103,19 @@ export function mountGame(root, view) {
     if (!v || !v.game) return;
     const gv = v.game;
     side.innerHTML = '';
+    // 手动模式敌方回合：严格回合制——玩家确认推进
+    const isManualMode = (gv.mode || v.room?.mode) === 'manual';
+    if (isManualMode && gv.state === 'playing' && !gv.win && gv.turn?.kind === 'monster') {
+      const monName = gv.entities.find(e => e.eid === gv.turn.actorEid)?.name || '敌方';
+      const mPanel = el('div', 'panel side-panel monster-turn');
+      mPanel.appendChild(el('h4', '', '⚔️ 敌方回合'));
+      const adv = el('button', 'btn gold', '▶ 推进「' + monName + '」的行动');
+      adv.style.width = '100%';
+      adv.onclick = () => net.send('game:endturn');
+      mPanel.appendChild(adv);
+      mPanel.appendChild(el('div', 'muted mt8', '回合制规则：敌方行动需手动确认推进（回车键同效），不会自动行动。'));
+      side.appendChild(mPanel);
+    }
     // R-16: 顶部回合指示（第N回合 · 轮到谁）
     if (gv.combat?.active) {
       const activeEnt = gv.entities.find(e => e.eid === gv.turn?.actorEid);
@@ -650,6 +663,12 @@ export function mountGame(root, view) {
     const tag = ev.target?.tagName;
     if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return; // 输入框内不拦截
     const gv = g.view?.game;
+    // 手动模式：回车推进敌方回合
+    if (ev.key === 'Enter' && gv?.turn?.kind === 'monster' && (gv.mode || g.view?.room?.mode) === 'manual') {
+      ev.preventDefault();
+      net.send('game:endturn');
+      return;
+    }
     if (ev.key === ' ') {
       ev.preventDefault();
       if (isHostMe) { togglePause(); return; }
@@ -746,6 +765,8 @@ export function mountGame(root, view) {
       if (!g.autoplay || g.paused) return;
       const gv = g.view?.game;
       if (!gv || gv.win || gv.state !== 'playing') return;
+      // 手动房+自动游玩开关：代为推进敌方回合，保持自动游玩可用
+      if (gv.turn?.kind === 'monster' && (gv.mode || g.view?.room?.mode) === 'manual') { net.send('game:endturn'); return; }
       try {
         const action = g.policy.decide(gv, store.pid);
         if (action) dispatchPolicyAction(action);
