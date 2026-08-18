@@ -22,14 +22,20 @@ function tintC(hex, amt) {
 }
 
 // ---------- 瓦片 ----------
+// 坐标约定：x,y 为**格子索引**（与调用方一致），函数内部换算为像素坐标。
+// 修复：此前直接以索引当像素绘制，导致所有瓦片堆叠在左上角、地图全黑。
 // theme: 剧情主题色板 {grass,floor,wall,water,rubble}（AI按章节生成，离线有默认主题）
 export function drawTile(ctx, type, x, y, t = 0, theme = null) {
+  const hx = x, hy = y; // 保留原始索引用于确定性纹理哈希
+  ctx.save();
+  ctx.translate(x * TILE, y * TILE);
+  x = 0; y = 0;
   const th = theme || {};
   const C = {
     grass: th.grass || '#4f7c43', floor: th.floor || '#7d7d8a', wall: th.wall || '#4a4a56',
     water: th.water || '#3b6ea5', rubble: th.rubble || '#6e6250',
   };
-  const r = () => hash2(x, y, 1), r2 = () => hash2(x, y, 2), r3 = () => hash2(x, y, 3);
+  const r = () => hash2(hx, hy, 1), r2 = () => hash2(hx, hy, 2), r3 = () => hash2(hx, hy, 3);
   switch (type) {
     case 'g': { // grass
       ctx.fillStyle = r() > .5 ? C.grass : tintC(C.grass, 8);
@@ -225,6 +231,7 @@ export function drawTile(ctx, type, x, y, t = 0, theme = null) {
       ctx.fillRect(x, y, TILE, TILE);
     }
   }
+  ctx.restore();
 }
 
 // ---------- 精灵 ----------

@@ -45,6 +45,7 @@ export function installProgress(game) {
     if (obj.id === 'beat_nezznar') done = this.flags.has('nezznar_dead');
     if (done) {
       this.flags.add('obj:' + obj.id);
+      this.addClue(obj.doneHint);
       this.logMsg('system', '✅ 章节目标达成：' + obj.text);
       this.narrate('goalAssign', { goal: obj.doneHint });
       this.logMsg('narr', obj.doneHint, { dm: true });

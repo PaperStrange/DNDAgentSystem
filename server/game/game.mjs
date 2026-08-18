@@ -60,11 +60,12 @@ export class Game {
     this.keys = new Set(); // 队伍共有的剧情钥匙
     this.dialogues = new Map();
     this.xpPool = 0;
+    this.clues = []; // 队伍共享线索（任意玩家获得，全队可见）
     this.seatOrder = [...sheets.keys()];
     const soloStartPotion = sheets.size === 1 ? 3 : 1; // B-11：单人开局多带治疗药水，避免1分钟内团灭
     for (const [pid, sheet] of sheets) {
       this.players.set(pid, {
-        pid, name: sheet.name, sheet, eid: null, gold: 30, level: 1, xp: 0,
+        pid, name: sheet.name, sheet, eid: null, gold: 30, level: Math.max(1, sheet.level || 1), xp: sheet.xp || 0, // 跨冒险继承
         items: { potion: soloStartPotion, flask: 0 }, keys: [],
         slots: sheet.spells?.length ? { 1: 2 } : null,
         charges: {}, blessed: false, mark: null, hiddenThisRound: false, halflingReroll: true,
@@ -80,6 +81,14 @@ export class Game {
     installDialogue(this);
     installProgress(this);
     this._loadChapter(0);
+  }
+
+  // 队伍共享线索：任意玩家获得后全队可在线索面板查看
+  addClue(text) {
+    const entry = { seq: SEQ + 1, text, ts: Date.now() };
+    this.clues.push(entry);
+    if (this.clues.length > 50) this.clues.splice(0, this.clues.length - 50);
+    this.logMsg('clue', '🔍 新线索：' + text);
   }
 
   // ---------- 日志 ----------
@@ -513,6 +522,7 @@ export class Game {
     if (e.lootKey && !this.keys.has(e.lootKey)) {
       this.keys.add(e.lootKey);
       this.logMsg('system', '🔑 队伍获得了【' + (e.lootKey === 'cage_key' ? '笼子钥匙' : '城堡钥匙') + '】');
+      this.addClue(e.lootKey === 'cage_key' ? '获得笼子钥匙：可打开克拉格莫洞穴中的牢笼，救出西达尔' : '获得城堡钥匙：可打开克拉格莫城堡的大门');
     }
     if (e.xp) {
       this.xpPool += e.xp;
@@ -1143,6 +1153,7 @@ export class Game {
       turn: this.turn ? { playerId: this.turn.playerId, moveLeft: this.turn.moveLeft, actionUsed: this.turn.actionUsed, bonusUsed: this.turn.bonusUsed, actorEid: this.turn.actorEid } : null,
       combat: { active: this.combat.active, round: this.combat.round, order: this.combat.order },
       flags: [...this.flags].filter(f => !f.startsWith('dlg:')), xpPool: this.xpPool,
+      clues: this.clues.slice(-50).map(c => ({ seq: c.seq, text: c.text, ts: c.ts })),
       win: this.win,
       startedAt: this.startedAt,
       speed: this.speed, paused: this.paused, mode: this.room.mode || 'auto',

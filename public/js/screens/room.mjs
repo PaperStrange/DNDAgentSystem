@@ -189,6 +189,8 @@ export function mountChargen(root, view, net) {
   let flexList = []; // 自由加点：按槽位存储属性分配（如 ['STR','CON']），互不干扰
   let colors = sheet ? { ...sheet.colors } : { skin: SKIN_TONES[0], hair: HAIR_TONES[0], outfit: OUTFIT_TONES[0], eye: EYE_TONES[0], accent: ACCENT_TONES[0] };
   let look = sheet ? { ...(sheet.look || {}) } : { hair: 0, beard: 0 }; // 捏脸：发型/胡须
+  let carryLevel = sheet ? (sheet.level || 1) : 1; // 跨冒险继承的等级
+  let carryXp = sheet ? (sheet.xp || 0) : 0; // 跨冒险继承的经验
   let name = sheet ? sheet.name : '';
   let background = sheet ? sheet.background : '';
   let saved = !!view.mySheet;
@@ -249,7 +251,7 @@ export function mountChargen(root, view, net) {
       o.value = e.id;
       const rn = RACES.find(r => r.id === e.raceId)?.name || e.raceId;
       const cn = CLASSES.find(c => c.id === e.classId)?.name || e.classId;
-      o.textContent = e.name + '（' + rn + '·' + cn + '）';
+      o.textContent = e.name + '（' + rn + '·' + cn + (e.level > 1 ? '·Lv' + e.level : '') + '）';
       rosterSel.appendChild(o);
     }
     rosterDeadHint.textContent = dead ? '☠️ ' + dead + ' 位角色已阵亡，无法再次出战（请在名册中查看）' : '';
@@ -264,6 +266,8 @@ export function mountChargen(root, view, net) {
     flexList = e.flex ? Object.keys(e.flex).flatMap(a => Array(Math.min(6, e.flex[a] || 0)).fill(a)) : [];
     colors = { ...(e.colors || { skin: SKIN_TONES[0], hair: HAIR_TONES[0], outfit: OUTFIT_TONES[0], eye: EYE_TONES[0], accent: ACCENT_TONES[0] }) };
     look = { ...(e.look || { hair: 0, beard: 0 }) };
+    carryLevel = e.level || 1;
+    carryXp = e.xp || 0;
     background = e.background || '';
     bgInput.value = background;
     sync();
@@ -366,9 +370,9 @@ export function mountChargen(root, view, net) {
     const flexObj = {};
     for (const a of flexList) flexObj[a] = (flexObj[a] || 0) + 1;
     // R-11: 保存车卡同时收入冒险者名册（载入的角色原地更新），并刷新读取列表
-    loadedId = upsertEntry({ name, raceId: selRace, classId: selClass, stats: currentStats(), flex: flexObj, colors, background, look }, loadedId);
+    loadedId = upsertEntry({ name, raceId: selRace, classId: selClass, stats: currentStats(), flex: flexObj, colors, background, look, level: carryLevel, xp: carryXp }, loadedId);
     refreshRosterSel();
-    net.send('room:charsheet', { sheet: { name, raceId: selRace, classId: selClass, stats: currentStats(), flex: flexObj, colors, background, look } });
+    net.send('room:charsheet', { sheet: { name, raceId: selRace, classId: selClass, stats: currentStats(), flex: flexObj, colors, background, look, level: carryLevel, xp: carryXp } });
     toast('⏳ 正在保存车卡…');
   };
   const saveWrap = el('div', 'mt8');
@@ -564,9 +568,11 @@ export function mountChargen(root, view, net) {
     if (!stats || !selClass) { derived.appendChild(el('div', 'muted', '选择种族与职业后计算')); return; }
     const c = cls();
     const mods = Object.fromEntries(['STR', 'DEX', 'CON', 'INT', 'WIS', 'CHA'].map(a => [a, statMod(stats[a] + (race().stats[a] || 0) + flexBonusOf(a))]));
-    const hp = c.hitDie + mods.CON + (selRace === 'dwarf' ? 1 : 0);
+    const lv = Math.max(1, carryLevel);
+    const hp = c.hitDie + mods.CON + (selRace === 'dwarf' ? 1 : 0) + (lv - 1) * (c.hpPerLv + mods.CON + (selRace === 'dwarf' ? 1 : 0));
     const ac = c.id === 'fighter' ? c.ac : c.ac + Math.min(mods.DEX, 2);
     const add = (k, v) => derived.appendChild(el('div', '', k + '：' + v));
+    add('等级', '<b>Lv' + lv + '</b>' + (lv > 1 ? '（继承自上次冒险）' : '') + ' · 经验 ' + carryXp);
     add('生命值', '<b>' + hp + '</b>');
     add('护甲AC', '<b>' + ac + '</b>');
     add('攻击加值', '<b>+' + (2 + mods[c.main] + (c.id === 'fighter' ? 1 : 0)) + '</b>');

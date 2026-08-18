@@ -30,6 +30,18 @@ export function upsertEntry(sheet, rosterId) {
   return id;
 }
 
+// 冒险结束时调用：角色成长跨冒险保留（5E规则：经验值随持续冒险累积，达到阈值即升级）
+export function updateProgression(name, level, xp) {
+  const list = loadRoster();
+  const cands = list.filter(x => x.name === name && x.status !== 'dead');
+  if (!cands.length) return;
+  const newest = cands.sort((a, b) => b.updatedAt - a.updatedAt)[0];
+  newest.level = Math.max(1, Number(level) || 1);
+  newest.xp = Number(xp) || 0;
+  newest.updatedAt = Date.now();
+  save(list);
+}
+
 // 冒险结束时调用：将同名且最新的在世角色标记为已阵亡（死亡=永久，不可再出战）
 export function markDeathByName(name) {
   const list = loadRoster();

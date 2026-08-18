@@ -58,7 +58,7 @@ export const NPCS = {
     greet: '呼……谢天谢地，是活人。我是西达尔·霍尔温特，来自深水城。我和矮人兄弟冈德伦·岩寻一起寻找失落的回声波洞穴，路上遭了哥布林伏击。冈德伦被他们抓走了！',
     options: [
       { id: 'rescue', text: '[解救] 打开笼子，放他出来', tag: 'aid', need: 'cage_key', missingText: '笼子被铁锁锁着。你们需要找到钥匙。', once: true,
-        result: { flag: 'rescue_sildar', gold: 10, log: '西达尔获救。他告诉你们：冈德伦被带去了北边的克拉格莫城堡，而红标帮正盘踞在凡达林镇胡作非为。他建议先去凡达林镇打探消息。' } },
+        result: { flag: 'rescue_sildar', gold: 10, clue: '西达尔获救。冈德伦被带往北边的克拉格莫城堡；红标帮盘踞在凡达林镇。', log: '西达尔获救。他告诉你们：冈德伦被带去了北边的克拉格莫城堡，而红标帮正盘踞在凡达林镇胡作非为。他建议先去凡达林镇打探消息。' } },
       { id: 'ask', text: '[洞察] 询问伏击详情', tag: 'insight', result: { log: '西达尔回忆道："带头的是个叫克拉格的熊地精。冈德伦知道矿坑入口的秘密，他们不会轻易杀他。"' } },
       { id: 'thanks', text: '问他是否认识凡达林镇的人', result: { log: '西达尔点头："到了镇上找酒馆老板托布伦，还有杂货铺的巴森。报我的名字，他们会帮你们的。"' } },
     ] },
@@ -67,43 +67,43 @@ export const NPCS = {
     options: [
       { id: 'buy_potion', text: '[购买] 治疗药水（50金）', tag: 'trade', cost: { gold: 50, item: 'potion' }, result: { log: '巴森笑着递过一瓶泛红的药水。' } },
       { id: 'buy_flask', text: '[购买] 炼金火焰瓶（40金）', tag: 'trade', cost: { gold: 40, item: 'flask' }, result: { log: '巴森小心翼翼地包好一个陶瓶："扔之前先拔塞子！"' } },
-      { id: 'info', text: '[调查] 打听红标帮的消息', tag: 'investigation', result: { flag: 'town_info', log: '巴森压低声音："红标帮的老巢在特雷森达庄园，就藏在镇子东边山丘下。他们头儿叫格拉斯塔夫，是个会使法术的家伙。镇上的议员托布伦一直想找人收拾他们。"' } },
+      { id: 'info', text: '[调查] 打听红标帮的消息', tag: 'investigation', result: { flag: 'town_info', clue: '红标帮的老巢在镇东边山丘下的特雷森达庄园，头目格拉斯塔夫藏身于庄园地窖。', log: '巴森压低声音："红标帮的老巢在特雷森达庄园，就藏在镇子东边山丘下。他们头儿叫格拉斯塔夫，是个会使法术的家伙。镇上的议员托布伦一直想找人收拾他们。"' } },
     ] },
   toblen: { id: 'toblen', name: '托布伦·石丘', icon: '🍺', title: '酒馆老板·镇议员',
     greet: '随便坐！凡达林石丘酒馆欢迎所有带钱的朋友——以及所有不带红披风的朋友。',
     options: [
-      { id: 'info', text: '[说服] 请他谈谈镇子的困境', tag: 'persuasion', result: { flag: 'town_info', gold: 0, log: '托布伦叹了口气："红标帮杀了我的一个雇工。他们从特雷森达庄园地下的藏身处出来活动。谁能除掉格拉斯塔夫，凡达林愿意出一百金！"（隐藏线索：红标帮头目格拉斯塔夫藏在庄园地窖）' } },
+      { id: 'info', text: '[说服] 请他谈谈镇子的困境', tag: 'persuasion', result: { flag: 'town_info', gold: 0, clue: '红标帮头目格拉斯塔夫藏在特雷森达庄园的地窖，凡达林镇悬赏一百金除掉他。', log: '托布伦叹了口气："红标帮杀了我的一个雇工。他们从特雷森达庄园地下的藏身处出来活动。谁能除掉格拉斯塔夫，凡达林愿意出一百金！"（隐藏线索：红标帮头目格拉斯塔夫藏在庄园地窖）' } },
       { id: 'heal', text: '要一杯热汤（免费回复5点生命）', tag: 'aid', once: true, heal: 5, result: { log: '热腾腾的肉汤下肚，浑身暖和了起来。' } },
     ] },
   linene: { id: 'linene', name: '林尼尼·灰风', icon: '⚙️', title: '狮鹫商行店长',
     greet: '狮鹫商行，狮鹫商行！上好的武器防具！——虽然最近进货的商队全被哥布林抢了，库存嘛……你懂的。',
     options: [
-      { id: 'info', text: '[洞察] 问商队被劫的细节', tag: 'insight', result: { flag: 'town_info', log: '林尼尼愤愤地说："商队在贡树大道被抢，我的货全没了！都是红标帮和哥布林干的好事。听说北边克拉格莫城堡里，还关着个重要人物。"' } },
+      { id: 'info', text: '[洞察] 问商队被劫的细节', tag: 'insight', result: { flag: 'town_info', clue: '商队在贡树大道被劫；北边克拉格莫城堡里关着一个重要人物。', log: '林尼尼愤愤地说："商队在贡树大道被抢，我的货全没了！都是红标帮和哥布林干的好事。听说北边克拉格莫城堡里，还关着个重要人物。"' } },
       { id: 'buy', text: '[购买] 附魔磨刀石（80金，攻击伤害+1）', tag: 'trade', cost: { gold: 80, upgrade: 'weapon' }, once: true, result: { log: '林尼尼仔细地为你的武器开刃附魔。你的攻击伤害+1！' } },
     ] },
   galaelle: { id: 'galaelle', name: '修女加拉埃勒', icon: '⛪', title: '晨曦神庙祭司',
     greet: '愿晨曦之神照亮你们的路。我是加拉埃勒。受伤的旅人，神庙的大门永远敞开。',
     options: [
       { id: 'heal', text: '[宗教] 请求神恩治疗（回复10点生命）', tag: 'religion', once: true, heal: 10, result: { log: '温暖的圣光笼罩全身，伤口以肉眼可见的速度愈合。' } },
-      { id: 'info', text: '询问不死的传闻', tag: 'religion', result: { flag: 'town_info', log: '加拉埃勒神色凝重："东边的老橡树下住着占卜的老妇人。她说山里有座失落矿坑，矿坑里……有不干净的东西爬了出来。"' } },
+      { id: 'info', text: '询问不死的传闻', tag: 'religion', result: { flag: 'town_info', clue: '东边老橡树下住着占卜的老妇人；山里有座失落矿坑，矿坑里有不干净的东西爬了出来。', log: '加拉埃勒神色凝重："东边的老橡树下住着占卜的老妇人。她说山里有座失落矿坑，矿坑里……有不干净的东西爬了出来。"' } },
     ] },
   oldhag: { id: 'oldhag', name: '神秘老妪', icon: '🔮', title: '占卜者',
     greet: '嘿嘿……五个影子，一条路。老婆子我啊，早就算到你们会来。',
     options: [
-      { id: 'fortune', text: '[奥秘] 请她占卜命运', tag: 'arcana', once: true, result: { flag: 'fortune_told', log: '老妪盯着你们的眼睛，声音忽然变得遥远："黑蜘蛛盘踞矿坑深处，熔炉之光将熄。岩寻之血，会为你们打开最后的大门。击败黑蜘蛛者，凡杜尔永世传颂。"' } },
-      { id: 'ask', text: '问她红标帮的事', tag: 'insight', result: { flag: 'town_info', log: '老妪咯咯笑道："披红斗篷的豺狼，躲在地下的庄园。他们怕火，也怕比他们更狠的人。"' } },
+      { id: 'fortune', text: '[奥秘] 请她占卜命运', tag: 'arcana', once: true, result: { flag: 'fortune_told', clue: '黑蜘蛛盘踞矿坑深处的法术熔炉；岩寻之血会打开最后的大门。', log: '老妪盯着你们的眼睛，声音忽然变得遥远："黑蜘蛛盘踞矿坑深处，熔炉之光将熄。岩寻之血，会为你们打开最后的大门。击败黑蜘蛛者，凡杜尔永世传颂。"' } },
+      { id: 'ask', text: '问她红标帮的事', tag: 'insight', result: { flag: 'town_info', clue: '披红斗篷的豺狼躲在地下的庄园，他们怕火。', log: '老妪咯咯笑道："披红斗篷的豺狼，躲在地下的庄园。他们怕火，也怕比他们更狠的人。"' } },
     ] },
   gundren: { id: 'gundren', name: '冈德伦·岩寻', icon: '⛏️', title: '矮人探险家',
     greet: '咳……你们是谁？来救我的？！好样的！我冈德伦·岩寻欠你们一条命！',
     options: [
       { id: 'rescue', text: '[解救] 打开牢门', tag: 'aid', need: 'castle_key', missingText: '牢门被重锁锁着。钥匙在城堡的主人身上。', once: true,
-        result: { flag: 'rescue_gundren', gold: 25, log: '冈德伦重获自由！他激动地告诉你们："回声波洞穴的入口就在城堡北边的山崖下！黑蜘蛛涅兹纳尔已经抢先一步进去了——他想要洞穴深处的法术熔炉！快，不能让他得逞！"' } },
+        result: { flag: 'rescue_gundren', gold: 25, clue: '回声波洞穴入口在城堡北边的山崖下；黑蜘蛛涅兹纳尔已抢先进入，目标是法术熔炉。', log: '冈德伦重获自由！他激动地告诉你们："回声波洞穴的入口就在城堡北边的山崖下！黑蜘蛛涅兹纳尔已经抢先一步进去了——他想要洞穴深处的法术熔炉！快，不能让他得逞！"' } },
       { id: 'ask', text: '询问矿坑的秘密', tag: 'investigation', result: { log: '冈德伦低声道："矿坑里有矮人先民的符文机关。记住：门，会向矮人血脉敞开。我没事，你们快去吧。"' } },
     ] },
   prisoner: { id: 'prisoner', name: '被囚的村民', icon: '🧑‍🌾', title: '凡达林村民',
     greet: '……别杀我！我是凡达林的农户，红标帮抓我来当苦力。',
     options: [
-      { id: 'free', text: '[解救] 放他走', tag: 'aid', once: true, result: { flag: 'rescue_villager', log: '村民千恩万谢地逃了出去。他回头喊了一句："格拉斯塔夫有个密室，入口在书房的书架后面！"' } },
+      { id: 'free', text: '[解救] 放他走', tag: 'aid', once: true, result: { flag: 'rescue_villager', clue: '格拉斯塔夫有个密室，入口在书房的书架后面。', log: '村民千恩万谢地逃了出去。他回头喊了一句："格拉斯塔夫有个密室，入口在书房的书架后面！"' } },
     ] },
 };
 

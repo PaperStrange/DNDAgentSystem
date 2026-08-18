@@ -173,6 +173,9 @@ input, select, textarea { font-family: var(--font); }
 /* R-15/R-16：快捷键提示行 + 行动顺序条 */
 .game-hint { padding: 2px 10px 6px; color: var(--dim); font-size: 11px; text-align: right; }
 .gt-clock { margin-left: auto; color: var(--dim); font-size: 12px; white-space: nowrap; }
+/* 队伍共享线索面板 */
+.clue-box { max-height: 170px; overflow-y: auto; display: flex; flex-direction: column; gap: 5px; }
+.clue-item { font-size: 12px; line-height: 1.5; color: #cfe3d8; border-left: 2px solid #5a8ac0; padding-left: 6px; }
 .order-bar { display: flex; flex-wrap: wrap; gap: 4px; }
 .order-chip { background: var(--panel2); border: 1px solid var(--line); color: var(--txt); border-radius: 5px; padding: 3px 7px; font-size: 12px; cursor: pointer; }
 .order-chip.active { border-color: var(--gold); color: var(--gold); }

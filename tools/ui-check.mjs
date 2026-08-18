@@ -138,6 +138,8 @@ async function main() {
   await page.waitForSelector('.lobby-title', { timeout: 10000 });
   await page.click('.account-box button:has-text("退出登录")');
   await page.waitForSelector('.lobby-title', { timeout: 10000 });
+  // 等待重连完成，避免ws未就绪时提交登录导致提示错乱
+  await page.waitForFunction(() => window.__S && window.__S.net && window.__S.net.ws && window.__S.net.ws.readyState === 1, { timeout: 10000 });
   check('退出登录后重新展示登录按钮', await page.locator('.account-box button:has-text("登录 / 注册")').isVisible());
   check('退出登录后登录框自动弹出', await page.locator('.dialog-overlay .auth-input').first().isVisible());
   await page.click('.dialog-overlay .seg-btn:has-text("登录")');

@@ -2,7 +2,7 @@
 import { store, el, toast } from '../app.mjs';
 import { TILE, drawTile, drawSprite, spritePalette, spriteToCanvas } from '../pixel.mjs';
 import { createPolicy } from '../../shared/autoplay-policy.mjs';
-import { markDeathByName } from '../roster.mjs';
+import { markDeathByName, updateProgression } from '../roster.mjs';
 
 let SCALE = 4;
 
@@ -159,6 +159,22 @@ export function mountGame(root, view) {
     bagPanel.appendChild(bagList);
     side.appendChild(bagPanel);
 
+    // 队伍共享线索：任意玩家获得的情报全队可查
+    const cluePanel = el('div', 'panel side-panel');
+    cluePanel.appendChild(el('h4', '', '📜 队伍线索（共享）'));
+    const clueBox = el('div', 'clue-box');
+    const clues = gv.clues || [];
+    if (!clues.length) {
+      clueBox.appendChild(el('div', 'muted', '暂无共享线索。与NPC对话、获得钥匙、达成章节目标时，线索会记录在这里。'));
+    } else {
+      for (const c of [...clues].reverse()) {
+        const row = el('div', 'clue-item', '🔍 ' + c.text);
+        clueBox.appendChild(row);
+      }
+    }
+    cluePanel.appendChild(clueBox);
+    side.appendChild(cluePanel);
+
     // 回合提示 + 动作
     const actPanel = el('div', 'panel side-panel');
     actPanel.appendChild(el('h4', '', '⚡ 行动'));
@@ -184,8 +200,7 @@ export function mountGame(root, view) {
         { label: '🥷 躲藏', act: () => net.send('game:hide') },
         { label: '🍖 短休', act: () => net.send('game:rest') },
         { label: '👋 互动', act: () => setPending({ kind: 'interact' }) },
-        { label: '🏆 宣称目标', act: () => net.send('game:claim') },
-      ];
+      ]; // 宣称目标按钮已移除：隐藏目标改由结算时自动判定
       for (const gc of generic) {
         const btn = el('button', 'btn small', gc.label);
         btn.disabled = gv.turn.actionUsed;
@@ -289,8 +304,8 @@ export function mountGame(root, view) {
       const chats = gv.log.filter(l => l.kind === 'chat');
       if (!chats.length) chatBox.appendChild(el('div', 'lg system', '还没有人说话，来打个招呼吧～'));
       for (const l of chats) chatBox.appendChild(el('div', 'lg chat', l.text));
-      chatBox.scrollTop = chatBox.scrollHeight;
       logPanel.appendChild(chatBox);
+      chatBox.scrollTop = chatBox.scrollHeight; // 先挂载再滚动：否则scrollHeight为0，日志永远停在顶部
       const chatRow = el('div', 'chat-input-row mt8');
       const chatInput = el('input', '');
       chatInput.placeholder = '对队伍说点什么…（回车发送）';
@@ -334,8 +349,8 @@ export function mountGame(root, view) {
         const div = el('div', 'lg ' + (l.kind || '') + highlight(l.text), l.text);
         logBox.appendChild(div);
       }
-      logBox.scrollTop = logBox.scrollHeight;
       logPanel.appendChild(logBox);
+      logBox.scrollTop = logBox.scrollHeight; // 先挂载再滚动：自动定位到最新一条
     }
     side.appendChild(logPanel);
   }
@@ -818,10 +833,11 @@ export function mountGame(root, view) {
         g.cardSent = true;
         net.send('game:eval');
       }
-      // R-11: 冒险结束时更新名册——阵亡角色标记为已死亡（永久禁战）
+      // R-11: 冒险结束时更新名册——阵亡角色标记为已死亡（永久禁战）；在世角色保留等级与经验（5E跨冒险继承）
       if (!g.rosterMarked && gv.me) {
         g.rosterMarked = true;
         if (gv.me.dead) markDeathByName(gv.me.name);
+        else updateProgression(gv.me.name, gv.me.level, gv.me.xp);
       }
       const evalBox = el('div', 'adventure-card' + (g.cardEval ? '' : ' loading'));
       if (g.cardEval) {
@@ -885,6 +901,8 @@ export function mountGame(root, view) {
   // ---------- 自动游玩测试钩子 ----------
   window.__e2e = {
     view: () => g.view,
+    cam: () => cameraPos(),
+    scale: () => SCALE,
     setAutoplay: (on) => { g.autoplay = on; autoBtn.classList.toggle('gold', on); },
     step: () => {
       const gv = g.view?.game;

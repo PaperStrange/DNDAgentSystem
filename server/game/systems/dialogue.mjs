@@ -106,6 +106,7 @@ export function installDialogue(game) {
     }
     const res = opt.result || {};
     if (res.flag) { this.flags.add(res.flag); if (res.flag === 'rescue_sildar' && !p.stats.rescues.includes('sildar')) p.stats.rescues.push('sildar'); if (res.flag === 'rescue_gundren' && !p.stats.rescues.includes('gundren')) p.stats.rescues.push('gundren'); if (res.flag === 'rescue_villager' && !p.stats.rescues.includes('villager')) p.stats.rescues.push('villager'); }
+    if (res.clue) this.addClue(res.clue); // 对话获得的情报进入队伍共享线索
     if (res.gold) { p.gold += res.gold; p.stats.goldEarned += res.gold; }
     if (res.heal) { const pe = this.entities.get(p.eid); if (pe) this._heal(pe, res.heal, pe); }
     if (res.upgrade === 'weapon') { p.sheet.upgradeWeapon = true; }

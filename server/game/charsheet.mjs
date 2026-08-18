@@ -3,7 +3,7 @@ import { attrMod, ATTRS, SKILLS } from '../rules/rulesdb.mjs';
 import { RACES, CLASSES, MAX_STAT, MIN_STAT, POINT_POOL } from '../../public/shared/char-defs.mjs';
 export { RACES, CLASSES, MAX_STAT, MIN_STAT, POINT_POOL };
 
-export function buildSheet({ name, raceId, classId, stats, flex = {}, colors = {}, background = '', look = {} }) {
+export function buildSheet({ name, raceId, classId, stats, flex = {}, colors = {}, background = '', look = {}, level = 1, xp = 0 }) {
   const race = RACES.find(r => r.id === raceId) || RACES[0];
   const cls = CLASSES.find(c => c.id === classId) || CLASSES[0];
   const final = { ...stats };
@@ -11,7 +11,8 @@ export function buildSheet({ name, raceId, classId, stats, flex = {}, colors = {
   for (const [k, v] of Object.entries(flex || {})) final[k] = (final[k] || 10) + (Number(v) || 0);
   for (const a of ATTRS) if (!final[a]) final[a] = 10;
   const mods = Object.fromEntries(ATTRS.map(a => [a, attrMod(final[a])]));
-  const hp = cls.hitDie + mods.CON + (race.id === 'dwarf' ? 1 : 0);
+  const lv = Math.max(1, Number(level) || 1); // 跨冒险继承等级（5E：经验与成长随角色保留）
+  const hp = cls.hitDie + mods.CON + (race.id === 'dwarf' ? 1 : 0) + (lv - 1) * (cls.hpPerLv + mods.CON + (race.id === 'dwarf' ? 1 : 0));
   const ac = cls.id === 'fighter' ? cls.ac : cls.ac + Math.min(mods.DEX, 2);
   const prof = 2;
   const main = cls.main;
@@ -19,6 +20,7 @@ export function buildSheet({ name, raceId, classId, stats, flex = {}, colors = {
   const skills = [...cls.skills, ...(race.skills || [])];
   return {
     name: name || '无名冒险者', icon: cls.icon, race: race.id, raceName: race.name, class: cls.id, className: cls.name,
+    level: lv, xp: Number(xp) || 0,
     background: background || '平凡的旅人', colors: { skin: '#e8b88a', hair: '#5b3a1e', outfit: '#4a6b8a', eye: '#3a6a9a', accent: '#c8a030', ...colors },
     look: { hair: 0, beard: 0, ...look },
     stats: final, mods, hp, maxHp: hp, ac, prof, mainAttr: main,

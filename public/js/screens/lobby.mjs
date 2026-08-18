@@ -216,7 +216,8 @@ export function mountLobby(root, view) {
       head.appendChild(el('div', '', (e.status === 'dead' ? '☠️ ' : '🧙 ') + e.name + '（' + rn + '·' + cn + '）'));
       head.appendChild(el('span', 'badge' + (e.status === 'dead' ? '' : ' gold'), e.status === 'dead' ? '已阵亡' : '在世'));
       item.appendChild(head);
-      item.appendChild(el('div', 'muted', new Date(e.updatedAt).toLocaleString('zh-CN') + (e.status === 'dead' ? ' · 该角色已无法参与新的冒险' : ' · 可在房间车卡界面读取')));
+      const lvTxt = (e.level > 1 || e.xp > 0) ? (' · Lv' + (e.level || 1) + ' · 经验' + (e.xp || 0)) : '';
+      item.appendChild(el('div', 'muted', new Date(e.updatedAt).toLocaleString('zh-CN') + lvTxt + (e.status === 'dead' ? ' · 该角色已无法参与新的冒险' : ' · 可在房间车卡界面读取')));
       rosterBox.appendChild(item);
     }
   };
