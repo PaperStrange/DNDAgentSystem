@@ -3,7 +3,7 @@ import { attrMod, ATTRS, SKILLS } from '../rules/rulesdb.mjs';
 import { RACES, CLASSES, MAX_STAT, MIN_STAT, POINT_POOL } from '../../public/shared/char-defs.mjs';
 export { RACES, CLASSES, MAX_STAT, MIN_STAT, POINT_POOL };
 
-export function buildSheet({ name, raceId, classId, stats, flex = {}, colors = {}, background = '' }) {
+export function buildSheet({ name, raceId, classId, stats, flex = {}, colors = {}, background = '', look = {} }) {
   const race = RACES.find(r => r.id === raceId) || RACES[0];
   const cls = CLASSES.find(c => c.id === classId) || CLASSES[0];
   const final = { ...stats };
@@ -19,7 +19,8 @@ export function buildSheet({ name, raceId, classId, stats, flex = {}, colors = {
   const skills = [...cls.skills, ...(race.skills || [])];
   return {
     name: name || '无名冒险者', icon: cls.icon, race: race.id, raceName: race.name, class: cls.id, className: cls.name,
-    background: background || '平凡的旅人', colors: { skin: '#e8b88a', hair: '#5b3a1e', outfit: '#4a6b8a', ...colors },
+    background: background || '平凡的旅人', colors: { skin: '#e8b88a', hair: '#5b3a1e', outfit: '#4a6b8a', eye: '#3a6a9a', accent: '#c8a030', ...colors },
+    look: { hair: 0, beard: 0, ...look },
     stats: final, mods, hp, maxHp: hp, ac, prof, mainAttr: main,
     attackBonus: meleeBonus, damageBonus: mods[main],
     speed: race.speed, skills, spells: cls.spells || [], weapons: cls.weapons,

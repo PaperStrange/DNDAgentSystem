@@ -8,7 +8,7 @@ let SCALE = 4;
 
 export function mountGame(root, view) {
   const net = store.net;
-  const g = { view, pending: null, floaters: [], anim: new Map(), introSeen: false, autoplay: false, policy: createPolicy(), sfx: true, lastSnapSeq: 0, speed: 1, logFilter: 'all', cardSent: false, panelTab: 'log', unitFilter: null, rosterMarked: false };
+  const g = { view, pending: null, floaters: [], anim: new Map(), introSeen: false, autoplay: false, modeInited: false, policy: createPolicy(), sfx: true, lastSnapSeq: 0, speed: 1, logFilter: 'all', cardSent: false, panelTab: 'log', unitFilter: null, rosterMarked: false };
   let raf = null, canvas, ctx, wrap, autoTicker = null;
 
   // ---------- DOM ----------
@@ -67,6 +67,18 @@ export function mountGame(root, view) {
     speedSel.title = '只有房主可以调整速度';
     pauseBtn.title = '只有房主可以暂停';
   }
+  // 本地时间 + 冒险经过时间
+  const gtClock = el('div', 'gt-clock', '');
+  top.appendChild(gtClock);
+  const clockTimer = setInterval(() => {
+    let txt = new Date().toLocaleTimeString('zh-CN', { hour12: false });
+    const gv2 = g.view?.game;
+    if (gv2?.startedAt) {
+      const secs = Math.max(0, Math.floor((Date.now() - gv2.startedAt) / 1000));
+      txt += ' · 冒险 ' + Math.floor(secs / 60) + ':' + String(secs % 60).padStart(2, '0');
+    }
+    gtClock.textContent = txt;
+  }, 1000);
   const hintRow = el('div', 'game-hint', '💡 快捷键：空格=暂停/继续 · 小键盘←/→=减速/加速（仅房主）' + (isHostMe ? '' : ' · 你非房主，仅可旁观'));
   screen.appendChild(hintRow);
 
@@ -114,7 +126,7 @@ export function mountGame(root, view) {
       fill.style.width = (myEnt.hp / myEnt.maxHp * 100) + '%';
       bar.appendChild(fill);
       mePanel.appendChild(bar);
-      const info = el('div', 'stats-line mt8', '💰 ' + me.gold + '金 · 经验池 ' + gv.xpPool + ' · ' + (me.slots ? '法术位 ' + me.slots['1'] + '/' + (me.level >= 2 ? 3 : 2) : '无施法'));
+      const info = el('div', 'stats-line mt8', '💰 ' + me.gold + '金 · 经验 ' + me.xp + '/' + (me.xpNeed || '—') + ' · 升级需求 ' + (me.xpNeed ? me.xpNeed + ' 经验' : '已达上限'));
       mePanel.appendChild(info);
       mePanel.appendChild(info);
     }
@@ -142,6 +154,7 @@ export function mountGame(root, view) {
     bagAdd('🧨', '炼金火焰瓶', me.items.flask, '动作使用：3x3范围2d6火焰伤害，敏捷豁免减半', me.items.flask > 0 ? () => setPending({ kind: 'item', itemId: 'flask' }) : null);
     for (const k of me.keys || []) bagAdd('🔑', keyName[k] || k, undefined, '剧情钥匙（队伍共有）');
     if (me.sheet.upgradeWeapon) bagAdd('⚔️', '附魔磨刀石', undefined, '已使用：武器伤害+1');
+    bagAdd('🛌', '短休剩余', me.charges?.shortrest ?? 0, '非战斗时可在自己回合消耗动作短休恢复生命（每章2次）');
     bagList.appendChild(el('div', 'muted', me.slots ? '法术位：' + me.slots['1'] + '/' + (me.level >= 2 ? 3 : 2) : ''));
     bagPanel.appendChild(bagList);
     side.appendChild(bagPanel);
@@ -213,12 +226,8 @@ export function mountGame(root, view) {
     if (me.goal) {
       const goalPanel = el('div', 'panel side-panel goal-card');
       goalPanel.appendChild(el('h4', '', '🔒 隐藏目标（仅你可见）'));
-      goalPanel.appendChild(el('div', 'gc-text', '「' + me.goal.name + '」' + me.goal.text));
-      goalPanel.appendChild(el('div', 'gc-status', me.goal.status === 'confirmed' ? '✅ 已达成' : me.goal.status === 'denied' ? '❌ 曾被驳回，继续努力' : '⏳ 未达成'));
-      const claimBtn = el('button', 'btn small gold mt8', me.goal.status === 'confirmed' ? '已达成' : '宣称达成隐藏目标');
-      claimBtn.disabled = me.goal.status === 'confirmed' || me.claimCooldown > 0;
-      claimBtn.onclick = () => net.send('game:claim');
-      goalPanel.appendChild(claimBtn);
+      goalPanel.appendChild(el('div', 'gc-text', '「' + me.goal.name + '」：' + me.goal.text));
+      goalPanel.appendChild(el('div', 'gc-status', me.goal.status === 'confirmed' ? '✅ 已达成' : me.goal.status === 'denied' ? '❌ 未达成' : '⏳ 进行中（结算时自动判定）'));
       side.appendChild(goalPanel);
     }
 
@@ -421,10 +430,11 @@ export function mountGame(root, view) {
     const vw = Math.ceil(canvas.width / SCALE / TILE) + 2, vh = Math.ceil(canvas.height / SCALE / TILE) + 2;
     const ox = Math.floor(cam.x), oy = Math.floor(cam.y);
     // 瓦片
+    const theme = gv.map.theme || null; // 剧情主题色板（AI生成/离线主题）
     for (let y = oy; y < oy + vh; y++) {
       for (let x = ox; x < ox + vw; x++) {
-        if (x < 0 || y < 0 || x >= gv.map.w || y >= gv.map.h) { drawTile(ctx, '#', x, y, t); continue; }
-        drawTile(ctx, gv.map.tiles[y][x], x, y, t);
+        if (x < 0 || y < 0 || x >= gv.map.w || y >= gv.map.h) { drawTile(ctx, '#', x, y, t, theme); continue; }
+        drawTile(ctx, gv.map.tiles[y][x], x, y, t, theme);
       }
     }
     // 宝箱/道具/出口覆盖
@@ -458,17 +468,17 @@ export function mountGame(root, view) {
       stackIdx.set(tileKey, sIdx + 1);
       const so = STACK_OFFSETS[sIdx % STACK_OFFSETS.length];
       const px = anim.x * TILE + (TILE - 16) / 2 + so[0], py = anim.y * TILE + (TILE - 18) + 2 + so[1];
-      let palette, cls = null, race = null, kind = 'player', defKey = null;
+      let palette, cls = null, race = null, kind = 'player', defKey = null, lookOf = null;
       if (e.kind === 'player') {
         const p = gv.players.find(x => x.eid === e.eid);
-        if (p) { palette = spritePalette('player', null, p.sheet.colors); cls = p.sheet.class; race = p.sheet.race; }
+        if (p) { palette = spritePalette('player', null, p.sheet.colors); cls = p.sheet.class; race = p.sheet.race; lookOf = p.sheet.look || null; }
       } else if (e.kind === 'monster') { kind = 'monster'; defKey = e.defKey; palette = spritePalette('monster', e.defKey); }
       else { kind = 'npc'; defKey = e.npcId; palette = spritePalette('npc', e.npcId); }
       // 阴影
       ctx.fillStyle = 'rgba(0,0,0,.3)';
       ctx.fillRect(px + 3, py + 16, 10, 2);
       if (e.downed) { ctx.globalAlpha = .55; }
-      drawSprite(ctx, kind, defKey, palette, px, py, { dir: anim.dir || 'down', frame: anim.frame, cls, race, bob: true });
+      drawSprite(ctx, kind, defKey, palette, px, py, { dir: anim.dir || 'down', frame: anim.frame, cls, race, bob: true, look: lookOf });
       ctx.globalAlpha = 1;
       // 名字/血条：屏幕空间绘制（固定像素大小，不随缩放变形）
       const sx = (anim.x + so[0] / TILE - cam.x) * TILE * SCALE;
@@ -670,11 +680,11 @@ export function mountGame(root, view) {
   // ---------- 快照更新 ----------
   function update(view) {
     const prev = g.view;
-    const firstGame = !prev || prev.view !== 'game';
     g.view = view;
     const gv = view.game;
-    // R-4: 按房主设定的模式初始化自动战斗（默认自动）；手动模式玩家自行操作
-    if (firstGame && gv) {
+    // R-4: 按房主设定的模式初始化自动战斗（用独立标志只执行一次；旧firstGame判断恒为false导致模式从未初始化）
+    if (!g.modeInited && gv) {
+      g.modeInited = true;
       const mode = gv.mode || view.room?.mode || 'auto';
       g.autoplay = mode !== 'manual';
       autoBtn.classList.toggle('gold', g.autoplay);
@@ -780,7 +790,7 @@ export function mountGame(root, view) {
       card.appendChild(el('div', 'ov-text mt8', gv.chapter.intro));
       card.appendChild(el('div', 'ov-text mt8', gv.dungeon.publicGoal.text));
       if (gv.me?.goal) {
-        card.appendChild(el('div', 'ov-goal', '🔒 你的隐藏目标：「' + gv.me.goal.name + '」' + gv.me.goal.text + '（仅自己可见，全员各自达成即可获胜）'));
+        card.appendChild(el('div', 'ov-goal', '🔒 你的隐藏目标：「' + gv.me.goal.name + '」：' + gv.me.goal.text + '（仅自己可见，全员各自达成即可获胜）'));
       } else {
         card.appendChild(el('div', 'ov-goal', '📜 命运正在为你写下隐藏目标……'));
       }
@@ -840,7 +850,7 @@ export function mountGame(root, view) {
       card.appendChild(evalBox);
       const myGoal = gv.me?.goal;
       if (myGoal) {
-        card.appendChild(el('div', 'ov-goal', '你的隐藏目标：「' + myGoal.name + '」' + (myGoal.status === 'confirmed' ? ' ✅ 已达成' : ' ❌ 未达成')));
+        card.appendChild(el('div', 'ov-goal', '你的隐藏目标：「' + myGoal.name + '」：' + myGoal.text + (myGoal.status === 'confirmed' ? ' ✅ 已达成' : ' ❌ 未达成')));
       }
       const table = el('table', 'stat-table');
       for (const p of gv.players) {
@@ -984,6 +994,6 @@ export function mountGame(root, view) {
       saveAdventureCard(e);
       renderOverlays(g.view);
     },
-    unmount() { cancelAnimationFrame(raf); clearInterval(autoTicker); window.removeEventListener('resize', resize); if (resizeObserver) resizeObserver.disconnect(); window.__e2e = null; },
+    unmount() { cancelAnimationFrame(raf); clearInterval(autoTicker); clearInterval(clockTimer); window.removeEventListener('resize', resize); if (resizeObserver) resizeObserver.disconnect(); window.__e2e = null; },
   };
 }

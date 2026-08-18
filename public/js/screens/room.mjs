@@ -1,7 +1,10 @@
 // 房间：成员列表/踢人/车卡/准备。所有成员准备后自动开局
 import { store, el, toast } from '../app.mjs';
 import { RACES, CLASSES, MAX_STAT, MIN_STAT, POINT_POOL } from '../../shared/char-defs.mjs';
-import { SKIN_TONES, HAIR_TONES, OUTFIT_TONES, spriteToCanvas } from '../pixel.mjs';
+import { SKIN_TONES, HAIR_TONES, OUTFIT_TONES, spriteToCanvas, spritePalette } from '../pixel.mjs';
+// 捏脸扩展色板（R-13重做：瞳色/饰色）
+const EYE_TONES = ['#3a6a9a', '#5b7a3a', '#8a5a2a', '#6a4a8a', '#3a3a4a', '#8a3a2a'];
+const ACCENT_TONES = ['#c8a030', '#c05a5a', '#5a8ac0', '#7a5ac0', '#5ac0a0', '#d0c0c8'];
 import { aliveEntries, upsertEntry, loadRoster } from '../roster.mjs';
 
 export function mountRoom(root, view) {
@@ -108,9 +111,12 @@ export function mountRoom(root, view) {
       net.send('room:start');
     };
     const wait = el('button', 'btn', '⏳ 继续等待其他玩家');
-    wait.style.cssText = 'width:100%;';
+    wait.style.cssText = 'width:100%;margin-bottom:6px;';
     wait.onclick = () => { ov.remove(); net.send('room:ready', { ready: true }); };
-    box.append(go, wait);
+    const back = el('button', 'btn', '🔙 返回房间');
+    back.style.cssText = 'width:100%;';
+    back.onclick = () => { ov.remove(); net.send('room:ready', { ready: false }); };
+    box.append(go, wait, back);
     ov.appendChild(box);
     document.body.appendChild(ov);
   }
@@ -181,7 +187,8 @@ export function mountChargen(root, view, net) {
   let selClass = sheet ? sheet.classId : null;
   let stats = sheet ? { ...sheet.stats } : null;
   let flexList = []; // 自由加点：按槽位存储属性分配（如 ['STR','CON']），互不干扰
-  let colors = sheet ? { ...sheet.colors } : { skin: SKIN_TONES[0], hair: HAIR_TONES[0], outfit: OUTFIT_TONES[0] };
+  let colors = sheet ? { ...sheet.colors } : { skin: SKIN_TONES[0], hair: HAIR_TONES[0], outfit: OUTFIT_TONES[0], eye: EYE_TONES[0], accent: ACCENT_TONES[0] };
+  let look = sheet ? { ...(sheet.look || {}) } : { hair: 0, beard: 0 }; // 捏脸：发型/胡须
   let name = sheet ? sheet.name : '';
   let background = sheet ? sheet.background : '';
   let saved = !!view.mySheet;
@@ -214,7 +221,9 @@ export function mountChargen(root, view, net) {
     ctx.clearRect(0, 0, previewCanvas.width, previewCanvas.height);
     ctx.fillStyle = '#181422';
     ctx.fillRect(0, 0, previewCanvas.width, previewCanvas.height);
-    const c = spriteToCanvas('player', 'human', { o: '#2a2430', s: colors.skin, h: colors.hair, u: colors.outfit, d: shade(colors.outfit), w: '#cfd6e4', e: '#f0f0f0' }, selClass, selRace);
+    const pal = spritePalette('player', 'human', colors);
+    pal.e = colors.eye; pal.U = colors.accent; // 捏脸：瞳色+饰色
+    const c = spriteToCanvas('player', 'human', pal, selClass, selRace, look);
     ctx.imageSmoothingEnabled = false;
     ctx.drawImage(c, 0, 0, 16 * 8, 18 * 8);
   };
@@ -233,7 +242,7 @@ export function mountChargen(root, view, net) {
     rosterSel.innerHTML = '';
     const defOpt = document.createElement('option');
     defOpt.value = '';
-    defOpt.textContent = alive.length ? '—— 选择一名角色载入（' + alive.length + '位在世）——' : '—— 暂无已保存角色 ——';
+    defOpt.textContent = alive.length ? '—— 选择一名角色载入（' + alive.length + '位可用）——' : '—— 暂无可用角色 ——';
     rosterSel.appendChild(defOpt);
     for (const e of alive) {
       const o = document.createElement('option');
@@ -253,7 +262,8 @@ export function mountChargen(root, view, net) {
     selRace = e.raceId; selClass = e.classId;
     stats = e.stats ? { ...e.stats } : null;
     flexList = e.flex ? Object.keys(e.flex).flatMap(a => Array(Math.min(6, e.flex[a] || 0)).fill(a)) : [];
-    colors = { ...(e.colors || { skin: SKIN_TONES[0], hair: HAIR_TONES[0], outfit: OUTFIT_TONES[0] }) };
+    colors = { ...(e.colors || { skin: SKIN_TONES[0], hair: HAIR_TONES[0], outfit: OUTFIT_TONES[0], eye: EYE_TONES[0], accent: ACCENT_TONES[0] }) };
+    look = { ...(e.look || { hair: 0, beard: 0 }) };
     background = e.background || '';
     bgInput.value = background;
     sync();
@@ -318,25 +328,25 @@ export function mountChargen(root, view, net) {
 
   // 背景（R-2：自由输入 + LLM随机生成）
   const secBg = el('div', 'cg-section');
-  secBg.appendChild(el('h3', '', '⑥ 背景故事（AI随机生成150字以上，可自由编辑）'));
+  secBg.appendChild(el('h3', '', '⑥ 背景故事'));
   const bgRow = el('div', '');
   bgRow.style.display = 'flex';
   bgRow.style.gap = '6px';
   const bgInput = el('textarea', '');
   bgInput.rows = 4;
   bgInput.style.cssText = 'flex:1;background:var(--panel2);border:2px solid var(--line);color:var(--txt);border-radius:6px;padding:8px;resize:vertical;';
-  bgInput.placeholder = '写下角色的来历与梦想，或点击右侧按钮让AI DM为你即兴创作…';
+  bgInput.placeholder = '写下角色的来历与梦想，或点击右侧按钮随机生成一段故事…';
   bgInput.value = background || '';
   bgInput.oninput = () => { background = bgInput.value.trim(); };
   bgRow.appendChild(bgInput);
   const randBgBtn = el('button', 'btn small gold', '🎲 随机');
-  randBgBtn.title = '由AI DM根据角色的种族与职业即兴生成一段150字以上的独特背景故事';
+  randBgBtn.title = '随机生成一段背景故事（150字以上）';
   randBgBtn.onclick = () => {
     if (!selRace || !selClass) { toast('请先选择种族与职业', true); return; }
     randBgBtn.disabled = true;
-    randBgBtn.textContent = '⏳';
+    randBgBtn.innerHTML = '<span class="spin"></span> 生成中…';
     net.send('room:bg-random', { raceId: selRace, classId: selClass, colors });
-    setTimeout(() => { randBgBtn.disabled = false; randBgBtn.textContent = '🎲 随机'; }, 8000);
+    setTimeout(() => { randBgBtn.disabled = false; randBgBtn.innerHTML = '🎲 随机'; }, 30000);
   };
   bgRow.appendChild(randBgBtn);
   secBg.appendChild(bgRow);
@@ -356,9 +366,9 @@ export function mountChargen(root, view, net) {
     const flexObj = {};
     for (const a of flexList) flexObj[a] = (flexObj[a] || 0) + 1;
     // R-11: 保存车卡同时收入冒险者名册（载入的角色原地更新），并刷新读取列表
-    loadedId = upsertEntry({ name, raceId: selRace, classId: selClass, stats: currentStats(), flex: flexObj, colors, background }, loadedId);
+    loadedId = upsertEntry({ name, raceId: selRace, classId: selClass, stats: currentStats(), flex: flexObj, colors, background, look }, loadedId);
     refreshRosterSel();
-    net.send('room:charsheet', { sheet: { name, raceId: selRace, classId: selClass, stats: currentStats(), flex: flexObj, colors, background } });
+    net.send('room:charsheet', { sheet: { name, raceId: selRace, classId: selClass, stats: currentStats(), flex: flexObj, colors, background, look } });
     toast('⏳ 正在保存车卡…');
   };
   const saveWrap = el('div', 'mt8');
@@ -489,6 +499,63 @@ export function mountChargen(root, view, net) {
       row3.appendChild(sw);
     }
     lookBox.appendChild(row3);
+    // R-13重做：瞳色
+    const row4 = el('div', 'color-row mt8');
+    row4.appendChild(el('span', 'muted', '瞳色'));
+    for (const c of EYE_TONES) {
+      const sw = el('div', 'color-swatch');
+      sw.style.background = c;
+      if (colors.eye === c) sw.classList.add('sel');
+      sw.onclick = () => { colors.eye = c; renderLook(); renderPreview(); };
+      row4.appendChild(sw);
+    }
+    lookBox.appendChild(row4);
+    // R-13重做：饰色（服装高光/金属件）
+    const row5 = el('div', 'color-row mt8');
+    row5.appendChild(el('span', 'muted', '饰色'));
+    for (const c of ACCENT_TONES) {
+      const sw = el('div', 'color-swatch');
+      sw.style.background = c;
+      if (colors.accent === c) sw.classList.add('sel');
+      sw.onclick = () => { colors.accent = c; renderLook(); renderPreview(); };
+      row5.appendChild(sw);
+    }
+    lookBox.appendChild(row5);
+    // R-13重做：发型
+    const hairRow = el('div', 'color-row mt8');
+    hairRow.appendChild(el('span', 'muted', '发型'));
+    const HAIR_STYLES = ['默认', '长发', '发髻', '短发'];
+    HAIR_STYLES.forEach((label, i) => {
+      const b = el('button', 'btn small' + (look.hair === i ? ' gold' : ''), label);
+      b.onclick = () => { look.hair = i; renderLook(); renderPreview(); };
+      hairRow.appendChild(b);
+    });
+    lookBox.appendChild(hairRow);
+    // R-13重做：胡须
+    const beardRow = el('div', 'color-row mt8');
+    beardRow.appendChild(el('span', 'muted', '胡须'));
+    ['无', '有'].forEach((label, i) => {
+      const b = el('button', 'btn small' + (look.beard === i ? ' gold' : ''), label);
+      b.onclick = () => { look.beard = i; renderLook(); renderPreview(); };
+      beardRow.appendChild(b);
+    });
+    lookBox.appendChild(beardRow);
+    // 随机外观
+    const rndRow = el('div', 'mt8');
+    const rndBtn = el('button', 'btn small gold', '🎲 随机外观');
+    rndBtn.title = '随机生成一套完整外观（肤色/发色/服色/瞳色/饰色/发型/胡须）';
+    rndBtn.onclick = () => {
+      colors.skin = SKIN_TONES[Math.floor(Math.random() * SKIN_TONES.length)];
+      colors.hair = HAIR_TONES[Math.floor(Math.random() * HAIR_TONES.length)];
+      colors.outfit = OUTFIT_TONES[Math.floor(Math.random() * OUTFIT_TONES.length)];
+      colors.eye = EYE_TONES[Math.floor(Math.random() * EYE_TONES.length)];
+      colors.accent = ACCENT_TONES[Math.floor(Math.random() * ACCENT_TONES.length)];
+      look.hair = Math.floor(Math.random() * 4);
+      look.beard = Math.floor(Math.random() * 2);
+      renderLook(); renderPreview();
+    };
+    rndRow.appendChild(rndBtn);
+    lookBox.appendChild(rndRow);
   }
 
   function renderDerived() {
@@ -522,6 +589,6 @@ export function mountChargen(root, view, net) {
   sync();
   return {
     update() {},
-    onBg: (text) => { bgInput.value = text; background = text; toast('✨ AI DM 已为你写下背景故事'); },
+    onBg: (text) => { bgInput.value = text; background = text; randBgBtn.disabled = false; randBgBtn.innerHTML = '🎲 随机'; toast('✨ 已为你写下背景故事'); },
   };
 }

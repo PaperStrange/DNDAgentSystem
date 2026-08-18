@@ -1,6 +1,9 @@
 // 车卡界面专项UI验证：加点边界/自由加点独立/背景随机/保存反馈/预览排版
 import { spawn } from 'node:child_process';
 import { chromium } from 'playwright';
+import { writeFileSync, appendFileSync } from 'node:fs';
+const ULOG = 'tools/_ui_out.log';
+try { writeFileSync(ULOG, ''); } catch (e) {}
 
 const PORT = 3893;
 const server = spawn(process.execPath, ['server/index.mjs'], {
@@ -8,7 +11,7 @@ const server = spawn(process.execPath, ['server/index.mjs'], {
   env: { ...process.env, DND_PORT: String(PORT) },
   stdio: ['ignore', 'pipe', 'pipe'],
 });
-const log = (...a) => console.log('[ui]', ...a);
+const log = (...a) => { const s = '[ui] ' + a.join(' '); try { appendFileSync(ULOG, s + '\n'); } catch (e) {} console.log(s); };
 let pass = 0, fail = 0;
 const check = (name, ok, extra = '') => { log((ok ? '✅ ' : '❌ ') + name + (extra ? ' | ' + extra : '')); ok ? pass++ : fail++; };
 
@@ -68,7 +71,7 @@ async function main() {
   const bgArea = page.locator('textarea[placeholder*="来历"]');
   await bgArea.fill('生于山野，剑出如风。');
   check('R-2 背景可自由输入', (await bgArea.inputValue()).includes('山野'));
-  await page.click('button:has-text("随机")');
+  await page.click('.cg-section:has(h3:has-text("背景故事")) button'); // 精确点击背景随机按钮（避免与「随机外观」混淆）
   await page.waitForFunction(() => {
     const t = document.querySelector('textarea[placeholder*="来历"]');
     return t && t.value.replace(/\s/g, '').length >= 150;
@@ -156,4 +159,4 @@ async function main() {
   server.kill();
   process.exit(fail ? 1 : 0);
 }
-main().catch(e => { console.error('UI CHECK CRASH:', e); server.kill(); process.exit(1); });
+main().catch(e => { try { appendFileSync(ULOG, '[ui] CRASH: ' + (e?.stack || String(e)) + '\n'); } catch (e2) {} console.error('UI CHECK CRASH:', e); server.kill(); process.exit(1); });

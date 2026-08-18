@@ -7,6 +7,9 @@ import { installEntities } from './entities.mjs';
 import { installDialogue } from './systems/dialogue.mjs';
 import { installProgress } from './systems/progress.mjs';
 
+// 升级经验需求表（按当前等级索引）：显示给玩家的具体数量；章节等级上限仍按 levelUpTo 控制节奏
+const XP_NEED = [0, 120, 350, 650];
+
 const SPELLS = {
   firebolt: { id: 'firebolt', name: '火焰箭', icon: '🔥', kind: 'spellAttack', bonusAttr: 'INT', dice: '1d10', range: 12, cost: 'cantrip', type: '火焰', desc: '对单体掷法术攻击，1d10火焰伤害' },
   magicmissile: { id: 'magicmissile', name: '魔法飞弹', icon: '✨', kind: 'autoHit', dice: '3d4+3', range: 12, cost: 'slot', type: '力场', desc: '3枚飞弹自动命中，3d4+3伤害' },
@@ -104,6 +107,16 @@ export class Game {
     this.chapterIdx = idx;
     this.chapter = this.dungeon.chapters[idx];
     this.map = parseMap(this.chapter);
+    // 地图主题色板：先离线主题立即可用，AI调色板异步就绪后刷新（按剧情生成）
+    this.mapTheme = this.chapter.theme || null;
+    if (this.director?.chapterTheme) {
+      const chRef = this.chapter;
+      Promise.resolve(this.director.chapterTheme(chRef)).then(th => {
+        if (this.closed || this.chapter !== chRef || !th) return;
+        this.mapTheme = th;
+        this.onChange();
+      }).catch(() => {});
+    }
     this.entities = new Map();
     this.combat = { active: false, round: 0, order: [], idx: 0 };
     this.turn = null;
@@ -501,7 +514,11 @@ export class Game {
       this.keys.add(e.lootKey);
       this.logMsg('system', '🔑 队伍获得了【' + (e.lootKey === 'cage_key' ? '笼子钥匙' : '城堡钥匙') + '】');
     }
-    if (e.xp) this.xpPool += e.xp;
+    if (e.xp) {
+      this.xpPool += e.xp;
+      for (const pl of this.players.values()) if (!pl.dead) pl.xp += e.xp; // 经验全员共享，计入个人经验条
+      this._checkXpLevel();
+    }
     // 小队全灭检查
     const squadAlive = this._aliveEnemies().filter(x => x.squad === e.squad);
     if (!squadAlive.length) this.deadSquads.add(this.chapter.id + ':' + e.squad);
@@ -1028,11 +1045,29 @@ export class Game {
     this.state = 'ended';
     this.win = { kind, reason, at: Date.now(), duration: Date.now() - this.startedAt };
     this.logMsg('system', '━━━ 🎉 冒险结束 ━━━');
+    // 结算时自动判定隐藏目标（离线机械验证；宣称按钮已移除）
+    for (const [pid, p] of this.players) {
+      const g2 = p.goals[0];
+      if (g2 && g2.status === 'pending') {
+        const okRes = offlineVerify(g2, p.stats, !p.dead);
+        g2.status = okRes ? 'confirmed' : 'denied';
+        this.logMsg('goal', (okRes ? '🏆 ' : '❌ ') + p.name + ' 的隐藏目标「' + g2.name + '」' + (okRes ? '达成' : '未达成') + '（结算判定）', { private: pid });
+      }
+    }
     if (kind === 'defeat') this.narrate('defeat', {});
     else this.narrate('victory', {});
     this.logMsg('narr', reason, { dm: true });
     this.director.onGameEnd(this, kind);
     this.onChange();
+  }
+
+  // 经验达标即升级（不超过本章等级上限，维持既有等级曲线节奏）
+  _checkXpLevel() {
+    const cap = this.chapter.levelUpTo || 1;
+    for (const [pid, p] of this.players) {
+      if (p.dead) continue;
+      while (p.level < cap && p.xp >= (XP_NEED[p.level] || Infinity)) this._levelUp(p, p.level + 1);
+    }
   }
 
   // ---------- 移除玩家（踢出/离房） ----------
@@ -1093,7 +1128,7 @@ export class Game {
     if (p) {
       const myGoal = p.goals[0] ? { id: p.goals[0].id, name: p.goals[0].name, text: p.goals[0].text, status: p.goals[0].status } : null;
       me = {
-        pid, name: p.name, sheet: p.sheet, gold: p.gold, level: p.level, xp: p.xp, items: p.items, keys: p.keys, slots: p.slots,
+        pid, name: p.name, sheet: p.sheet, gold: p.gold, level: p.level, xp: p.xp, xpNeed: XP_NEED[p.level] || 0, items: p.items, keys: p.keys, slots: p.slots,
         charges: p.charges, eid: p.eid, downed: p.downed, dead: p.dead, claimCooldown: p.claimCooldown,
         goal: myGoal, stats: p.stats, attacks: this.playerAttacks(p), bonusAttacks: this.bonusAttacks(p),
       };
@@ -1103,12 +1138,13 @@ export class Game {
       state: this.state, dungeon: { id: this.dungeon.id, name: this.dungeon.name, publicGoal: this.dungeon.publicGoal },
       chapter: { id: this.chapter.id, name: this.chapter.name, place: this.chapter.place, intro: this.chapter.intro,
         objective: this.chapter.objective, objectiveDone: this.flags.has('obj:' + this.chapter.objective.id) },
-      map: { w: this.map.w, h: this.map.h, tiles, chests, props },
+      map: { w: this.map.w, h: this.map.h, tiles, chests, props, theme: this.mapTheme || null },
       entities, players, me, exits,
       turn: this.turn ? { playerId: this.turn.playerId, moveLeft: this.turn.moveLeft, actionUsed: this.turn.actionUsed, bonusUsed: this.turn.bonusUsed, actorEid: this.turn.actorEid } : null,
       combat: { active: this.combat.active, round: this.combat.round, order: this.combat.order },
       flags: [...this.flags].filter(f => !f.startsWith('dlg:')), xpPool: this.xpPool,
       win: this.win,
+      startedAt: this.startedAt,
       speed: this.speed, paused: this.paused, mode: this.room.mode || 'auto',
       dialogue: dlg,
       log: this.log.filter(l => !l.private || l.private === pid).slice(-120), // 私密日志仅本人可见

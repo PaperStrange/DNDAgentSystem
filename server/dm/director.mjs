@@ -122,6 +122,26 @@ export class Director {
     return '累计伤害' + s.damageDealt + '，击杀' + s.kills + '，获得金币' + s.goldEarned + '，治疗' + s.healed + '，施法' + s.spellsCast + '次，搜索/开箱' + (s.searches + s.chestsOpened) + '次，倒地' + s.downedCount + '次，重击' + s.crits + '次，休息' + s.restsUsed + '次，救援NPC：' + (s.rescues.join('、') || '无') + '。最近事件：' + ev;
   }
 
+  // 地图主题色板（AI按剧情生成；离线/失败降级到章节内置主题；按章节缓存）
+  _themeCache = new Map();
+  async chapterTheme(chapter) {
+    if (this._themeCache.has(chapter.id)) return this._themeCache.get(chapter.id);
+    let theme = chapter.theme || null;
+    if (this.online && theme) {
+      try {
+        const res = await chat([
+          { role: 'system', content: '你是像素游戏的美术指导。请为以下剧情场景设计一套5色地面主题色板，输出JSON：{"floor":"#RRGGBB","grass":"#RRGGBB","wall":"#RRGGBB","water":"#RRGGBB","rubble":"#RRGGBB"}。颜色要贴合剧情氛围、互相协调、明度适中（不要过暗）。' },
+          { role: 'user', content: '章节：' + chapter.name + '（' + chapter.place + '）。剧情简介：' + chapter.intro },
+        ], { json: true, temperature: 0.8, timeoutMs: 12000 });
+        const data = res ? extractJson(res.text) : null;
+        const hex = /^#[0-9a-fA-F]{6}$/;
+        if (data && ['floor', 'grass', 'wall', 'water', 'rubble'].every(k => hex.test(String(data[k])))) theme = { ...theme, ...data };
+      } catch (e) { /* 离线主题 */ }
+    }
+    this._themeCache.set(chapter.id, theme);
+    return theme;
+  }
+
   // 大事件LLM加戏（异步、不阻塞、失败静默）
   flourish(game, key, ctx = {}) {
     if (!this.online) return;

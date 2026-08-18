@@ -118,6 +118,7 @@ export const DUNGEONS = [{
   chapters: [
     {
       id: 'prologue', name: '序章·哥布林之箭', place: '贡树大道岔路口',
+      theme: { floor: '#7a6a4a', grass: '#5a8a4a', wall: '#2f4a2a', water: '#3b6ea5', rubble: '#5d5343' },
       intro: '你们受雇护送矮人兄弟冈德伦·岩寻的物资马车，前往凡达林镇。行至贡树大道岔路口，只见马车翻倒、货物散落，两匹死马倒在路旁——箭矢插满马身。矮人兄弟，不见了。',
       objective: { id: 'clear_ambush', text: '击退伏击的哥布林，搜寻线索', doneHint: '伏击者已被肃清。沿着足迹，通往北方的道路打开了。' },
       map: {
@@ -150,6 +151,7 @@ export const DUNGEONS = [{
     },
     {
       id: 'ch1', name: '第一章·克拉格莫洞穴', place: '克拉格莫洞穴',
+      theme: { floor: '#8a7a62', grass: '#6a7a52', wall: '#3a3228', water: '#2a4a6a', rubble: '#5d5343' },
       intro: '顺着足迹，你们摸进了哥布林的巢穴——克拉格莫洞穴。洞内昏暗潮湿，远处传来哥布林的聒噪和狼的低吼。',
       objective: { id: 'rescue_sildar', text: '击败洞穴主人克拉格，救出被囚的西达尔', doneHint: '西达尔获救了。他说凡达林镇有红标帮作乱，冈德伦被带往北边城堡。' },
       map: {
@@ -196,6 +198,7 @@ export const DUNGEONS = [{
     },
     {
       id: 'town', name: '第二章·凡达林镇', place: '凡达林镇',
+      theme: { floor: '#8f8f96', grass: '#4f7c43', wall: '#6a5a4a', water: '#3b6ea5', rubble: '#5d5343' },
       intro: '你们抵达了凡达林镇——一座被红标帮阴影笼罩的小镇。镇民们谨慎而友善，酒馆、杂货铺、神庙错落在土路两旁。',
       objective: { id: 'defeat_glasstaff', text: '打听红标帮的情报，潜入特雷森达庄园击败格拉斯塔夫', doneHint: '红标帮被击溃了。冈德伦还关在北边的克拉格莫城堡，事不宜迟。' },
       map: {
@@ -244,6 +247,7 @@ export const DUNGEONS = [{
     },
     {
       id: 'mansion', name: '第二章·特雷森达庄园', place: '特雷森达庄园地窖',
+      theme: { floor: '#7a5a3a', grass: '#5a6a4a', wall: '#4a3a2a', water: '#3b6ea5', rubble: '#5d5343' },
       intro: '你们从庄园书房的书架后找到了暗门，潜入红标帮的地下藏身处。走廊里回荡着酒杯碰撞声和粗鲁的笑声。',
       objective: { id: 'defeat_glasstaff', text: '击败红标帮首领格拉斯塔夫，捣毁藏身处', doneHint: '红标帮覆灭。镇子安全了，而冈德伦还在北边的克拉格莫城堡等待救援。' },
       map: {
@@ -287,6 +291,7 @@ export const DUNGEONS = [{
     },
     {
       id: 'castle', name: '第三章·克拉格莫城堡', place: '克拉格莫城堡',
+      theme: { floor: '#7d8290', grass: '#5a6a52', wall: '#565b68', water: '#3b6ea5', rubble: '#5d5343' },
       intro: '破败的克拉格莫城堡矗立在荒丘之上，城墙上插着哥布林部落的旗帜。冈德伦就被关在这座要塞的深处。',
       objective: { id: 'rescue_gundren', text: '击败熊地精之王戈洛尔，救出冈德伦', doneHint: '冈德伦获救了。他指出了回声波洞穴的入口——黑蜘蛛涅兹纳尔已经抢先一步！' },
       map: {
@@ -336,6 +341,7 @@ export const DUNGEONS = [{
     },
     {
       id: 'cave', name: '终章·回声波洞穴', place: '回声波洞穴',
+      theme: { floor: '#5a5a7a', grass: '#4a5a6a', wall: '#2a2a3a', water: '#3a4a7a', rubble: '#4a4a5a' },
       intro: '你们踏入回声波洞穴。这里曾是矮人与侏儒的骄傲——法术熔炉的所在地。如今，黑暗中回荡着亡者的低语，而洞穴最深处，黑蜘蛛涅兹纳尔正在窃取熔炉的力量。',
       objective: { id: 'beat_nezznar', text: '击败黑蜘蛛涅兹纳尔，夺回法术熔炉', doneHint: '涅兹纳尔被击败了！法术熔炉的光芒重新亮起——凡杜尔得救了！', isPublic: true },
       map: {

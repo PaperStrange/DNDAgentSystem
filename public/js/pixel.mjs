@@ -14,38 +14,51 @@ export function makeCanvas(w, h) {
   return c;
 }
 
+// 颜色工具：明暗调整（主题色板派生）
+function tintC(hex, amt) {
+  const n = parseInt(hex.slice(1), 16);
+  const f = (v) => Math.max(0, Math.min(255, v + amt));
+  return '#' + [f((n >> 16) & 255), f((n >> 8) & 255), f(n & 255)].map(c => c.toString(16).padStart(2, '0')).join('');
+}
+
 // ---------- 瓦片 ----------
-export function drawTile(ctx, type, x, y, t = 0) {
+// theme: 剧情主题色板 {grass,floor,wall,water,rubble}（AI按章节生成，离线有默认主题）
+export function drawTile(ctx, type, x, y, t = 0, theme = null) {
+  const th = theme || {};
+  const C = {
+    grass: th.grass || '#4f7c43', floor: th.floor || '#7d7d8a', wall: th.wall || '#4a4a56',
+    water: th.water || '#3b6ea5', rubble: th.rubble || '#6e6250',
+  };
   const r = () => hash2(x, y, 1), r2 = () => hash2(x, y, 2), r3 = () => hash2(x, y, 3);
   switch (type) {
     case 'g': { // grass
-      ctx.fillStyle = r() > .5 ? '#4f7c43' : '#57894a';
+      ctx.fillStyle = r() > .5 ? C.grass : tintC(C.grass, 8);
       ctx.fillRect(x, y, TILE, TILE);
-      ctx.fillStyle = '#446b3a';
+      ctx.fillStyle = tintC(C.grass, -12);
       for (let i = 0; i < 6; i++) ctx.fillRect(x + Math.floor(r2() * 14) + 1, y + Math.floor(r3() * 14) + 1, 1, 1);
-      ctx.fillStyle = '#639b53';
+      ctx.fillStyle = tintC(C.grass, 22);
       for (let i = 0; i < 4; i++) ctx.fillRect(x + Math.floor(r3() * 15), y + Math.floor(r2() * 15), 1, 1);
       break;
     }
     case '.': { // stone floor
-      ctx.fillStyle = '#7d7d8a';
+      ctx.fillStyle = C.floor;
       ctx.fillRect(x, y, TILE, TILE);
-      ctx.fillStyle = '#6c6c78';
+      ctx.fillStyle = tintC(C.floor, -12);
       for (let i = 0; i < 7; i++) ctx.fillRect(x + Math.floor(r() * 15), y + Math.floor(r2() * 15), 1, 1);
-      ctx.fillStyle = '#8f8f9c';
+      ctx.fillStyle = tintC(C.floor, 14);
       for (let i = 0; i < 3; i++) ctx.fillRect(x + Math.floor(r3() * 15), y + Math.floor(r() * 15), 1, 1);
       ctx.fillStyle = 'rgba(0,0,0,.15)';
       if (r2() > .6) ctx.fillRect(x, y + 14, TILE, 2);
       break;
     }
     case '#': { // wall
-      ctx.fillStyle = '#4a4a56';
+      ctx.fillStyle = C.wall;
       ctx.fillRect(x, y, TILE, TILE);
-      ctx.fillStyle = '#3c3c47';
+      ctx.fillStyle = tintC(C.wall, -12);
       for (let i = 0; i < 4; i++) ctx.fillRect(x + 1 + i * 4, y, 2, TILE);
-      ctx.fillStyle = '#5a5a68';
+      ctx.fillStyle = tintC(C.wall, 14);
       ctx.fillRect(x, y, TILE, 2);
-      ctx.fillStyle = '#44444f';
+      ctx.fillStyle = tintC(C.wall, 5);
       ctx.fillRect(x, y + 7, TILE, 2);
       ctx.fillRect(x + 7, y, 2, TILE);
       ctx.fillStyle = 'rgba(0,0,0,.25)';
@@ -53,21 +66,21 @@ export function drawTile(ctx, type, x, y, t = 0) {
       break;
     }
     case '~': { // water
-      ctx.fillStyle = '#3b6ea5';
+      ctx.fillStyle = C.water;
       ctx.fillRect(x, y, TILE, TILE);
-      ctx.fillStyle = '#35649a';
+      ctx.fillStyle = tintC(C.water, -10);
       const off = Math.floor(t / 12) % 2;
       for (let i = 0; i < 3; i++) ctx.fillRect(x + ((i * 6 + off + Math.floor(r() * 2)) % 16), y + 4 + i * 4, 3, 1);
-      ctx.fillStyle = '#4d82ba';
+      ctx.fillStyle = tintC(C.water, 16);
       for (let i = 0; i < 3; i++) ctx.fillRect(x + ((i * 5 + off) % 16), y + 2 + i * 5, 2, 1);
       break;
     }
     case '^': { // rubble
-      ctx.fillStyle = '#6e6250';
+      ctx.fillStyle = C.rubble;
       ctx.fillRect(x, y, TILE, TILE);
-      ctx.fillStyle = '#5d5343';
+      ctx.fillStyle = tintC(C.rubble, -12);
       for (let i = 0; i < 8; i++) ctx.fillRect(x + Math.floor(r() * 15), y + Math.floor(r2() * 15), 2, 1);
-      ctx.fillStyle = '#837663';
+      ctx.fillStyle = tintC(C.rubble, 14);
       for (let i = 0; i < 4; i++) ctx.fillRect(x + Math.floor(r3() * 15), y + Math.floor(r() * 15), 1, 1);
       break;
     }
@@ -476,9 +489,48 @@ export function spritePalette(kind, defKey, colors) {
   return withShades(base);
 }
 
+// 捏脸层（R-13后续）：发型/胡须/瞳色/饰色——通用像素变换，适用于所有种族网格
+export function applyLook(grid, palette, look) {
+  const rows = grid.map(r => r.split(''));
+  if (look.eye) palette = { ...palette, e: look.eye };
+  if (look.accent) palette = { ...palette, U: look.accent };
+  const hairRows = [];
+  // 只统计头部主导发行（每行≥3个发色像素），避免眼睛行的侧发像素污染锚点
+  for (let i = 0; i < rows.length; i++) if (rows[i].filter(c => c === 'h' || c === 'H').length >= 3) hairRows.push(i);
+  if (hairRows.length) {
+    const first = hairRows[0], last = hairRows[hairRows.length - 1];
+    const cols = [];
+    for (const i of hairRows) rows[i].forEach((c, j) => { if ((c === 'h' || c === 'H') && !cols.includes(j)) cols.push(j); });
+    const center = Math.floor((cols[0] + cols[cols.length - 1]) / 2);
+    if (look.hair === 1) { // 长发：两侧垂下两行（允许向外延伸轮廓）
+      for (let k = 1; k <= 2; k++) {
+        const r = last + k;
+        if (r < rows.length) {
+          if (rows[r][cols[0] - 1] !== undefined) rows[r][cols[0] - 1] = 'h';
+          if (rows[r][cols[cols.length - 1] + 1] !== undefined) rows[r][cols[cols.length - 1] + 1] = 'h';
+        }
+      }
+    } else if (look.hair === 2) { // 发髻：额前盘发
+      const r = first - 1;
+      if (r >= 0) for (let c = center - 1; c <= center + 1; c++) if (rows[r][c] !== undefined && rows[r][c] !== 'o') rows[r][c] = 'h';
+    } else if (look.hair === 3) { // 短发：头发换肤色
+      for (let i = 0; i < rows.length; i++) for (let c = 0; c < rows[i].length; c++) if (rows[i][c] === 'h' || rows[i][c] === 'H') rows[i][c] = 's';
+    }
+  }
+  if (look.beard) { // 胡须：眼行下一行中段
+    const eyeRow = rows.findIndex(r => r.includes('e'));
+    if (eyeRow >= 0 && eyeRow + 1 < rows.length) {
+      const r = eyeRow + 1;
+      const mid = Math.floor(rows[r].length / 2);
+      for (let c = mid - 2; c <= mid + 2; c++) if (rows[r][c] !== undefined && rows[r][c] !== '.' && rows[r][c] !== 'o') rows[r][c] = 'h';
+    }
+  }
+  return { grid: rows.map(r => r.join('')), palette };
+}
+
 // 在canvas上绘制一个精灵（逻辑像素），(dx,dy)为左上角，scale=缩放
-// race: 玩家种族（决定种族特征网格），cls: 职业（决定头饰/服装）
-export function drawSprite(ctx, kind, defKey, palette, dx, dy, { dir = 'down', frame = 0, scale = 1, bob = 0, cls = null, race = null } = {}) {
+// race: 玩家种族（决定种族特征网格），cls: 职业（决定头饰/服装），look: 捏脸（发型/胡须/瞳色/饰色）
+export function drawSprite(ctx, kind, defKey, palette, dx, dy, { dir = 'down', frame = 0, scale = 1, bob = 0, cls = null, race = null, look = null } = {}) {
   let grid;
   let offsetX = 0, offsetY = 0;
   if (kind === 'player' || MONSTER_GRID[defKey] === null) {
@@ -497,6 +549,12 @@ export function drawSprite(ctx, kind, defKey, palette, dx, dy, { dir = 'down', f
   // 朝上：脸部行替换为头发（背面）
   if (dir === 'up' && (kind === 'player' || MONSTER_GRID[defKey] === null)) {
     grid = grid.map((row, i) => (i === 5 ? row.replace(/e/g, 'h') : row));
+  }
+  // 捏脸变换（发型/胡须/瞳色/饰色）
+  if (look) {
+    const lk = applyLook(grid, palette, look);
+    grid = lk.grid;
+    palette = lk.palette;
   }
   const flip = dir === 'left';
   ctx.save();
@@ -536,9 +594,9 @@ export function drawSprite(ctx, kind, defKey, palette, dx, dy, { dir = 'down', f
 }
 
 // 缓存单个精灵为离屏canvas（用于预览）
-export function spriteToCanvas(kind, defKey, palette, cls, race) {
+export function spriteToCanvas(kind, defKey, palette, cls, race, look = null) {
   const c = makeCanvas(16, 18);
   const ctx = c.getContext('2d');
-  drawSprite(ctx, kind, defKey, palette, 0, 0, { cls, race });
+  drawSprite(ctx, kind, defKey, palette, 0, 0, { cls, race, look });
   return c;
 }
