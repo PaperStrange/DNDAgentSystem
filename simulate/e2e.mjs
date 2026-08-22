@@ -114,6 +114,7 @@ async function main() {
   const visitedChapters = new Set();
   const t0 = Date.now();
   let winKind = null;
+  let lastDump = 0;
   while (Date.now() - t0 < TIMEOUT) {
     await new Promise(r => setTimeout(r, 2000));
     for (let i = 0; i < 5; i++) {
@@ -133,6 +134,23 @@ async function main() {
       } catch (e) { /* 页面暂时不可用 */ }
     }
     if (winKind) break;
+    // 卡住诊断：每60秒转储一次各页面状态（Boss表决/营地/回合卡死排查）
+    if (Date.now() - lastDump > 60e3) {
+      lastDump = Date.now();
+      log('  [dump] 已收集页面错误 ' + errors.length + ' 条：');
+      for (const e of errors.slice(-4)) log('    ⚠ ' + e);
+      for (let i = 0; i < 5; i++) {
+        try {
+          const s = await pages[i].evaluate(() => {
+            const v = window.__e2e ? window.__e2e.view() : null;
+            if (!v || !v.game) return null;
+            const gv = v.game;
+            return JSON.stringify({ ch: gv.chapter?.id, state: gv.state, combat: gv.combat?.active, round: gv.combat?.round, turn: gv.turn ? gv.turn.kind + ':' + String(gv.turn.playerId || gv.turn.actorEid).slice(-4) : null, bossVote: gv.bossVote?.active, camp: gv.camp?.active, me: gv.me?.name, autoplay: window.__e2e && (function(){try{return document.querySelector('button:has-text("自动")')?.classList.contains('gold');}catch(e){return '?'}})() });
+          });
+          if (s) log('  [dump] 页面' + i + ': ' + s);
+        } catch (e) {}
+      }
+    }
   }
 
   if (!winKind) {

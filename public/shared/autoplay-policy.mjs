@@ -38,10 +38,12 @@ function nextStep(gv, from, to) {
   return { x: cur % W, y: Math.floor(cur / W) };
 }
 // 移动决策：目标可达则直接发目标点（服务器一次走满速度）；不可达返回null
-function moveToward(gv, ent, target) {
+function moveToward(gv, ent, target, mem) {
   if (target.x === ent.x && target.y === ent.y) return null;
   const step = nextStep(gv, ent, target);
   if (!step) return null;
+  mem.lastWasMove = true;
+  mem.moveFrom = ent.x + ',' + ent.y; // 拥堵检测：记住发移动时的位置
   return { type: 'move', x: target.x, y: target.y };
 }
 
@@ -63,8 +65,36 @@ function decide(gv, pid, mem) {
     mem.lastAct = Date.now();
     return { type: 'dialogue', optionId: opt.id };
   }
+  // F-30：BOSS遭遇表决——自动游玩上下文默认同意开战（不逃跑）
+  if (gv.bossVote && gv.bossVote.active && !gv.bossVote.myVote) {
+    mem.lastAct = now;
+    return { type: 'bossVote', vote: 'agree' };
+  }
+  // F-30：已同意开战的玩家让出回合（等待其他队友表决，避免攻击被表决拦截造成空转死锁）
+  if (gv.bossVote && gv.bossVote.active && gv.bossVote.myVote === 'agree') {
+    mem.lastAct = now;
+    return { type: 'endturn' };
+  }
+  // F-30：营地休整——自动游玩先恢复生命（有短休次数且血量不满），再回到冒险
+  if (gv.camp && gv.camp.active && gv.turn && gv.turn.playerId === pid) {
+    const entCamp = gv.entities.find(e => e.eid === me.eid);
+    if ((me.charges?.shortrest || 0) > 0 && entCamp && entCamp.hp / entCamp.maxHp < 0.92) {
+      mem.lastAct = now;
+      return { type: 'campRest' };
+    }
+    mem.lastAct = now;
+    return { type: 'campLeave' };
+  }
   const ent = gv.entities.find(e => e.eid === me.eid);
   if (!ent || ent.hp <= 0 || me.dead || me.downed) { mem.lastAct = now; return { type: 'endturn' }; }
+  // 拥堵检测：上次发的移动未产生位移（被队友/NPC挡路、目标格被占）→ 结束回合，避免空转烧看门狗
+  const curPos = ent.x + ',' + ent.y;
+  if (mem.lastWasMove && mem.moveFrom === curPos) {
+    mem.lastWasMove = false;
+    mem.lastAct = now;
+    return { type: 'endturn' };
+  }
+  mem.lastWasMove = false;
   const foes = gv.entities.filter(e => e.kind === 'monster' && !e.dead && e.hp > 0);
   // 优先集火：可攻击范围内的最低血量敌人，否则最近的敌人
   const inRange = foes.filter(f => manhattan(ent, f) <= 9).sort((a, b) => a.hp - b.hp);
@@ -132,8 +162,8 @@ function combatDecide(gv, me, ent, target, foes, mem, now) {
   if (hurtAlly && clericHeal && !turn.bonusUsed && me.slots && me.slots['1'] > 0) {
     return done({ type: 'cast', spellId: 's:healingword', targetEid: hurtAlly.eid });
   }
-  // 附赠动作：药水自救
-  if (!turn.bonusUsed && me.items.potion > 0 && ent.hp / ent.maxHp < 0.35) {
+  // 附赠动作：药水自救（血量偏低时更积极，20260822批次平衡：0.35→0.5）
+  if (!turn.bonusUsed && me.items.potion > 0 && ent.hp / ent.maxHp < 0.5) {
     return done({ type: 'item', itemId: 'potion', targetEid: ent.eid });
   }
   // 动作：攻击/群体法术/远程法术（仅当动作未使用）
@@ -160,11 +190,11 @@ function combatDecide(gv, me, ent, target, foes, mem, now) {
   // 移动（朝目标靠近，直到进入武器射程或移动耗尽）
   const wp2 = weaponFor(gv, me, ent, target);
   if (turn.moveLeft > 0 && (d > 1 || !wp2)) {
-    const mv = moveToward(gv, ent, target);
+    const mv = moveToward(gv, ent, target, mem);
     if (mv) return done(mv);
     // 当前目标不可达：尝试其他敌人
     const alt = foes.filter(f => f.eid !== target.eid).sort((a, b) => manhattan(ent, a) - manhattan(ent, b)).find(f => nextStep(gv, ent, f));
-    if (alt) { const mv2 = moveToward(gv, ent, alt); if (mv2) return done(mv2); }
+    if (alt) { const mv2 = moveToward(gv, ent, alt, mem); if (mv2) return done(mv2); }
   }
   return done({ type: 'endturn' });
 }
@@ -188,7 +218,7 @@ function exploreDecide(gv, me, ent, foes, mem, now) {
       return { type: 'interact', targetEid: npc.eid };
     }
     if (turn.moveLeft > 0) {
-      const mv = moveToward(gv, ent, npc);
+      const mv = moveToward(gv, ent, npc, mem);
       if (mv) { mem.lastAct = now; return mv; }
     }
     mem.lastAct = now;
@@ -202,7 +232,7 @@ function exploreDecide(gv, me, ent, foes, mem, now) {
       return { type: 'interact', tx: chest.x, ty: chest.y };
     }
     if (turn.moveLeft > 0) {
-      const mv = moveToward(gv, ent, chest);
+      const mv = moveToward(gv, ent, chest, mem);
       if (mv) { mem.lastAct = now; return mv; }
     }
     mem.lastAct = now;
@@ -217,14 +247,14 @@ function exploreDecide(gv, me, ent, foes, mem, now) {
       return { type: 'search' };
     }
     if (turn.moveLeft > 0) {
-      const mv = moveToward(gv, ent, prop);
+      const mv = moveToward(gv, ent, prop, mem);
       if (mv) { mem.lastAct = now; return mv; }
     }
     mem.lastAct = now;
     return { type: 'endturn' };
   }
-  // 休息
-  if (!turn.actionUsed && ent.hp / ent.maxHp < 0.55 && me.charges.shortrest > 0) {
+  // 休息（20260822批次平衡：阈值0.55→0.7，战后保持健康，配合营地短休恢复）
+  if (!turn.actionUsed && ent.hp / ent.maxHp < 0.7 && me.charges.shortrest > 0) {
     mem.lastAct = now;
     return { type: 'rest' };
   }
@@ -239,7 +269,7 @@ function exploreDecide(gv, me, ent, foes, mem, now) {
       return { type: 'interact', tx: openExit.x, ty: openExit.y };
     }
     if (turn.moveLeft > 0) {
-      const mv = moveToward(gv, ent, openExit);
+      const mv = moveToward(gv, ent, openExit, mem);
       if (mv) { mem.lastAct = now; return mv; }
     }
     mem.lastAct = now;
@@ -249,7 +279,7 @@ function exploreDecide(gv, me, ent, foes, mem, now) {
   if (foes.length) {
     const sorted = foes.sort((a, b) => manhattan(ent, a) - manhattan(ent, b));
     const foe = sorted.find(f => nextStep(gv, ent, f)) || sorted[0];
-    const mv = moveToward(gv, ent, foe);
+    const mv = moveToward(gv, ent, foe, mem);
     if (mv) { mem.lastAct = now; return mv; }
   }
   mem.lastAct = now;

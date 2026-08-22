@@ -6,6 +6,10 @@ import { assignOfflineGoals, offlineVerify } from './hiddengoals.mjs';
 import { installEntities } from './entities.mjs';
 import { installDialogue } from './systems/dialogue.mjs';
 import { installProgress } from './systems/progress.mjs';
+import { installStates } from './systems/states.mjs';
+import { installStealth } from './systems/stealth.mjs';
+import { installCamp } from './systems/camp.mjs';
+import { installTuning } from './systems/tuning.mjs';
 
 // 升级经验需求表（按当前等级索引）：显示给玩家的具体数量；章节等级上限仍按 levelUpTo 控制节奏
 const XP_NEED = [0, 120, 350, 650];
@@ -80,6 +84,14 @@ export class Game {
     installEntities(this);
     installDialogue(this);
     installProgress(this);
+    installTuning(this);  // F-22/F-32：先于_loadChapter挂载（怪物工厂读取调校参数）
+    installStates(this);  // F-23：玩家/团队状态机
+    installStealth(this); // F-29/F-31：视野暴露状态机+怪物游荡+BOSS遭遇表决
+    installCamp(this);    // F-30：营地界面（短休改为营地休整）
+    // F-24：事件树（每个玩家单独维护，存储于开房玩家=服务端）；combatEvents为本次战斗总树
+    this.combatEvents = [];
+    this.eventTrees = new Map(); // pid -> 该玩家的事件树（本次战斗）
+    this.combatCount = 0;
     this._loadChapter(0);
   }
 
@@ -89,6 +101,23 @@ export class Game {
     this.clues.push(entry);
     if (this.clues.length > 50) this.clues.splice(0, this.clues.length - 50);
     this.logMsg('clue', '🔍 新线索：' + text);
+  }
+
+  // F-24：事件树——战斗中的关键事件按(回合,参与者)记录；每名玩家单独维护一份事件树（存储于开房玩家=服务端）
+  actorEvent(actorE, text, targetE = null) {
+    if (!this.combat.active) return;
+    const ev = { seq: SEQ++, round: this.combat.round || 1, actorEid: actorE?.eid || null, actorName: actorE?.name || '', targetEid: targetE?.eid || null, targetName: targetE?.name || '', text, ts: Date.now() };
+    this.combatEvents.push(ev);
+    if (this.combatEvents.length > 300) this.combatEvents.splice(0, this.combatEvents.length - 300);
+    const pids = new Set();
+    if (actorE?.playerId) pids.add(actorE.playerId);
+    if (targetE?.playerId) pids.add(targetE.playerId);
+    for (const pid of pids) {
+      let tree = this.eventTrees.get(pid);
+      if (!tree) { tree = []; this.eventTrees.set(pid, tree); }
+      tree.push(ev);
+      if (tree.length > 120) tree.splice(0, tree.length - 120);
+    }
   }
 
   // ---------- 日志 ----------
@@ -144,10 +173,12 @@ export class Game {
       p.deathSaves = { s: 0, f: 0 };
       if (p.downed && !p.dead) { e.hp = Math.max(1, p.sheet.maxHp); p.downed = false; }
     }
-    // 章节怪物（B-11：小队不足4人时按比例缩减数量与生命，保证单人可玩；4/5人队维持原样）
+    // 章节怪物（B-11：小队不足4人时按比例缩减数量与生命，保证单人可玩；4/5人队维持原样；
+    // F-22/F-32：AI DM按规则书调校的数量增量叠加）
     const partySize = Math.max(1, [...this.players.values()].filter(p => !p.dead).length);
     this.partyHpScale = partySize < 4 ? 0.5 + 0.5 * partySize / 4 : 1;
-    const scaledCount = (c) => partySize < 4 ? Math.max(1, Math.min(c, Math.round(c * partySize / 4))) : c;
+    const tuning = this.tuningFor(this.chapter.id);
+    const targetCount = (meta) => this._monsterTargetCount(meta, tuning);
     const placedByDef = new Map();
     for (const ent of this.map.entities) {
       if (ent.kind !== 'monster') continue;
@@ -156,7 +187,7 @@ export class Game {
       if (this.deadSquads.has(squadKey)) continue;
       if (meta.count !== undefined) {
         const placed = placedByDef.get(ent.def)?.length || 0;
-        if (placed >= scaledCount(meta.count)) continue;
+        if (placed >= targetCount(meta)) continue;
       }
       const e = this._monsterEntity(meta.def, meta, ent.x, ent.y, meta.squad);
       this.entities.set(e.eid, e);
@@ -168,7 +199,7 @@ export class Game {
       const placed = placedByDef.get(meta.def)?.length || 0;
       const squadKey = this.chapter.id + ':' + meta.squad;
       if (this.deadSquads.has(squadKey)) continue;
-      const target = scaledCount(meta.count);
+      const target = targetCount(meta);
       for (let i = placed; i < target; i++) {
         const pt = this._randomWalkable();
         const e = this._monsterEntity(meta.def, meta, pt.x, pt.y, meta.squad);
@@ -181,15 +212,23 @@ export class Game {
       const e = this._npcEntity(ent.def, ent.x, ent.y);
       this.entities.set(e.eid, e);
     }
+    // F-30：记录上一个营地（进入带篝火的章节时更新——逃跑传送的落点）
+    const campfire = (this.map.props || []).find(pr => pr.type === 'campfire');
+    if (campfire) this.lastCamp = { chapterIdx: idx, x: campfire.x, y: campfire.y };
     // 升级检查
     for (const [pid, p] of this.players) {
       const target = this.chapter.levelUpTo || 1;
       if (target > p.level) this._levelUp(p, target);
     }
+    // F-24：章节切换时清空上一场战斗的事件树；F-32：重置本章表现统计
+    this.combatEvents = [];
+    this.eventTrees.clear();
+    this._resetChapterPerf();
   }
   // ---------- 回合 ----------
   beginPlay() {
     this.state = 'playing';
+    this._startWander(); // F-31：冒险状态下怪物随机游荡（战斗时自动停止）
     this._startFirstTurn();
   }
   _startFirstTurn() {
@@ -203,15 +242,28 @@ export class Game {
     const e = this.entities.get(p.eid);
     if (!e || e.dead) return this._endTurn();
     this.turn = { actorEid: e.eid, playerId: pid, kind: 'player', moveLeft: e.speed, actionUsed: false, bonusUsed: false, round: this.combat.active ? this.combat.round : 0 };
-    // 回合看门狗：离线玩家2.5秒自动跳过；在线玩家45秒防挂机
+    // 回合看门狗：自动模式在线8秒/离线2.5秒防挂机（自动模式由策略驱动，8秒足以容错拥堵）；
+    // F-27：手动模式玩家回合不自动结束——只有点击「结束回合」按钮才进入下一顺位（离线掉线保留2.5秒跳过防死锁）；
+    // F-30：营地休整者的回合不设看门狗（等待其选择恢复/购买/回到冒险）
     if (this.turnTimer) clearTimeout(this.turnTimer);
-    const timeoutMs = this.isPlayerOnline(pid) ? 15000 : 2500;
-    this.turnTimer = this.later(timeoutMs, () => {
-      if (this.state === 'playing' && this.turn && this.turn.kind === 'player' && this.turn.playerId === pid) {
-        this.logMsg('system', '⏳ ' + e.name + ' 未行动，回合自动跳过');
-        this._endTurn();
-      }
-    });
+    const isManual = this.room.mode === 'manual';
+    const online = this.isPlayerOnline(pid);
+    const timeoutMs = isManual ? (online ? 0 : 2500) : (online ? 8000 : 2500);
+    if (timeoutMs > 0 && !this.camp?.active) {
+      this.turnTimer = this.later(timeoutMs, () => {
+        if (this.state === 'playing' && this.turn && this.turn.kind === 'player' && this.turn.playerId === pid) {
+          this.logMsg('system', '⏳ ' + e.name + ' 未行动，回合自动跳过');
+          this._endTurn();
+        }
+      });
+    }
+    if (e.webSkip) { // 被蛛网缠住：跳过本回合（F-23：debuff状态机清除）
+      e.webSkip = false;
+      this.removeDebuff(pid, 'web');
+      this.logMsg('system', '🕸️ ' + e.name + ' 被蛛网缠住，动弹不得！');
+      this._endTurn();
+      return;
+    }
     if (p.downed) {
       // 死亡豁免
       const r = d20();
@@ -230,27 +282,31 @@ export class Game {
       return;
     }
     this.logMsg('system', '🎯 ' + e.name + ' 的回合');
-    this._alertNearby(e);
+    this._visionCheck(); // F-29：回合开始先做视野检测（发现→暴露→开战）
     this.onChange();
   }
   _endTurn() {
     if (this.state !== 'playing') return;
+    // F-30：营地期间回合不转移给他人（即使自动模式看门狗/离线跳过触发），保持休整者的回合
+    if (this.camp?.active && this.turn?.playerId !== this.camp.ownerPid) {
+      if (this.camp.ownerPid && this.players.get(this.camp.ownerPid) && !this.players.get(this.camp.ownerPid).dead) {
+        this._startPlayerTurn(this.camp.ownerPid);
+        return;
+      }
+    }
     const prev = this.turn;
     if (this.turnTimer) { clearTimeout(this.turnTimer); this.turnTimer = null; }
     this.turn = null;
-    // 自愈：战斗激活但先攻顺序为空 → 用当前存活实体重建
+    // 自愈：战斗激活但先攻顺序为空 → 按阵营敏捷规则（F-25）重建
     if (this.combat.active && (!this.combat.order || !this.combat.order.length)) {
-      const rolls = [];
-      for (const e of this._aliveEnemies()) { const r = d20(); e.initiative = r.total + (e.boss ? 2 : 1); rolls.push({ e, init: e.initiative }); }
+      const playerEs = [];
       for (const [pid, p] of this.players) {
         if (p.dead) continue;
         const e = this.entities.get(p.eid);
-        if (!e || e.dead) continue;
-        const r = d20(); e.initiative = r.total + (e.initiative || 0); rolls.push({ e, init: e.initiative });
+        if (e && !e.dead) playerEs.push(e);
       }
-      rolls.sort((a, b) => b.init - a.init);
-      this.combat.order = rolls.map(r => r.e.eid);
-      this.logMsg('combat', '🔄 先攻顺序重建（' + this.combat.order.length + '名参战者）');
+      this.combat.order = this._buildCombatOrder(playerEs, this._aliveEnemies(), false).map(e => e.eid);
+      this.logMsg('combat', '🔄 先攻顺序重建（阵营敏捷规则，' + this.combat.order.length + '名参战者）');
     }
     const order = this.combat.order;
     if (this.combat.active && order.length) {
@@ -303,51 +359,76 @@ export class Game {
   }
 
   // ---------- 战斗 ----------
-  _alertNearby(e) {
-    const pm = this.pathMap();
-    const foes = this._aliveEnemies().filter(m => manhattan(m, e) <= 7 && losClear(pm, m, e));
-    for (const m of foes) this._alertSquad(m);
+  // F-25：阵营敏捷比较——先攻顺序构建。同一阵营敏捷高者先动；玩家先动时团队打头，否则敏捷高的一方先动（平局团队先动）
+  _dexOf(e) {
+    if (e.kind === 'player') {
+      const p = this.players.get(e.playerId);
+      return p?.sheet?.stats?.DEX ?? 10;
+    }
+    return e.dex ?? MONSTERS[e.defKey]?.dex ?? 10;
   }
-  _alertSquad(m) {
+  _buildCombatOrder(playerEs, monsterEs, playersFirst) {
+    const byDex = (list) => list.slice().sort((a, b) => (this._dexOf(b) - this._dexOf(a)) || a.eid.localeCompare(b.eid));
+    const ps = byDex(playerEs), ms = byDex(monsterEs);
+    if (playersFirst) return [...ps, ...ms];
+    const pMax = ps.length ? Math.max(...ps.map(e => this._dexOf(e))) : -Infinity;
+    const mMax = ms.length ? Math.max(...ms.map(e => this._dexOf(e))) : -Infinity;
+    return pMax >= mMax ? [...ps, ...ms] : [...ms, ...ps];
+  }
+  _alertSquad(m, opts = {}) {
     if (this.combat.active && this.combat.squads.has(m.squad)) return;
     const squad = this._aliveEnemies().filter(x => x.squad === m.squad);
     if (this.combat.active) {
+      // 增援：新小队加入进行中的战斗——排在当前行动者之后，队内按敏捷高低
       this.combat.squads.add(m.squad);
-      for (const e of squad) { const r = d20(); const init = r.total + (e.boss ? 2 : 1); e.initiative = init; this.combat.order.push(e.eid); this.logMsg('dice', '⚔️ ' + e.name + ' 加入战斗！先攻 ' + init); }
-      this.combat.order.sort((a, b) => (this.entities.get(b).initiative ?? 0) - (this.entities.get(a).initiative ?? 0));
-    } else {
-      this.combat = { active: true, round: 1, order: [], idx: 0, squads: new Set([m.squad]) };
-      this.logMsg('combat', '━━━ ⚔️ 战斗开始！━━━');
-      const rolls = [];
-      for (const e of squad) { const r = d20(); const init = r.total + (e.boss ? 2 : 1); e.initiative = init; rolls.push({ e, init }); this.logMsg('dice', '⚔️ ' + e.name + ' 先攻：d20=' + r.total + ' → ' + init); }
-      for (const [pid, p] of this.players) {
-        if (p.dead) continue;
-        const e = this.entities.get(p.eid);
-        if (!e || e.dead) continue; // 防御：实体缺失/死亡则跳过
-        const r = d20();
-        const init = r.total + (e.initiative || 0);
-        e.initiative = init;
-        rolls.push({ e, init });
-        this.logMsg('dice', '🎲 ' + e.name + ' 先攻：d20=' + r.total + ' → ' + init);
+      const news = squad.filter(e => !this.combat.order.includes(e.eid))
+        .sort((a, b) => (this._dexOf(b) - this._dexOf(a)) || a.eid.localeCompare(b.eid));
+      if (news.length) {
+        const at = this.combat.idx + 1;
+        this.combat.order.splice(at, 0, ...news.map(e => e.eid));
+        for (const e of news) this.logMsg('dice', '⚔️ ' + e.name + ' 加入战斗！');
       }
-      rolls.sort((a, b) => b.init - a.init);
-      this.combat.order = rolls.map(r => r.e.eid);
-      const top = rolls[0];
-      if (top && top.e.kind === 'player' && top.init >= 15) { const p = this.players.get(top.e.playerId); if (p) p.stats.initiativeWins++; }
-      this.logMsg('combat', '━━━ 第1回合 ━━━');
-      this.narrate('combatStart', {});
-      // 手动模式：战斗在玩家行动中触发时保留其当前回合，结束后按先攻顺序继续（严格回合制）
-      if (this.room.mode === 'manual' && this.turn && this.turn.kind === 'player') {
-        this.onChange();
-        return;
-      }
-      this.turn = null;
-      this._endTurn();
+      this.onChange();
+      return;
     }
+    this.combatCount++;
+    const firstCombat = this.combatCount === 1;      // 首次进入游戏：默认玩家第一回合第一顺位
+    const surprise = !!opts.surprise;                // 未被怪物发现时玩家先手攻击=突袭
+    const playerEs = [];
+    for (const [pid, p] of this.players) {
+      if (p.dead) continue;
+      const e = this.entities.get(p.eid);
+      if (e && !e.dead) playerEs.push(e);
+    }
+    const order = this._buildCombatOrder(playerEs, squad, firstCombat || surprise);
+    this.combat = { active: true, round: 1, order: order.map(e => e.eid), idx: 0, squads: new Set([m.squad]) };
+    this.combatEvents = [];   // F-24：新战斗重置事件树
+    this._enterCombatState(); // F-23：团队与全员进入「战斗中」
+    const why = surprise ? '（突袭：你们未被发现，先发制人！）' : (firstCombat ? '（首场遭遇：冒险者率先行动）' : '（比较阵营敏捷：' + (order[0]?.kind === 'player' ? '团队更高，先行动' : '敌方更高，先行动') + '）');
+    this.logMsg('combat', '━━━ ⚔️ 战斗开始！' + why + ' ━━━');
+    for (const e of order) {
+      this.logMsg('dice', (e.kind === 'player' ? '🎲 ' : '⚔️ ') + e.name + ' 敏捷 ' + this._dexOf(e));
+    }
+    this.logMsg('combat', '━━━ 第1回合 ━━━');
+    this.narrate('combatStart', {});
+    if (!surprise && order[0]?.kind === 'player') {
+      const tp = this.players.get(order[0].playerId);
+      if (tp) tp.stats.initiativeWins++;
+    }
+    // 手动模式：战斗在玩家行动中触发时保留其当前回合，结束后按先攻顺序继续（严格回合制）
+    if (this.room.mode === 'manual' && this.turn && this.turn.kind === 'player') {
+      const myIdx = order.findIndex(o => o.eid === this.turn.actorEid);
+      if (myIdx >= 0) this.combat.idx = myIdx; // _endTurn会先idx++，落点即我的下一位
+      this.onChange();
+      return;
+    }
+    this.turn = null;
+    this._endTurn();
   }
   _endCombat() {
     this.combat = { active: false, round: 0, order: [], idx: 0 };
-    for (const [pid, p] of this.players) { p.blessed = false; p.mark = null; }
+    for (const [pid, p] of this.players) { p.blessed = false; p.mark = null; this.removeBuff(pid, 'bless'); this.removeBuff(pid, 'mark'); }
+    this._exitCombatState(); // F-23：战斗结束→团队与全员回到「冒险中」
     this.logMsg('combat', '━━━ 🏳️ 战斗结束 ━━━');
     this._checkSquadDead();
   }
@@ -427,9 +508,12 @@ export class Game {
     this.logMsg('combat', '⚔️ ' + attName + ' 对 ' + defName + ' 使用' + atk.name);
     this.narrate('attack', { actor: attName, target: defName });
     if (atk.autoHit) {
+      const mul = atk.dmgMul || 1;
       const d = roll(atk.dmg);
-      this.logMsg('dice', '✨ 魔法飞弹自动命中！伤害 ' + atk.dmg + '=' + d.total);
-      this._applyDamage(def, d.total, att, { type: atk.type || '力场' });
+      const dmg = Math.max(1, Math.round(d.total * mul));
+      this.logMsg('dice', '✨ 魔法飞弹自动命中！伤害 ' + atk.dmg + '=' + d.total + (mul !== 1 ? '×' + mul : ''));
+      this._applyDamage(def, dmg, att, { type: atk.type || '力场' });
+      this.actorEvent(att, '✨ 魔法飞弹命中' + defName + '，造成' + dmg + '点伤害', def);
       return;
     }
     if (atk.web) {
@@ -437,7 +521,10 @@ export class Game {
       const mod = this._monsterSaveMod(def, 'DEX');
       const save = r.total + mod;
       this.logMsg('dice', '🕸️ ' + defName + ' 敏捷豁免：d20=' + r.total + '+' + mod + '=' + save + ' vs DC' + atk.web.dc + (save >= atk.web.dc ? ' 成功！' : ' 失败，被缠住！'));
-      if (save < atk.web.dc) def.webSkip = true;
+      if (save < atk.web.dc) {
+        def.webSkip = true;
+        if (def.kind === 'player') this.addDebuff(def.playerId, { id: 'web', name: '蛛网缠绕', icon: '🕸️' }); // F-23：debuff状态机
+      }
       return;
     }
     let adv = opts.adv || 0, dis = opts.dis || 0;
@@ -462,10 +549,12 @@ export class Game {
       return;
     }
     if (nat20) this.narrate('crit', { actor: attName, target: defName, dmg: '?' });
+    const mul = atk.dmgMul || 1; // F-22/F-32：AI DM调校的伤害倍率
     const d = roll(atk.dmg);
-    let dmg = d.total;
-    if (nat20) dmg = d.total + roll(atk.dmg.replace(/\+\d+$/, '')).total;
+    let dmg = Math.max(1, Math.round(d.total * mul));
+    if (nat20) dmg = Math.max(1, Math.round((d.total + roll(atk.dmg.replace(/\+\d+$/, '')).total) * mul));
     this._applyDamage(def, dmg, att, { type: atk.type || '物理', crit: nat20, attack: atk });
+    this.actorEvent(att, '⚔️ 用' + atk.name + '攻击' + defName + '：命中，造成' + dmg + '点伤害' + (nat20 ? '（重击）' : ''), def);
     if (atk.poison && !def.dead) {
       const r = d20();
       const mod = this._monsterSaveMod(def, 'CON');
@@ -479,7 +568,10 @@ export class Game {
       const mod = this._monsterSaveMod(def, atk.onHit.save);
       const save = r.total + mod;
       this.logMsg('dice', '💥 ' + defName + ' ' + (atk.onHit.save === 'STR' ? '力量' : '敏捷') + '豁免：d20=' + r.total + '+' + mod + '=' + save + (save >= atk.onHit.dc ? ' 成功！' : ' 失败，被击倒！'));
-      if (save < atk.onHit.dc) def.prone = true;
+      if (save < atk.onHit.dc) {
+        def.prone = true;
+        if (def.kind === 'player') this.addDebuff(def.playerId, { id: 'prone', name: '倒地', icon: '🌀' }); // F-23：debuff状态机
+      }
     }
   }
   _monsterSaveMod(e, attr) {
@@ -499,6 +591,7 @@ export class Game {
     if (def.kind === 'player') {
       const p = this.players.get(def.playerId);
       p.stats.damageTaken += dmg;
+      if (this.chapterPerf) this.chapterPerf.damageTaken += dmg; // F-32：本章表现统计
     }
     this.logMsg('combat', '💥 ' + def.name + ' 受到 ' + dmg + ' 点' + type + '伤害' + (crit ? '（重击）' : '') + '（剩余' + Math.max(0, def.hp) + '/' + def.maxHp + '）');
     this.event('damage', { src: src.eid, def: def.eid, dmg, type, crit });
@@ -533,8 +626,10 @@ export class Game {
     if (killer) {
       killer.stats.kills++;
       killer.stats.lastHits++;
+      if (this.chapterPerf) this.chapterPerf.kills++;
       if (e.finalBoss) killer.stats.bossLastHit = true;
     }
+    if (e.boss || e.finalBoss) this.actorEvent(killer || null, '💀 击杀了BOSS「' + e.name + '」', e);
     if (e.lootKey && !this.keys.has(e.lootKey)) {
       this.keys.add(e.lootKey);
       this.logMsg('system', '🔑 队伍获得了【' + (e.lootKey === 'cage_key' ? '笼子钥匙' : '城堡钥匙') + '】');
@@ -557,7 +652,10 @@ export class Game {
     if (e.downed && p.downed) { /* 已倒地再受伤 → 直接视为死亡豁免失败1次 */ p.deathSaves.f++; this.logMsg('dice', '💀 ' + e.name + ' 在倒地中受伤，死亡豁免自动失败(' + p.deathSaves.f + '/3)'); if (p.deathSaves.f >= 3) this._killPlayer(p); return; }
     e.downed = true; p.downed = true; p.stable = false;
     p.stats.downedCount++;
+    if (this.chapterPerf) this.chapterPerf.downs++; // F-32：本章表现统计
     p.deathSaves = { s: 0, f: 0 };
+    this.addDebuff(p.pid, { id: 'downed', name: '倒地', icon: '💀' }); // F-23：debuff状态机
+    this.actorEvent(this.entities.get(this.turn?.actorEid) || null, '💀 ' + e.name + ' 倒下了！', e);
     this.narrate('down', { actor: e.name });
     this.event('down', { pid: p.pid });
   }
@@ -565,6 +663,7 @@ export class Game {
     p.dead = true;
     const e = this.entities.get(p.eid);
     if (e) e.dead = true;
+    this.actorEvent(e || null, '☠️ ' + p.name + ' 阵亡了…', e);
     this.narrate('death', { actor: p.name });
     this.event('death', { pid: p.pid });
     if (this.turn && this.turn.playerId === p.pid) { this.turn = null; this._endTurn(); }
@@ -626,6 +725,7 @@ export class Game {
     const p = this.players.get(pid);
     const t = this.turn;
     if (!p || !t || t.playerId !== pid) return { ok: false, msg: '不是你的回合' };
+    const campG = this._campGuard(pid); if (campG) return campG; // F-30：营地休整中
     const e = this.entities.get(p.eid);
     if (!e || e.dead || e.downed) return { ok: false, msg: '你无法移动' };
     const to = { x: clamp(x, 0, this.map.w - 1), y: clamp(y, 0, this.map.h - 1) };
@@ -640,7 +740,8 @@ export class Game {
       e.x = step.x; e.y = step.y;
       t.moveLeft -= (tile.difficult ? 2 : 1);
     }
-    this._alertNearby(e);
+    if (path.length) this.actorEvent(e, '移动到(' + e.x + ',' + e.y + ')'); // F-24：事件树
+    this._visionCheck(); // F-29：移动后视野检测（暴露→立即进入战斗）
     return { ok: true, path };
   }
 
@@ -649,12 +750,21 @@ export class Game {
     const t = this.turn;
     if (!p || !t || t.playerId !== pid) return { ok: false, msg: '不是你的回合' };
     if (t.actionUsed) return { ok: false, msg: '本回合已使用动作' };
+    const campG = this._campGuard(pid); if (campG) return campG; // F-30：营地休整中
     const e = this.entities.get(p.eid);
     const target = this.entities.get(targetEid);
     if (!e || !target || target.dead) return { ok: false, msg: '目标无效' };
     if (target.kind !== 'monster') return { ok: false, msg: '不能攻击这个目标' };
+    // F-30：攻击BOSS必须先经过全队表决（发现BOSS=遭遇表决；战斗中瞄准未表决的BOSS同样先表决后开战）
+    if (target.boss && !(this.combat.active && this.combat.squads.has(target.squad))) {
+      if (this.pendingBoss) return { ok: false, msg: 'BOSS遭遇需要全队表决：开始战斗或逃跑' };
+      this._openBossVote(target, e);
+      return { ok: false, msg: '发现BOSS！全队需要表决：开始战斗或逃跑' };
+    }
+    // F-25：未被怪物发现（小队全体calm）时先手攻击=突袭，战斗首回合团队先动
+    const squadCalm = !this.combat.active ? this._aliveEnemies().filter(x => x.squad === target.squad).every(x => x.alert === 'calm') : false;
     t.actionUsed = true;
-    if (!this.combat.active || !this.combat.squads.has(target.squad)) this._alertSquad(target);
+    if (!this.combat.active || !this.combat.squads.has(target.squad)) this._alertSquad(target, { surprise: squadCalm });
     const atts = this.playerAttacks(p).filter(a => a.kind === 'weapon');
     const melee = atts.find(a => a.melee);
     const ranged = atts.find(a => !a.melee);
@@ -707,11 +817,13 @@ export class Game {
         if (crit) finalDmg = dr.total * 2 + (dmg - dr.total);
         this.narrate(crit ? 'crit' : 'hit', { actor: e.name, target: target.name, dmg: finalDmg });
         this._applyDamage(target, finalDmg, e, { crit });
+        this.actorEvent(e, '⚔️ 用' + used.name + '攻击' + target.name + '：命中，造成' + finalDmg + '点伤害' + (crit ? '（重击）' : ''), target);
         this.event('attack', { att: e.eid, def: target.eid, hit: true, dmg: finalDmg, crit });
         if (target.dead) this.narrate('kill', { actor: e.name, target: target.name });
       } else {
         p.stats.attacksMissed++;
         this.narrate(nat1 ? 'fumble' : 'miss', { actor: e.name, target: target.name });
+        this.actorEvent(e, '⚔️ 用' + used.name + '攻击' + target.name + '：' + (nat1 ? '大失败！' : '未命中'), target);
         this.event('attack', { att: e.eid, def: target.eid, hit: false });
       }
     };
@@ -739,6 +851,7 @@ export class Game {
     const p = this.players.get(pid);
     const t = this.turn;
     if (!p || !t || t.playerId !== pid) return { ok: false, msg: '不是你的回合' };
+    const campG = this._campGuard(pid); if (campG) return campG; // F-30：营地休整中
     const e = this.entities.get(p.eid);
     if (!e || e.dead) return { ok: false, msg: '你无法行动' };
     const id = spellId.startsWith('s:') ? spellId.slice(2) : spellId.slice(2);
@@ -781,6 +894,9 @@ export class Game {
           if (r.total === 20) dmg = d.total * 2;
           this._applyDamage(target, dmg, e, { type: def.type });
           this._multiHitCheck(e, 1);
+          this.actorEvent(e, '🔮 施放' + def.name + '命中' + target.name + '，造成' + dmg + '点' + (def.type || '') + '伤害', target);
+        } else {
+          this.actorEvent(e, '🔮 施放' + def.name + '攻击' + target.name + '：未命中', target);
         }
         break;
       }
@@ -796,6 +912,9 @@ export class Game {
           let dmg = roll(def.dice).total + (p.level >= 3 && p.sheet.class === 'cleric' ? roll('1d8').total : 0);
           this._applyDamage(target, dmg, e, { type: def.type });
           this._multiHitCheck(e, 1);
+          this.actorEvent(e, '🔮 施放' + def.name + '：' + target.name + '豁免失败，造成' + dmg + '点伤害', target);
+        } else {
+          this.actorEvent(e, '🔮 施放' + def.name + '：' + target.name + '豁免成功', target);
         }
         break;
       }
@@ -806,6 +925,7 @@ export class Game {
         this.logMsg('dice', '✨ ' + e.name + ' 的' + def.name + '自动命中！伤害 ' + d.total);
         this._applyDamage(target, d.total, e, { type: def.type });
         this._multiHitCheck(e, 3);
+        this.actorEvent(e, '✨ ' + def.name + '自动命中' + target.name + '，造成' + d.total + '点伤害', target);
         break;
       }
       case 'aoe': {
@@ -830,6 +950,7 @@ export class Game {
           this._applyDamage(ent, dmg, e, { type: def.type });
         }
         this._multiHitCheck(e, hits.length);
+        this.actorEvent(e, '💥 施放' + def.name + '波及' + hits.length + '名敌人', hits[0]);
         break;
       }
       case 'heal': {
@@ -838,25 +959,33 @@ export class Game {
         const d = roll(def.dice);
         const heal = d.total + (def.id === 'healingword' ? spellMod : 0) + (def.id === 'channeldivinity' ? spellMod : 0);
         this._heal(target, heal, e);
+        this.actorEvent(e, '💖 施放' + def.name + '治疗' + target.name + '（+' + heal + '）', target);
         break;
       }
       case 'bless': {
         const targets = [...this.players.values()].filter(x => !x.dead).slice(0, 3);
-        for (const tp of targets) { tp.blessed = true; }
+        for (const tp of targets) {
+          tp.blessed = true;
+          this.addBuff(tp.pid, { id: 'bless', name: '祝福术', icon: '🙏', combatOnly: true }); // F-23：buff状态机
+        }
         this.logMsg('dice', '🙏 ' + e.name + ' 施放祝福术：' + targets.map(x => x.name).join('、') + ' 的攻击+1d4');
         p.stats.healed += 0;
+        this.actorEvent(e, '🙏 施放祝福术：' + targets.map(x => x.name).join('、') + '攻击+1d4');
         break;
       }
       case 'mark': {
         const target = this.entities.get(targetEid);
         if (!target || target.dead || target.kind !== 'monster') return { ok: false, msg: '目标无效' };
         p.mark = target.eid;
+        this.addBuff(p.pid, { id: 'mark', name: '猎人印记', icon: '🎯', combatOnly: true }); // F-23：buff状态机
         this.logMsg('system', '🎯 ' + e.name + ' 标记了 ' + target.name + '（猎人印记）');
+        this.actorEvent(e, '🎯 标记了' + target.name + '（猎人印记）', target);
         break;
       }
       case 'advantage': {
         p._tactical = true;
         this.logMsg('system', '🎖️ ' + e.name + ' 观察战场（下次攻击优势）');
+        this.actorEvent(e, '🎖️ 观察战场（下次攻击优势）');
         break;
       }
     }
@@ -878,7 +1007,7 @@ export class Game {
       const sp = this.players.get(srcE.playerId);
       if (sp && sp.pid !== p.pid) sp.stats.healed += amount;
     }
-    if (target.downed && target.hp > 0) { target.downed = false; p.downed = false; p.stable = false; p.deathSaves = { s: 0, f: 0 }; p.stats.rescues = p.stats.rescues || []; }
+    if (target.downed && target.hp > 0) { target.downed = false; p.downed = false; p.stable = false; p.deathSaves = { s: 0, f: 0 }; p.stats.rescues = p.stats.rescues || []; this.removeDebuff(p.pid, 'downed'); }
     this.narrate('heal', { actor: srcE ? srcE.name : target.name, target: target.name, hp: amount });
     this.logMsg('system', '💖 ' + target.name + ' 恢复了 ' + amount + ' 点生命（' + target.hp + '/' + target.maxHp + '）');
     this.event('heal', { src: srcE ? srcE.eid : null, def: target.eid, amount });
@@ -888,6 +1017,7 @@ export class Game {
     const p = this.players.get(pid);
     const t = this.turn;
     if (!p || !t || t.playerId !== pid) return { ok: false, msg: '不是你的回合' };
+    const campG = this._campGuard(pid); if (campG) return campG; // F-30：营地休整中
     const e = this.entities.get(p.eid);
     if (!e || e.dead) return { ok: false, msg: '你无法行动' };
     const item = ITEMS[itemId];
@@ -900,6 +1030,7 @@ export class Game {
       const d = roll(item.heal);
       p.items.potion--;
       this._heal(target, d.total, e);
+      this.actorEvent(e, '🧪 对' + target.name + '使用治疗药水（+' + d.total + '）', target);
     } else if (itemId === 'flask') {
       if (t.actionUsed) return { ok: false, msg: '本回合已使用动作' };
       t.actionUsed = true;
@@ -926,6 +1057,7 @@ export class Game {
       }
       if (!hitAny) return { ok: false, msg: '区域内没有敌人', undo: true };
       this._multiHitCheck(e, 3);
+      this.actorEvent(e, '🧨 投掷炼金火焰瓶');
     }
     return { ok: true };
   }
@@ -935,10 +1067,12 @@ export class Game {
     const t = this.turn;
     if (!p || !t || t.playerId !== pid) return { ok: false, msg: '不是你的回合' };
     if (t.actionUsed) return { ok: false, msg: '本回合已使用动作' };
+    const campG = this._campGuard(pid); if (campG) return campG; // F-30：营地休整中
     t.actionUsed = true;
     const e = this.entities.get(p.eid);
     t.moveLeft += e.speed;
     this.logMsg('system', '🏃 ' + e.name + ' 疾走！');
+    this.actorEvent(e, '🏃 疾走（移动力+速度）');
     return { ok: true };
   }
   actHide(pid) {
@@ -947,10 +1081,12 @@ export class Game {
     if (!p || !t || t.playerId !== pid) return { ok: false, msg: '不是你的回合' };
     const e = this.entities.get(p.eid);
     if (t.actionUsed) return { ok: false, msg: '本回合已使用动作' };
+    const campG = this._campGuard(pid); if (campG) return campG; // F-30：营地休整中
     t.actionUsed = true;
     e.hidden = true;
     p.stats.usesHide++;
     this.logMsg('system', '🥷 ' + e.name + ' 躲藏了起来');
+    this.actorEvent(e, '🥷 躲藏（潜行判定+5）');
     return { ok: true };
   }
   actSearch(pid) {
@@ -958,6 +1094,7 @@ export class Game {
     const t = this.turn;
     if (!p || !t || t.playerId !== pid) return { ok: false, msg: '不是你的回合' };
     if (t.actionUsed) return { ok: false, msg: '本回合已使用动作' };
+    const campG = this._campGuard(pid); if (campG) return campG; // F-30：营地休整中
     const e = this.entities.get(p.eid);
     t.actionUsed = true;
     p.stats.searches++;
@@ -1059,6 +1196,8 @@ export class Game {
   }
 
   actEndTurn(pid) {
+    // F-30：营地休整中结束回合=回到冒险
+    if (this.camp?.active && this.camp.ownerPid === pid) return this.campLeave(pid);
     // 手动模式：怪物回合等待玩家确认推进
     if (this.turn?.kind === 'monster' && this._pendingMonster && this.room.mode === 'manual') {
       const run = this._pendingMonster;
@@ -1067,7 +1206,9 @@ export class Game {
       return { ok: true };
     }
     if (!this.isPlayerTurn(pid)) return { ok: false, msg: '不是你的回合' };
+    const e = this.entities.get(this.players.get(pid)?.eid);
     this.dialogues.delete(pid); // 结束回合时关闭进行中的对话
+    if (e && this.combat.active) this.actorEvent(e, '⏭️ 结束回合'); // F-24：事件树
     this._endTurn();
     return { ok: true };
   }
@@ -1076,6 +1217,7 @@ export class Game {
   _endGame(kind, reason) {
     if (this.state !== 'playing') return;
     this.state = 'ended';
+    this._stopWander(); // F-31：冒险结束停止游荡
     this.win = { kind, reason, at: Date.now(), duration: Date.now() - this.startedAt };
     this.logMsg('system', '━━━ 🎉 冒险结束 ━━━');
     // 结算时自动判定隐藏目标（离线机械验证；宣称按钮已移除）
@@ -1118,9 +1260,12 @@ export class Game {
     }
     if (byKick) this.narrate('kick', { actor: p.name });
     else this.logMsg('system', '🚪 ' + p.name + ' 离开了冒险');
+    if (this.camp?.active && this.camp.ownerPid === pid) { this.camp.active = false; this.camp.ownerPid = null; this.setTeamState('adventuring'); } // F-30：营地休整者离场
     this.players.delete(pid);
     this.seatOrder = this.seatOrder.filter(x => x !== pid);
     this.dialogues.delete(pid);
+    this.eventTrees.delete(pid); // F-24：离场玩家事件树移除
+    if (this.pendingBoss) this.pendingBoss.votes.delete(pid); // F-30：离场者不再参与表决
     if (this.turn && this.turn.playerId === pid) { this.turn = null; this._endTurn(); }
     if (this.state === 'playing' && this.players.size === 0) this._endGame('defeat', '没有玩家了');
     if (this.state === 'playing') this._checkTpk();
@@ -1134,11 +1279,22 @@ export class Game {
   // ---------- 快照 ----------
   snapshotFor(pid) {
     const p = this.players.get(pid);
-    const entities = [...this.entities.values()].filter(e => !e.dead || e.kind === 'npc').map(e => ({
-      eid: e.eid, kind: e.kind, name: e.name, icon: e.icon, x: e.x, y: e.y, hp: Math.max(0, e.hp), maxHp: e.maxHp, ac: e.ac,
-      faction: e.faction, playerId: e.playerId, downed: !!e.downed, hidden: !!e.hidden, prone: !!e.prone, webSkip: !!e.webSkip,
-      level: e.level, boss: !!e.boss, finalBoss: !!e.finalBoss, npcId: e.npcId, size: e.size || 1,
-    }));
+    const entities = [...this.entities.values()].filter(e => !e.dead || e.kind === 'npc').map(e => {
+      const pl = e.kind === 'player' ? this.players.get(e.playerId) : null;
+      return {
+        eid: e.eid, kind: e.kind, name: e.name, icon: e.icon, x: e.x, y: e.y, hp: Math.max(0, e.hp), maxHp: e.maxHp, ac: e.ac,
+        faction: e.faction, playerId: e.playerId, downed: !!e.downed, hidden: !!e.hidden, prone: !!e.prone, webSkip: !!e.webSkip,
+        level: e.level, boss: !!e.boss, finalBoss: !!e.finalBoss, npcId: e.npcId, size: e.size || 1,
+        // F-25/F-26/F-29：敏捷（先攻）、蓝条（法术位资源）、视野与暴露状态
+        defKey: e.defKey,
+        dex: e.kind === 'player' ? (pl?.sheet?.stats?.DEX ?? 10) : (e.dex ?? 10),
+        mp: e.kind === 'player' ? (pl?.slots?.[1] || 0) : (e.mp || 0),
+        maxMp: e.kind === 'player' ? (pl?.sheet?.spells?.length ? (pl.level >= 2 ? 3 : 2) : 0) : (e.maxMp || 0),
+        vision: e.kind === 'monster' ? this.visionOf(e) : 0,
+        alert: e.kind === 'monster' ? (e.alert || 'calm') : null,
+        lastSeen: e.kind === 'monster' ? (e.lastSeen || null) : null,
+      };
+    });
     const exits = [];
     if (this.map.exit) {
       const need = this.map.exit.need;
@@ -1155,6 +1311,7 @@ export class Game {
     const players = [...this.players.entries()].map(([id, pl]) => ({
       id, name: pl.name, sheet: pl.sheet, gold: pl.gold, level: pl.level, items: pl.items, keys: pl.keys,
       dead: pl.dead, downed: pl.downed, eid: pl.eid, slots: pl.slots,
+      states: this.playerStateSummary(pl), // F-23：玩家状态机摘要
       stats: this.state === 'ended' ? pl.stats : undefined,
     }));
     let me = null;
@@ -1163,6 +1320,7 @@ export class Game {
       me = {
         pid, name: p.name, sheet: p.sheet, gold: p.gold, level: p.level, xp: p.xp, xpNeed: XP_NEED[p.level] || 0, items: p.items, keys: p.keys, slots: p.slots,
         charges: p.charges, eid: p.eid, downed: p.downed, dead: p.dead, claimCooldown: p.claimCooldown,
+        states: this.playerStateSummary(p), // F-23：玩家状态机摘要
         goal: myGoal, stats: p.stats, attacks: this.playerAttacks(p), bonusAttacks: this.bonusAttacks(p),
       };
     }
@@ -1175,6 +1333,22 @@ export class Game {
       entities, players, me, exits,
       turn: this.turn ? { playerId: this.turn.playerId, moveLeft: this.turn.moveLeft, actionUsed: this.turn.actionUsed, bonusUsed: this.turn.bonusUsed, actorEid: this.turn.actorEid, kind: this.turn.kind || 'player' } : null,
       combat: { active: this.combat.active, round: this.combat.round, order: this.combat.order },
+      // F-23：团队状态机；F-30：营地状态；F-24：竖状区域顺序（战斗中=先攻顺序，冒险中=团队敏捷降序）与事件树
+      team: { state: this.teamState, combat: this.combat.active, camp: !!this.camp?.active },
+      camp: this.camp?.active ? { active: true, merchant: this.camp.merchant, ownerPid: this.camp.ownerPid, ownerName: this.players.get(this.camp.ownerPid)?.name || '' } : null,
+      bossVote: this.pendingBoss ? {
+        active: true, bossEid: this.pendingBoss.bossEid,
+        bossName: this.entities.get(this.pendingBoss.bossEid)?.name || 'BOSS',
+        bossIcon: this.entities.get(this.pendingBoss.bossEid)?.icon || '👑',
+        agree: [...this.pendingBoss.votes.values()].filter(v => v === 'agree').length,
+        flee: [...this.pendingBoss.votes.values()].filter(v => v === 'flee').length,
+        total: [...this.players.values()].filter(x => !x.dead).length,
+        myVote: this.pendingBoss.votes.get(pid) || null,
+      } : null,
+      orderStrip: this.combat.active && this.combat.order.length ? [...this.combat.order] : this._teamOrder(),
+      eventTrees: this._eventTreesSnapshot(),
+      combatEvents: this.combatEvents.slice(-160),
+      tuning: Object.fromEntries(Object.entries(this.tuning?.chapters || {}).map(([k, v]) => [k, { hpMul: v.hpMul, dmgMul: v.dmgMul, countDelta: v.countDelta }])),
       flags: [...this.flags].filter(f => !f.startsWith('dlg:')), xpPool: this.xpPool,
       clues: this.clues.slice(-50).map(c => ({ seq: c.seq, text: c.text, ts: c.ts })),
       win: this.win,
@@ -1186,6 +1360,20 @@ export class Game {
       npcDefs: this._npcDefsFor(pid),
     };
   }
+  _teamOrder() {
+    const es = [];
+    for (const [pid, p] of this.players) {
+      if (p.dead) continue;
+      const e = this.entities.get(p.eid);
+      if (e && !e.dead) es.push(e);
+    }
+    return es.sort((a, b) => this._dexOf(b) - this._dexOf(a)).map(e => e.eid);
+  }
+  _eventTreesSnapshot() {
+    const out = {};
+    for (const [pid, tree] of this.eventTrees) out[pid] = tree.slice(-80);
+    return out;
+  }
   _npcDefsFor(pid) {
     const p = this.players.get(pid);
     const out = {};
@@ -1194,13 +1382,14 @@ export class Game {
       const npcDef = NPCS[ent.npcId];
       if (!npcDef) continue;
       out[ent.npcId] = {
-        id: npcDef.id, name: npcDef.name, icon: npcDef.icon, title: npcDef.title, greet: npcDef.greet,
+        id: npcDef.id, name: npcDef.name, icon: npcDef.icon, title: npcDef.title,
+        greet: this.npcTextOf(npcDef.id, 'greet', null, npcDef.greet), // F-32：AI DM对话变体
         options: npcDef.options.map(o => {
           let available = true, hint = null;
           if (o.need && !(p ? p.keys.includes(o.need) : false) && !this.keys.has(o.need)) { available = false; hint = o.missingText || '缺少道具'; }
           if (o.once && this.flags.has('dlg:' + ent.npcId + ':' + o.id)) available = false;
           if (o.cost && o.cost.gold > (p ? p.gold : 0)) { available = false; hint = '金币不足'; }
-          return { id: o.id, text: o.text, tag: o.tag, available, hint };
+          return { id: o.id, text: this.npcTextOf(npcDef.id, 'option', o.id, o.text), tag: o.tag, available, hint };
         }),
       };
     }

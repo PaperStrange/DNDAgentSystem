@@ -173,6 +173,35 @@ input, select, textarea { font-family: var(--font); }
 /* R-15/R-16：快捷键提示行 + 行动顺序条 */
 .game-hint { padding: 2px 10px 6px; color: var(--dim); font-size: 11px; text-align: right; }
 .gt-clock { margin-left: auto; color: var(--dim); font-size: 12px; white-space: nowrap; }
+/* F-24：竖状区域（回合数+全员头像，战斗中追加怪物；点击查看事件树） */
+.turn-strip { width: 68px; min-width: 68px; display: flex; flex-direction: column; align-items: center; gap: 6px; padding: 8px 2px; background: var(--panel); border-right: 2px solid var(--line); overflow-y: auto; }
+.strip-round { font-weight: 700; color: var(--gold); font-size: 12px; text-align: center; line-height: 1.3; }
+.strip-chip { width: 58px; background: var(--panel2); border: 2px solid var(--line); border-radius: 8px; padding: 4px 2px; cursor: pointer; display: flex; flex-direction: column; align-items: center; gap: 2px; }
+.strip-chip:hover { border-color: var(--gold); }
+.strip-chip.now { border-color: var(--gold); box-shadow: 0 0 6px rgba(232,193,90,.5); }
+.strip-chip.sel { border-color: var(--blue); }
+.strip-chip canvas { image-rendering: pixelated; }
+.strip-name { font-size: 10px; color: var(--txt); max-width: 54px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.strip-hp { width: 44px; height: 4px; background: #2a1020; border-radius: 2px; overflow: hidden; }
+.strip-hp i { display: block; height: 100%; background: #7ec97a; }
+/* F-23：玩家状态机 chips（战斗中/冒险中/buff/debuff） */
+.state-chips { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 6px; }
+.chip { font-size: 11px; padding: 2px 6px; border-radius: 4px; background: var(--panel2); border: 1px solid var(--line); color: var(--dim); }
+.chip.combat { color: #ff8a7a; border-color: #a04a3a; }
+.chip.adv { color: #8ad0a0; }
+.chip.buff { color: #8ac0ff; }
+.chip.debuff { color: #ff9a5a; }
+/* F-24：事件树弹窗 */
+.event-tree { max-height: 72vh; overflow-y: auto; min-width: 320px; }
+.tree-round { margin: 8px 0 4px; font-weight: 700; color: var(--gold); font-size: 12px; }
+.tree-node { font-size: 12px; color: var(--txt); padding: 2px 0; line-height: 1.5; }
+/* F-30：营地界面 */
+.camp-screen { display: flex; flex-direction: row; gap: 16px; align-items: center; justify-content: center; flex-wrap: wrap; padding: 20px; }
+.camp-scene canvas { image-rendering: pixelated; border: 2px solid var(--line); border-radius: 10px; max-width: 70vw; height: auto; }
+.camp-panel { width: 300px; background: var(--panel); border: 2px solid var(--line); border-radius: 10px; padding: 16px; display: flex; flex-direction: column; gap: 6px; }
+/* F-19：大厅在线人数卡片 */
+.online-panel { display: flex; flex-direction: column; gap: 4px; }
+.online-panel .online-num { font-size: 22px; font-weight: 800; color: #6ad07a; }
 /* 队伍共享线索面板 */
 .clue-box { max-height: 170px; overflow-y: auto; display: flex; flex-direction: column; gap: 5px; }
 .clue-item { font-size: 12px; line-height: 1.5; color: #cfe3d8; border-left: 2px solid #5a8ac0; padding-left: 6px; }

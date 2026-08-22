@@ -27,16 +27,23 @@ export function installEntities(game) {
   };
   game._playerEntity = function (p, x, y) {
     const s = p.sheet;
+    const maxMp = s.spells?.length ? (p.level >= 2 ? 3 : 2) : 0; // F-26：施法者蓝条=法术位上限
     return { eid: uid('pl'), kind: 'player', name: s.name, icon: s.className[0], x, y, hp: p.sheet.hp, maxHp: s.maxHp,
       ac: s.ac, speed: s.speed, faction: 'party', playerId: p.pid, level: p.level, size: 1, downed: p.downed, dead: p.dead,
+      dex: s.stats.DEX || 10, vision: 8, mp: (p.slots?.[1] || 0), maxMp, // F-25/F-29/F-26
       initiative: s.initiative, stats: s.stats, mods: s.mods };
   };
   game._monsterEntity = function (defKey, meta, x, y, squad) {
     const m = MONSTERS[defKey];
-    const hp = Math.max(1, Math.round(m.hp * (this.partyHpScale || 1))); // B-11：小队<4人时怪物生命按比例下调
+    const t = this.tuningFor ? this.tuningFor(this.chapter?.id) : { hpMul: 1, dmgMul: 1, countDelta: 0 };
+    const baseHp = Math.max(1, Math.round(m.hp * (this.partyHpScale || 1))); // B-11：小队<4人时怪物生命按比例下调
+    const hp = Math.max(1, Math.round(baseHp * ((t && t.hpMul) || 1)));      // F-22/F-32：AI DM按规则书调校
     return { eid: uid('mo'), kind: 'monster', defKey, name: m.name, icon: m.icon, x, y, hp, maxHp: hp,
       ac: m.ac, speed: m.speed, faction: 'foe', squad: squad, size: m.size || 1, downed: false, dead: false,
-      attacks: m.attacks.map(a => ({ ...a })), boss: !!m.boss, finalBoss: !!m.finalBoss, undead: !!m.undead,
+      attacks: m.attacks.map(a => ({ ...a, dmgMul: (t && t.dmgMul) || 1 })),
+      boss: !!m.boss, finalBoss: !!m.finalBoss, undead: !!m.undead,
+      dex: m.dex || 10, vision: m.vision || 8, mp: m.mp || 0, maxMp: m.mp || 0, // F-25敏捷/F-29视野/F-26蓝条
+      alert: 'calm', lastSeen: null, baseHp, monDef: m,
       gold: m.gold, xp: m.xp, lootKey: meta.lootKey || null, webSkip: false, prone: false, desc: m.desc };
   };
   game._npcEntity = function (defKey, x, y) {

@@ -431,14 +431,15 @@ const SKELETON = [
 ];
 
 const CLASS_TWEAK = {
-  fighter: (g) => [g[0], g[1], '..owwwwwo..', '..owwwwwo..', '..owwwwwo..', g[5], g[6], g[7], '.owuuuuuwo.', g[9], g[10], g[11], g[12], g[13], g[14], g[15]],
-  wizard: (g) => ['....ouuo....', '...ouuuuo...', '..ouuuuuuo..', '..ouuuuuuo..', '..ouuuuuuo..', g[5], g[6], g[7], '..ouuuuuuo..', '.ouduuuuduo.', '.ouuuuuuuuo.', '.ouuuuuuuuo.', '.ouduuuduo..', '..ouuuuuuo..', '..oouooouo..', '..oouooouo..'],
-  rogue: (g) => [g[0], g[1], '..ohhhhhho..', '..ohhhhhho..', '..ohhhhhho..', g[5], g[6], g[7], '..ouuuuuuo..', '.ouuuuuuuuo.', '.ouuuuuuuuo.', '.ouuuuuuuuo.', '.ouduuuduo..', '..ouuuuuuo..', '..oouooouo..', '..oouooouo..'],
-  cleric: (g) => [g[0], g[1], '..oddddddo..', '..oddddddo..', '..oddddddo..', g[5], g[6], g[7], '..ouuuuuuo..', '.oduuuuuudo.', '.ouuuuuuuuo.', '.ouuuuuuuuo.', '.oduuuudo..', '..ouuuuuuo..', '..oouooouo..', '..oouooouo..'],
-  ranger: (g) => [g[0], g[1], '..ohhhhhho..', '..ohhhhhho..', '..ohhhhhho..', g[5], g[6], g[7], '..ouuuuuuo..', '.ouuuuuuuuo.', '.ouuuuuuuuo.', '.ouuuuuuuuo.', '.ouduuuduo..', '..ouuuuuuo..', '..oouooouo..', '..oouooouo..'],
+  // F-21：职业头饰不再遮住发色行（保留第4~5行头发），头盔饰条用饰色U展示，颜色区分更明显
+  fighter: (g) => [g[0], g[1], '..oUUUUUo..', '..owwwwwo..', g[4], g[5], g[6], g[7], '.owuuuuuwo.', g[9], g[10], g[11], g[12], g[13], g[14], g[15]],
+  wizard: (g) => ['....ouuo....', '...ouUUuo...', '..ouuuuuuo..', '..ouuuuuuo..', g[4], g[5], g[6], g[7], '..ouuuuuuo..', '.ouduuuuduo.', '.ouuuuuuuuo.', '.ouuuuuuuuo.', '.ouduuuduo..', '..ouuuuuuo..', '..oouooouo..', '..oouooouo..'],
+  rogue: (g) => [g[0], g[1], '..ohhhhhho..', '..ohhhHHho..', '..ohhhhhho..', g[5], g[6], g[7], '..ouuuuuuo..', '.ouuuuuuuuo.', '.ouuuuuuuuo.', '.ouuuuuuuuo.', '.ouduuuduo..', '..ouuuuuuo..', '..oouooouo..', '..oouooouo..'],
+  cleric: (g) => [g[0], g[1], '..oddddddo..', '..oddddddo..', g[4], g[5], g[6], g[7], '..ouuuuuuo..', '.oduuuuuudo.', '.ouuuuuuuuo.', '.ouuuuuuuuo.', '.oduuuudo..', '..ouuuuuuo..', '..oouooouo..', '..oouooouo..'],
+  ranger: (g) => [g[0], g[1], '..ohhhhhho..', '..ohhhHHho..', '..ohhhhhho..', g[5], g[6], g[7], '..ouuuuuuo..', '.ouuuuuuuuo.', '.ouuuuuuuuo.', '.ouuuuuuuuo.', '.ouduuuduo..', '..ouuuuuuo..', '..oouooouo..', '..oouooouo..'],
 };
 
-export const SKIN_TONES = ['#e8b88a', '#f0c8a0', '#c88a5a', '#a06a3e', '#8a5a34', '#e8a06a', '#6a4630'];
+export const SKIN_TONES = ['#f0c8a0', '#e8b88a', '#d8a06a', '#c08a58', '#a06a3e', '#8a5634', '#5f3a24']; // F-21：拉开明度差，肤色差异一目了然
 export const HAIR_TONES = ['#5b3a1e', '#2a2018', '#8a5a2e', '#c88a2e', '#b8b8c0', '#d84848', '#3a5a8a', '#e8e8f0'];
 export const OUTFIT_TONES = ['#4a6b8a', '#8a4a4a', '#4a8a5a', '#6a4a8a', '#8a7a3a', '#3a5a6a', '#7a4a6a', '#5a5a5a', '#c9a23f', '#3a3a4a'];
 
@@ -570,21 +571,39 @@ export function drawSprite(ctx, kind, defKey, palette, dx, dy, { dir = 'down', f
   if (flip) { ctx.translate(16, 0); ctx.scale(-1, 1); }
   const bo = bob ? (frame % 2) : 0;
   ctx.translate(offsetX, -bo);
-  // R-13: 自动描边——先在所有实心像素外侧补一圈轮廓色，让轮廓更清晰锐利
+  // F-21: 轮廓只描在剪影外侧——从画布边缘洪泛空格子，只给「与实心相邻的外部空格」描边；
+  // 内部间隙（如手臂与躯干之间）保持透明，轮廓干净不糊成一团
   const filled = new Set();
   for (let y = 0; y < gh; y++) {
     const row = grid[y];
     for (let x = 0; x < row.length; x++) if (row[x] !== '.') filled.add(y * 32 + x);
   }
-  ctx.fillStyle = palette.o || '#1a1626';
+  const outside = new Set();
+  const queue = [];
   for (let y = 0; y < gh; y++) {
-    const row = grid[y];
-    for (let x = 0; x < row.length; x++) {
-      if (row[x] !== '.') continue;
-      const nb = (y > 0 && filled.has((y - 1) * 32 + x)) || (y < gh - 1 && filled.has((y + 1) * 32 + x)) ||
-                 (x > 0 && filled.has(y * 32 + x - 1)) || (x < row.length - 1 && filled.has(y * 32 + x + 1));
-      if (nb) ctx.fillRect(x, y, 1, 1);
+    for (let x = 0; x < gw; x++) {
+      const k = y * 32 + x;
+      if (filled.has(k)) continue;
+      if (x === 0 || y === 0 || x === gw - 1 || y === gh - 1) { outside.add(k); queue.push(k); }
     }
+  }
+  while (queue.length) {
+    const k = queue.pop();
+    const x = k % 32, y = Math.floor(k / 32);
+    for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+      const nx = x + dx, ny = y + dy;
+      if (nx < 0 || ny < 0 || nx >= gw || ny >= gh) continue;
+      const nk = ny * 32 + nx;
+      if (filled.has(nk) || outside.has(nk)) continue;
+      outside.add(nk); queue.push(nk);
+    }
+  }
+  ctx.fillStyle = palette.o || '#1a1626';
+  for (const k of outside) {
+    const x = k % 32, y = Math.floor(k / 32);
+    const nb = (y > 0 && filled.has((y - 1) * 32 + x)) || (y < gh - 1 && filled.has((y + 1) * 32 + x)) ||
+               (x > 0 && filled.has(y * 32 + x - 1)) || (x < gw - 1 && filled.has(y * 32 + x + 1));
+    if (nb) ctx.fillRect(x, y, 1, 1);
   }
   for (let y = 0; y < gh; y++) {
     const row = grid[y];

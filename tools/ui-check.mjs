@@ -118,6 +118,37 @@ async function main() {
   await page.click('.dialog-overlay button:has-text("立即开始")');
   await page.waitForSelector('.screen-game', { timeout: 20000 });
   check('B-10 确认后进入游戏', await page.locator('.screen-game').isVisible());
+  // F-24：游戏内竖状区域（回合数+全员头像，战斗中追加怪物）
+  check('F-24 竖状区域存在（回合数+头像）', await page.locator('.turn-strip').isVisible() && (await page.locator('.turn-strip .strip-chip').count()) >= 1, '头像数=' + await page.locator('.turn-strip .strip-chip').count());
+  // F-28：自动模式快捷键提示展示（手动模式隐藏由manual-mode-probe验证）
+  check('F-28 自动模式快捷键提示展示', await page.locator('.game-hint').evaluate(el => getComputedStyle(el).display !== 'none'));
+  // 离开进行中的冒险回大厅
+  await page.evaluate(() => window.__S.net.send('room:leave'));
+  await page.waitForSelector('.lobby-title', { timeout: 10000 });
+  // F-19：在线人数卡片（数字=Unique IP数，此处1台设备）
+  const onlineTxt = await page.locator('.online-panel .online-num').textContent();
+  check('F-19 在线人数卡片展示数字', /^[0-9]+$/.test(onlineTxt.trim()), '在线=' + onlineTxt.trim());
+  // F-18：藏书室与账号绑定——登录后有书则计数；未登录为空
+  const storyTxt = await page.locator('.panel:has(h4:has-text("冒险故事集"))').textContent();
+  check('F-18 登录后藏书室正常计数', storyTxt.includes('书架上有 0 本') || storyTxt.includes('暂无冒险记录'), storyTxt.slice(0, 24));
+  await page.evaluate(() => {
+    const acct = window.__S.account;
+    localStorage.setItem('dnd_cards:' + acct, JSON.stringify([{ id: 't1', name: '测试传', rating: 'A', score: 80, dungeon: '凡杜尔失落矿坑', persona: '奥德里克', winKind: 'public', duration: 1, time: 'x', race: '人类', class: '战士', level: 1, highlights: [], comment: '测试', art: null }]));
+    localStorage.setItem('dnd_cards:另一个账号', JSON.stringify([{ id: 't2', name: '他人之书', rating: 'B', score: 50, dungeon: 'x', persona: 'x', winKind: 'public', duration: 1, time: 'x', race: '人类', class: '战士', level: 1, highlights: [], comment: 'x', art: null }]));
+  });
+  await page.reload();
+  await page.waitForSelector('.lobby-title', { timeout: 10000 });
+  const storyTxt2 = await page.locator('.panel:has(h4:has-text("冒险故事集"))').textContent();
+  check('F-18 藏书室仅显示当前账号的1本书（不混入他人账号）', storyTxt2.includes('书架上有 1 本'), storyTxt2.slice(0, 30));
+  // F-20：载入已保存角色即可准备开局（不再提示「请先完成车卡」）
+  await page.click('.persona-grid .persona-card:nth-child(1)');
+  await page.click('.create-box .btn.gold');
+  await page.waitForSelector('.room-code');
+  await page.locator('.cg-section select').first().selectOption({ index: 1 }); // 载入「剑心」
+  await page.waitForTimeout(900);
+  const readyBtn2 = page.locator('button:has-text("准备就绪")');
+  const readyTxt2 = await readyBtn2.textContent();
+  check('F-20 载入已保存角色后即可准备（无需再点保存）', await readyBtn2.isEnabled() && !readyTxt2.includes('请先完成车卡'), readyTxt2.trim());
   // R-11: 阵亡标记（模拟冒险结束角色死亡）→ 名册状态→ 大厅展示 → 死亡角色不可再读取
   await page.evaluate(() => {
     const r = JSON.parse(localStorage.getItem('dnd_roster') || '[]');
@@ -142,6 +173,9 @@ async function main() {
   await page.waitForFunction(() => window.__S && window.__S.net && window.__S.net.ws && window.__S.net.ws.readyState === 1, { timeout: 10000 });
   check('退出登录后重新展示登录按钮', await page.locator('.account-box button:has-text("登录 / 注册")').isVisible());
   check('退出登录后登录框自动弹出', await page.locator('.dialog-overlay .auth-input').first().isVisible());
+  // F-18：未登录时藏书室展示内容为空
+  const storyTxt3 = await page.locator('.panel:has(h4:has-text("冒险故事集"))').textContent();
+  check('F-18 未登录藏书室为空（提示登录后展示）', storyTxt3.includes('登录后才会展示'), storyTxt3.slice(0, 30));
   await page.click('.dialog-overlay .seg-btn:has-text("登录")');
   await page.fill('.dialog-overlay input[placeholder*="用户名"]', acct);
   await page.fill('.dialog-overlay input[type="password"]', 'wrong-password');

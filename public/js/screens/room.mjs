@@ -221,8 +221,19 @@ export function mountChargen(root, view, net) {
     const ctx = previewCanvas.getContext('2d');
     ctx.imageSmoothingEnabled = false;
     ctx.clearRect(0, 0, previewCanvas.width, previewCanvas.height);
-    ctx.fillStyle = '#181422';
+    // F-21：场景化预览背景——渐变天幕+地面阴影，角色轮廓与配色更突出
+    const g = ctx.createLinearGradient(0, 0, 0, previewCanvas.height);
+    g.addColorStop(0, '#2a2240');
+    g.addColorStop(0.72, '#201a30');
+    g.addColorStop(1, '#2c2218');
+    ctx.fillStyle = g;
     ctx.fillRect(0, 0, previewCanvas.width, previewCanvas.height);
+    ctx.fillStyle = 'rgba(255,214,120,.10)';
+    ctx.beginPath();
+    ctx.ellipse(64, 100, 42, 14, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = 'rgba(0,0,0,.38)';
+    ctx.fillRect(24, 120, 80, 5); // 地面阴影
     const pal = spritePalette('player', 'human', colors);
     pal.e = colors.eye; pal.U = colors.accent; // 捏脸：瞳色+饰色
     const c = spriteToCanvas('player', 'human', pal, selClass, selRace, look);
@@ -271,7 +282,9 @@ export function mountChargen(root, view, net) {
     background = e.background || '';
     bgInput.value = background;
     sync();
-    toast('📖 已载入角色「' + e.name + '」');
+    // F-20：载入即同步到房间——载入已保存角色等同于完成车卡，可直接准备开局（不再提示「请先完成车卡」）
+    pushSheet(true);
+    toast('📖 已载入角色「' + e.name + '」，可直接准备开战');
   };
   refreshRosterSel();
   mainCol.appendChild(secRoster);
@@ -364,16 +377,24 @@ export function mountChargen(root, view, net) {
   const saveBtn = el('button', 'btn primary big', '💾 保存车卡');
   saveBtn.style.width = '100%';
   saveBtn.disabled = !selRace || !selClass;
+  // F-20：载入已保存角色与点击保存车卡都应视为可开始游戏——
+  // 统一走pushSheet把车卡同步到房间（服务端才有room.sheets，准备/开局校验依赖它）
+  const buildPayload = () => {
+    const flexObj = {};
+    for (const a of flexList) flexObj[a] = (flexObj[a] || 0) + 1;
+    return { name, raceId: selRace, classId: selClass, stats: currentStats(), flex: flexObj, colors, background, look, level: carryLevel, xp: carryXp };
+  };
+  const pushSheet = (silent) => {
+    const payload = buildPayload();
+    loadedId = upsertEntry(payload, loadedId);
+    refreshRosterSel();
+    net.send('room:charsheet', { sheet: payload });
+    if (!silent) toast('⏳ 正在保存车卡…');
+  };
   saveBtn.onclick = () => {
     if (!name) { nameInput.focus(); toast('请先为角色起名', true); return; }
     if (!selRace || !selClass) { toast('请先选择种族与职业', true); return; }
-    const flexObj = {};
-    for (const a of flexList) flexObj[a] = (flexObj[a] || 0) + 1;
-    // R-11: 保存车卡同时收入冒险者名册（载入的角色原地更新），并刷新读取列表
-    loadedId = upsertEntry({ name, raceId: selRace, classId: selClass, stats: currentStats(), flex: flexObj, colors, background, look, level: carryLevel, xp: carryXp }, loadedId);
-    refreshRosterSel();
-    net.send('room:charsheet', { sheet: { name, raceId: selRace, classId: selClass, stats: currentStats(), flex: flexObj, colors, background, look, level: carryLevel, xp: carryXp } });
-    toast('⏳ 正在保存车卡…');
+    pushSheet(false);
   };
   const saveWrap = el('div', 'mt8');
   saveWrap.appendChild(saveBtn);

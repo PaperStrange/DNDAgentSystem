@@ -1,5 +1,5 @@
 // 游戏主界面：像素画布 + 回合交互 + 战斗 + 对话 + 结算
-import { store, el, toast } from '../app.mjs';
+import { store, el, toast, saveCard } from '../app.mjs';
 import { TILE, drawTile, drawSprite, spritePalette, spriteToCanvas } from '../pixel.mjs';
 import { createPolicy } from '../../shared/autoplay-policy.mjs';
 import { markDeathByName, updateProgression } from '../roster.mjs';
@@ -8,7 +8,7 @@ let SCALE = 4;
 
 export function mountGame(root, view) {
   const net = store.net;
-  const g = { view, pending: null, floaters: [], anim: new Map(), introSeen: false, autoplay: false, modeInited: false, policy: createPolicy(), sfx: true, lastSnapSeq: 0, speed: 1, logFilter: 'all', cardSent: false, panelTab: 'log', unitFilter: null, rosterMarked: false };
+  const g = { view, pending: null, floaters: [], anim: new Map(), introSeen: false, autoplay: false, modeInited: false, policy: createPolicy(), sfx: true, lastSnapSeq: 0, speed: 1, logFilter: 'all', cardSent: false, panelTab: 'log', unitFilter: null, rosterMarked: false, eventTreeOpen: null };
   let raf = null, canvas, ctx, wrap, autoTicker = null;
 
   // ---------- DOM ----------
@@ -80,9 +80,15 @@ export function mountGame(root, view) {
     gtClock.textContent = txt;
   }, 1000);
   const hintRow = el('div', 'game-hint', '💡 快捷键：空格=暂停/继续 · 小键盘←/→=减速/加速（仅房主）' + (isHostMe ? '' : ' · 你非房主，仅可旁观'));
+  // F-28：手动模式下无需展示快捷键提示（快捷键为自动战斗的节奏控制，手动模式由按钮/回车驱动）
+  if ((view.game?.mode || view.room?.mode) === 'manual') hintRow.style.display = 'none';
   screen.appendChild(hintRow);
 
   const body = el('div', 'game-body');
+  // F-24：永久竖状区域——回合数+团队头像自上而下（战斗中追加怪物头像，顺序同先攻规则；点击查看事件树）
+  const strip = el('div', 'turn-strip');
+  strip.title = '行动顺序：点击头像查看该单位本次战斗的事件树';
+  body.appendChild(strip);
   const canvasWrap = el('div', 'game-canvas-wrap');
   canvas = el('canvas', '');
   canvas.id = 'game-canvas';
@@ -102,6 +108,7 @@ export function mountGame(root, view) {
     const v = g.view;
     if (!v || !v.game) return;
     const gv = v.game;
+    renderStrip(); // F-24：竖状区域与侧栏同步刷新
     side.innerHTML = '';
     // 手动模式敌方回合：严格回合制——玩家确认推进
     const isManualMode = (gv.mode || v.room?.mode) === 'manual';
@@ -141,7 +148,22 @@ export function mountGame(root, view) {
       mePanel.appendChild(bar);
       const info = el('div', 'stats-line mt8', '💰 ' + me.gold + '金 · 经验 ' + me.xp + '/' + (me.xpNeed || '—') + ' · 升级需求 ' + (me.xpNeed ? me.xpNeed + ' 经验' : '已达上限'));
       mePanel.appendChild(info);
-      mePanel.appendChild(info);
+      // F-23：玩家状态机展示（战斗中/冒险中 + buff/debuff组）
+      const st = me.states;
+      if (st) {
+        const chips = el('div', 'state-chips');
+        chips.appendChild(el('span', 'chip ' + (st.combat ? 'combat' : 'adv'), st.combat ? '⚔️ 战斗中' : (gv.camp?.active ? '🔥 营地' : '🗺️ 冒险中')));
+        if (!st.alive) chips.appendChild(el('span', 'chip debuff', '☠️ 已阵亡'));
+        else if (st.downed) chips.appendChild(el('span', 'chip debuff', '💀 倒地'));
+        for (const b of st.buffs || []) chips.appendChild(el('span', 'chip buff', b.icon + ' ' + b.name));
+        for (const d of st.debuffs || []) chips.appendChild(el('span', 'chip debuff', d.icon + ' ' + d.name));
+        mePanel.appendChild(chips);
+      }
+      // F-22/F-32：AI DM难度调校展示（按规则书调整）
+      const t = (gv.tuning || {})[gv.chapter.id];
+      if (t && (t.hpMul !== 1 || t.dmgMul !== 1 || t.countDelta)) {
+        mePanel.appendChild(el('div', 'stats-line mt8', '⚖️ AI DM难度调校：生命×' + t.hpMul + ' · 伤害×' + t.dmgMul + (t.countDelta ? (' · 数量' + (t.countDelta > 0 ? '+' : '') + t.countDelta) : '')));
+      }
     }
     side.appendChild(mePanel);
 
@@ -259,9 +281,10 @@ export function mountGame(root, view) {
       side.appendChild(goalPanel);
     }
 
-    // 队伍
+    // 队伍（F-23：标题带团队状态机）
     const roster = el('div', 'panel side-panel');
-    roster.appendChild(el('h4', '', '👥 队伍'));
+    const teamLabel = gv.team?.state === 'combat' ? '⚔️ 战斗中' : gv.team?.state === 'camp' ? '🔥 营地休整' : '🗺️ 冒险中';
+    roster.appendChild(el('h4', '', '👥 队伍（' + teamLabel + '）'));
     const rlist = el('div', 'player-roster');
     for (const p of gv.players) {
       const pe = gv.entities.find(e => e.eid === p.eid);
@@ -368,6 +391,84 @@ export function mountGame(root, view) {
     side.appendChild(logPanel);
   }
 
+  // ---------- F-24：竖状区域（回合数+全员头像；战斗中追加怪物；点击查看事件树） ----------
+  function miniSprite(e) {
+    try {
+      let pal, cls = null, race = null, look = null, defKey = null;
+      if (e.kind === 'player') {
+        const p = g.view?.game?.players.find(x => x.eid === e.eid);
+        if (p) { pal = spritePalette('player', null, p.sheet.colors || {}); cls = p.sheet.class; race = p.sheet.race; look = p.sheet.look || null; }
+      } else if (e.kind === 'monster') { pal = spritePalette('monster', e.defKey); defKey = e.defKey; }
+      else { pal = spritePalette('npc', e.npcId); defKey = e.npcId; }
+      if (!pal) return null;
+      return spriteToCanvas(e.kind === 'player' ? 'player' : (e.kind === 'monster' ? 'monster' : 'npc'), defKey, pal, cls, race, look);
+    } catch (err) { return null; }
+  }
+  function renderStrip() {
+    const gv = g.view?.game;
+    if (!gv) return;
+    strip.innerHTML = '';
+    const roundBadge = el('div', 'strip-round', gv.combat?.active ? ('第' + gv.combat.round + '回合') : (gv.camp?.active ? '🔥 营地' : '🗺️ 冒险中'));
+    strip.appendChild(roundBadge);
+    const order = gv.orderStrip || [];
+    for (const eid of order) {
+      const e = gv.entities.find(x => x.eid === eid);
+      if (!e) continue;
+      const chip = el('button', 'strip-chip' + (gv.turn?.actorEid === eid ? ' now' : '') + (g.eventTreeOpen === eid ? ' sel' : ''));
+      const spr = miniSprite(e);
+      if (spr) {
+        const cv = document.createElement('canvas');
+        cv.width = 32; cv.height = 36;
+        const c2 = cv.getContext('2d');
+        c2.imageSmoothingEnabled = false;
+        c2.drawImage(spr, 0, 0, 32, 36);
+        if (e.downed || e.dead || (e.hp <= 0 && e.kind === 'player')) c2.globalAlpha = 0.45;
+        chip.appendChild(cv);
+      } else {
+        chip.appendChild(el('div', '', (e.icon || '❔') + (e.kind === 'monster' ? '👹' : '')));
+      }
+      chip.appendChild(el('div', 'strip-name', (e.downed ? '💀' : '') + e.name));
+      const hp = el('div', 'strip-hp');
+      const fill = el('i', '');
+      fill.style.width = Math.max(0, Math.min(100, e.hp / e.maxHp * 100)) + '%';
+      if (e.hp / e.maxHp <= .35) fill.style.background = '#e06c5a';
+      hp.appendChild(fill);
+      chip.appendChild(hp);
+      chip.title = (e.kind === 'player' ? '队友' : (e.kind === 'monster' ? '怪物' : 'NPC')) + ' ' + e.name + '（敏捷 ' + (e.dex ?? '—') + '）· 点击查看事件树';
+      chip.onclick = () => { g.eventTreeOpen = g.eventTreeOpen === eid ? null : eid; renderStrip(); renderEventTree(); };
+      strip.appendChild(chip);
+    }
+  }
+  function renderEventTree() {
+    const gv = g.view?.game;
+    document.querySelectorAll('.event-tree-overlay').forEach(n => n.remove());
+    if (!gv || !g.eventTreeOpen) return;
+    const eid = g.eventTreeOpen;
+    const ent = gv.entities.find(e => e.eid === eid);
+    if (!ent) return;
+    const ov = el('div', 'dialog-overlay event-tree-overlay');
+    const box = el('div', 'dialog-box event-tree');
+    box.appendChild(el('h3', '', '🌳 ' + ent.name + ' 的事件树'));
+    const events = (gv.combatEvents || []).filter(ev => ev.actorEid === eid || ev.targetEid === eid);
+    if (!events.length) {
+      box.appendChild(el('div', 'muted', '本场战斗暂无事件记录。'));
+    } else {
+      let curRound = -1;
+      for (const ev of events) {
+        if (ev.round !== curRound) {
+          curRound = ev.round;
+          box.appendChild(el('div', 'tree-round', '━━━ 第' + ev.round + '回合 ━━━'));
+        }
+        box.appendChild(el('div', 'tree-node', '▸ ' + ev.text));
+      }
+    }
+    const close = el('button', 'btn small mt8', '✕ 关闭');
+    close.onclick = () => { g.eventTreeOpen = null; renderStrip(); renderEventTree(); };
+    box.appendChild(close);
+    ov.appendChild(box);
+    document.body.appendChild(ov);
+  }
+
   function pendingHint(p) {
     if (p.kind === 'attack') return '🎯 点击一名敌人进行攻击（右键取消）';
     if (p.kind === 'cast' && p.attack) {
@@ -472,6 +573,20 @@ export function mountGame(root, view) {
       if (code) drawTile(ctx, code, pr.x, pr.y, t);
     }
     for (const ex of gv.exits) if (ex.x >= ox - 1 && ex.x < ox + vw && ex.y >= oy - 1 && ex.y < oy + vh) drawTile(ctx, 'x', ex.x, ex.y, t);
+    // F-29：怪物视野圈——绿=未暴露 / 橙=察觉但未暴露 / 红=已暴露（战斗中恒红）；BOSS视野无限=整图
+    for (const e of gv.entities) {
+      if (e.kind !== 'monster' || e.dead) continue;
+      const color = (gv.combat?.active || e.alert === 'exposed') ? '255,74,74' : e.alert === 'suspicious' ? '240,160,48' : '62,207,90';
+      const radius = isFinite(e.vision) ? e.vision : Math.max(gv.map.w, gv.map.h); // BOSS无限视野
+      ctx.strokeStyle = 'rgba(' + color + ',.6)';
+      ctx.fillStyle = 'rgba(' + color + ',.09)';
+      ctx.lineWidth = 2 / SCALE;
+      ctx.beginPath();
+      ctx.arc(e.x * TILE + TILE / 2, e.y * TILE + TILE / 2, radius * TILE, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.stroke();
+      ctx.lineWidth = 1;
+    }
     // 实体（按y排序）；同格堆叠时错开绘制，多人同屏不重叠
     const ents = [...gv.entities].sort((a, b) => a.y - b.y || a.eid.localeCompare(b.eid));
     const stackIdx = new Map(); // tileKey -> 已绘制数量
@@ -508,41 +623,40 @@ export function mountGame(root, view) {
       if (e.downed) { ctx.globalAlpha = .55; }
       drawSprite(ctx, kind, defKey, palette, px, py, { dir: anim.dir || 'down', frame: anim.frame, cls, race, bob: true, look: lookOf });
       ctx.globalAlpha = 1;
-      // 名字/血条：屏幕空间绘制（固定像素大小，不随缩放变形）
+      // F-26：统一名称牌——所有实体（玩家/怪物/NPC）头顶展示名称+血条+蓝条（屏幕空间固定像素，不随缩放变形）
       const sx = (anim.x + so[0] / TILE - cam.x) * TILE * SCALE;
       const sy = (anim.y + so[1] / TILE - cam.y) * TILE * SCALE;
       ctx.save();
       ctx.setTransform(1, 0, 0, 1, 0, 0);
-      const nameW = Math.min(90, e.name.length * 11 + 10);
-      if (e.kind === 'player') {
-        ctx.font = '10px sans-serif';
-        ctx.textAlign = 'center';
-        const by2 = sy - 16;
-        ctx.fillStyle = 'rgba(0,0,0,.62)';
-        ctx.fillRect(sx - nameW / 2, by2, nameW, 13);
-        ctx.fillStyle = '#ffe9a8';
-        ctx.fillText(e.name.slice(0, 6), sx, by2 + 9);
-        if (e.hp < e.maxHp) {
-          const bw = Math.min(44, nameW);
-          ctx.fillStyle = '#2a1020';
-          ctx.fillRect(sx - bw / 2, by2 + 14, bw, 4);
-          ctx.fillStyle = e.hp / e.maxHp > .35 ? '#7ec97a' : '#e06c5a';
-          ctx.fillRect(sx - bw / 2, by2 + 14, Math.max(1, bw * e.hp / e.maxHp), 4);
-        }
-      } else if ((e.kind === 'monster' || e.kind === 'npc') && e.hp < e.maxHp && e.hp > 0) {
-        const bw = 40;
-        ctx.fillStyle = '#2a1020';
-        ctx.fillRect(sx - bw / 2, sy - 14, bw, 4);
-        ctx.fillStyle = e.hp / e.maxHp > .35 ? '#7ec97a' : '#e06c5a';
-        ctx.fillRect(sx - bw / 2, sy - 14, Math.max(1, bw * e.hp / e.maxHp), 4);
+      ctx.font = '10px sans-serif';
+      ctx.textAlign = 'center';
+      const label = (e.downed ? '💀' : '') + e.name;
+      const nameW = Math.min(96, Math.max(46, label.length * 11 + 8));
+      const by2 = sy - 16;
+      ctx.fillStyle = 'rgba(0,0,0,.62)';
+      ctx.fillRect(sx - nameW / 2, by2, nameW, 13);
+      ctx.fillStyle = e.kind === 'player' ? '#ffe9a8' : (e.kind === 'monster' ? '#ffb0a0' : '#b8e8c8');
+      ctx.fillText(label.slice(0, 7), sx, by2 + 9);
+      // 血条（常驻展示）
+      const bw = Math.min(46, nameW);
+      const hpRatio = Math.max(0, Math.min(1, e.hp / Math.max(1, e.maxHp)));
+      ctx.fillStyle = '#2a1020';
+      ctx.fillRect(sx - bw / 2, by2 + 14, bw, 4);
+      ctx.fillStyle = hpRatio > .35 ? '#7ec97a' : '#e06c5a';
+      ctx.fillRect(sx - bw / 2, by2 + 14, Math.max(1, bw * hpRatio), 4);
+      // 蓝条（F-26：施法者法术位资源；无蓝条实体不展示）
+      if (e.maxMp > 0) {
+        const mpRatio = Math.max(0, Math.min(1, (e.mp || 0) / e.maxMp));
+        ctx.fillStyle = '#10202a';
+        ctx.fillRect(sx - bw / 2, by2 + 19, bw, 3);
+        ctx.fillStyle = '#5a9ae0';
+        ctx.fillRect(sx - bw / 2, by2 + 19, Math.max(1, bw * mpRatio), 3);
       }
       if (e.boss || e.finalBoss) {
-        ctx.font = '10px sans-serif';
-        ctx.textAlign = 'center';
         ctx.fillStyle = 'rgba(0,0,0,.62)';
-        ctx.fillRect(sx - 44, sy - 30, 88, 14);
+        ctx.fillRect(sx - 46, by2 - 14, 92, 14);
         ctx.fillStyle = '#ff8080';
-        ctx.fillText('👑' + e.name.slice(0, 8), sx, sy - 19);
+        ctx.fillText('👑' + e.name.slice(0, 8), sx, by2 - 5);
       }
       ctx.restore();
       // 目标指示
@@ -751,6 +865,8 @@ export function mountGame(root, view) {
       }
     }
     renderSide();
+    // F-28：手动模式下不展示快捷键提示（自动模式才显示）
+    if (gv) hintRow.style.display = gv.mode === 'manual' ? 'none' : '';
     renderOverlays(view);
     // 自动游玩（受速度影响；暂停时不驱动）
     if (g.autoplay && !g.paused && gv && !gv.win && gv.state === 'playing') {
@@ -774,9 +890,15 @@ export function mountGame(root, view) {
     }, Math.max(150, Math.round(600 / (g.speed || 1))));
   }
   restartTicker();
+  // F-30：营地场景篝火动画（营地期间定时重绘覆盖层）
+  const campTicker = setInterval(() => {
+    const gv2 = g.view?.game;
+    if (gv2?.camp?.active && gv2.state === 'playing' && !gv2.win) renderOverlays(g.view);
+  }, 500);
   function dispatchPolicyAction(a) {
     const gv = g.view?.game;
     if (!gv) return;
+    g._lastAct = { type: a.type, at: Date.now() }; // 诊断：最近一次自动行动
     switch (a.type) {
       case 'move': net.send('game:move', { x: a.x, y: a.y }); break;
       case 'attack': net.send('game:attack', { targetEid: a.targetEid }); break;
@@ -790,6 +912,9 @@ export function mountGame(root, view) {
       case 'dash': net.send('game:dash'); break;
       case 'hide': net.send('game:hide'); break;
       case 'claim': net.send('game:claim'); break;
+      case 'bossVote': net.send('game:boss-vote', { vote: a.vote }); break; // F-30：BOSS表决自动同意
+      case 'campRest': net.send('game:camp-rest'); break;                    // F-30：营地恢复
+      case 'campLeave': net.send('game:camp-leave'); break;                  // F-30：营地返回冒险
     }
   }
 
@@ -815,6 +940,72 @@ export function mountGame(root, view) {
       close.onclick = () => net.send('game:endturn'); // 关闭对话并结束
       box.appendChild(close);
       ov.appendChild(box);
+      document.body.appendChild(ov);
+    }
+    // F-30：营地界面（短休进入）——篝火围坐场景 + 右侧行动（恢复/购买/回到冒险）
+    if (gv.camp && gv.camp.active && gv.state === 'playing') {
+      const ov = el('div', 'overlay-screen camp-screen');
+      const scene = el('div', 'camp-scene');
+      const cv = document.createElement('canvas');
+      cv.width = 720; cv.height = 320;
+      drawCampScene(cv, gv);
+      scene.appendChild(cv);
+      ov.appendChild(scene);
+      const panel = el('div', 'camp-panel');
+      panel.appendChild(el('h3', '', '🏕️ 营地休整'));
+      const isOwner = gv.camp.ownerPid === store.pid;
+      if (!isOwner) {
+        panel.appendChild(el('div', 'muted', '队伍正在营地休整，等待 ' + gv.camp.ownerName + ' 行动…'));
+      } else {
+        panel.appendChild(el('div', 'muted', '短休剩余 ' + (gv.me.charges?.shortrest ?? 0) + ' 次 · 金币 ' + gv.me.gold));
+        const restBtn = el('button', 'btn gold', '🍖 恢复生命值（消耗1次短休）');
+        restBtn.style.width = '100%';
+        restBtn.disabled = !(gv.me.charges?.shortrest > 0);
+        restBtn.title = '掷生命骰恢复生命（5E短休规则）';
+        restBtn.onclick = () => net.send('game:camp-rest');
+        panel.appendChild(restBtn);
+        if (gv.camp.merchant) {
+          const shop = el('div', 'mt8');
+          shop.appendChild(el('div', '', '🛒 路过的商人：'));
+          const b1 = el('button', 'btn small', '🧪 治疗药水 50金');
+          b1.disabled = gv.me.gold < 50;
+          b1.onclick = () => net.send('game:camp-buy', { itemId: 'potion' });
+          const b2 = el('button', 'btn small', '🧨 炼金火焰瓶 40金');
+          b2.disabled = gv.me.gold < 40;
+          b2.onclick = () => net.send('game:camp-buy', { itemId: 'flask' });
+          shop.append(b1, b2);
+          panel.appendChild(shop);
+        } else {
+          panel.appendChild(el('div', 'muted mt8', '这次营地里没有商人经过。'));
+        }
+        const leave = el('button', 'btn mt8', '🗺️ 回到冒险（位置不变）');
+        leave.style.width = '100%';
+        leave.onclick = () => net.send('game:camp-leave');
+        panel.appendChild(leave);
+      }
+      ov.appendChild(panel);
+      document.body.appendChild(ov);
+    }
+    // F-30：BOSS遭遇表决（视野无限，开战前全队表决；可逃跑——概率成功回营地）
+    if (gv.bossVote && gv.bossVote.active && gv.state === 'playing' && !gv.win) {
+      const ov = el('div', 'overlay-screen');
+      const card = el('div', 'overlay-card boss-vote');
+      card.appendChild(el('h2', '', '👑 ' + gv.bossVote.bossIcon + ' 遭遇 ' + gv.bossVote.bossName + '！'));
+      card.appendChild(el('div', 'ov-text', gv.bossVote.bossName + ' 的视野无限——你们已被发现，战斗一触即发。开战前，全队必须表决：一起战斗，还是尝试逃跑？'));
+      card.appendChild(el('div', 'muted mt8', '表决进度：' + gv.bossVote.agree + ' 人同意开战 · ' + gv.bossVote.flee + ' 人提议逃跑 · 共 ' + gv.bossVote.total + ' 名冒险者'));
+      if (!gv.bossVote.myVote) {
+        const btnRow = el('div', 'row mt16');
+        btnRow.style.justifyContent = 'center';
+        const fight = el('button', 'btn gold big', '⚔️ 同意开战');
+        fight.onclick = () => net.send('game:boss-vote', { vote: 'agree' });
+        const flee = el('button', 'btn big', '🏃 逃跑（约50%概率成功，成功则传送回营地）');
+        flee.onclick = () => net.send('game:boss-vote', { vote: 'flee' });
+        btnRow.append(fight, flee);
+        card.appendChild(btnRow);
+      } else {
+        card.appendChild(el('div', 'ov-goal', gv.bossVote.myVote === 'agree' ? '✅ 你已同意开战——等待其他队友表决…' : '✅ 你已提议逃跑——命运正在掷骰…'));
+      }
+      ov.appendChild(card);
       document.body.appendChild(ov);
     }
     // 开场覆盖
@@ -917,6 +1108,59 @@ export function mountGame(root, view) {
       ov.appendChild(card);
       document.body.appendChild(ov);
     }
+    renderEventTree(); // F-24：事件树弹窗随快照保持打开并实时更新
+  }
+
+  // F-30：营地背景图（程序化像素场景：星空/篝火/围坐的冒险者）
+  function drawCampScene(cv, gv) {
+    const c2 = cv.getContext('2d');
+    c2.imageSmoothingEnabled = false;
+    const grad = c2.createLinearGradient(0, 0, 0, cv.height);
+    grad.addColorStop(0, '#0e0c1e');
+    grad.addColorStop(0.55, '#241c34');
+    grad.addColorStop(0.56, '#3a2c1c');
+    grad.addColorStop(1, '#241a12');
+    c2.fillStyle = grad;
+    c2.fillRect(0, 0, cv.width, cv.height);
+    for (let i = 0; i < 40; i++) {
+      c2.fillStyle = 'rgba(255,255,230,' + (0.2 + Math.random() * 0.5).toFixed(2) + ')';
+      c2.fillRect(Math.floor(Math.random() * cv.width), Math.floor(Math.random() * cv.height * 0.5), 2, 2);
+    }
+    const fx = cv.width / 2, fy = cv.height - 96;
+    for (let k = 0; k < 6; k++) {
+      c2.fillStyle = k % 2 ? '#6a4a2e' : '#5d4328';
+      c2.fillRect(fx - 26 + k * 9, fy + 14, 8, 4);
+    }
+    const tt = performance.now();
+    const flick = Math.sin(tt / 400) * 3 + Math.sin(tt / 240) * 2;
+    c2.fillStyle = '#e07030';
+    c2.fillRect(fx - 9, fy - 22 + Math.floor(flick), 18, 22);
+    c2.fillStyle = '#f0a040';
+    c2.fillRect(fx - 4, fy - 16 + Math.floor(flick / 2), 9, 15);
+    c2.fillStyle = '#ffe9a0';
+    c2.fillRect(fx - 1, fy - 6, 3, 7);
+    const glow = c2.createRadialGradient(fx, fy - 10, 4, fx, fy - 10, 110);
+    glow.addColorStop(0, 'rgba(255,190,90,.32)');
+    glow.addColorStop(1, 'rgba(255,190,90,0)');
+    c2.fillStyle = glow;
+    c2.fillRect(fx - 110, fy - 120, 220, 230);
+    const alive = gv.players.filter(p => !p.dead);
+    const spots = alive.map((_, i) => {
+      const a = Math.PI + (i / Math.max(1, alive.length - 1)) * Math.PI;
+      return { x: fx + Math.cos(a) * 58, y: fy + 8 - Math.abs(Math.sin(a)) * 18 };
+    });
+    alive.forEach((p, i) => {
+      const pe = gv.entities.find(e => e.eid === p.eid);
+      if (!pe) return;
+      const pal = spritePalette('player', null, p.sheet.colors || {});
+      const spr = spriteToCanvas('player', null, pal, p.sheet.class, p.sheet.race, p.sheet.look || null);
+      const s = spots[i] || spots[0];
+      c2.drawImage(spr, s.x - 21, s.y - 24, 42, 47);
+      c2.font = '11px sans-serif';
+      c2.textAlign = 'center';
+      c2.fillStyle = '#ffe9a8';
+      c2.fillText(p.name.slice(0, 6), s.x, s.y - 29);
+    });
   }
 
   // ---------- 自动游玩测试钩子 ----------
@@ -925,6 +1169,7 @@ export function mountGame(root, view) {
     cam: () => cameraPos(),
     scale: () => SCALE,
     setAutoplay: (on) => { g.autoplay = on; autoBtn.classList.toggle('gold', on); },
+    debug: () => ({ autoplay: g.autoplay, paused: g.paused, pid: store.pid, turnPid: g.view?.game?.turn?.playerId, lastAction: g._lastAct || null }),
     step: () => {
       const gv = g.view?.game;
       if (!gv || gv.win) return null;
@@ -1003,12 +1248,7 @@ export function mountGame(root, view) {
         comment: e.comment,
         art: makeHighlightArt(me, w), // R-10: 高光时刻配图
       };
-      let cards = [];
-      try { cards = JSON.parse(localStorage.getItem('dnd_cards') || '[]'); } catch (err) { cards = []; }
-      if (!Array.isArray(cards)) cards = [];
-      cards = cards.filter(c => c && c.id !== record.id);
-      cards.unshift(record);
-      localStorage.setItem('dnd_cards', JSON.stringify(cards.slice(0, 50)));
+      saveCard(record); // F-18：卡片存入当前账号的藏书室（未登录不保存）
     } catch (err) { /* 存储失败静默 */ }
   }
 
@@ -1033,6 +1273,6 @@ export function mountGame(root, view) {
       saveAdventureCard(e);
       renderOverlays(g.view);
     },
-    unmount() { cancelAnimationFrame(raf); clearInterval(autoTicker); clearInterval(clockTimer); window.removeEventListener('resize', resize); if (resizeObserver) resizeObserver.disconnect(); window.__e2e = null; },
+    unmount() { cancelAnimationFrame(raf); clearInterval(autoTicker); clearInterval(clockTimer); clearInterval(campTicker); window.removeEventListener('resize', resize); if (resizeObserver) resizeObserver.disconnect(); window.__e2e = null; },
   };
 }

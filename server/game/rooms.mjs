@@ -121,6 +121,8 @@ export class Rooms {
     const g = room.game;
     const origEnd = g._endGame.bind(g);
     g._endGame = (kind, reason) => { origEnd(kind, reason); room.phase = 'ended'; this.touch(room); this._writeLogFile(room); }; // R-23: 冒险结束时在房主本地落盘完整日志
+    // F-22：AI DM开局前按队伍人数与等级调校怪物数值（严格遵循规则书；离线公式兜底，绝不阻塞开局）
+    await g.prepareTuning().catch(e => console.error('[room] 难度调校失败，使用离线公式', e?.message));
     // 开场：旁白+隐藏目标（LLM可能耗时，就绪后进入playing）
     room.director.intro(room.game).then(() => {
       room.phase = 'playing';
@@ -148,7 +150,7 @@ export class Rooms {
   }
   _playerName(pid) { return this._registryName?.(pid) || '房主'; }
   _close(room) {
-    if (room.game) { room.game.closed = true; for (const t of room.game.timers) clearTimeout(t); }
+    if (room.game) { room.game.closed = true; for (const t of room.game.timers) clearTimeout(t); room.game._stopWander?.(); } // F-31：房间关闭停止游荡计时器
     this.rooms.delete(room.code);
   }
   touch(room) { room.lastTouched = Date.now(); }
@@ -242,6 +244,11 @@ export class Rooms {
     if (t === 'game:claim') return g.actClaim(player.pid);
     if (t === 'game:say') return g.actSay(player.pid, msg.text);
     if (t === 'game:endturn') return g.actEndTurn(player.pid);
+    // F-30：BOSS遭遇表决（同意开战/逃跑）与营地行动（恢复/购买/回到冒险）
+    if (t === 'game:boss-vote') return g.bossVote(player.pid, msg.vote);
+    if (t === 'game:camp-rest') return g.campRest(player.pid);
+    if (t === 'game:camp-buy') return g.campBuy(player.pid, { itemId: msg.itemId });
+    if (t === 'game:camp-leave') return g.campLeave(player.pid);
     // R-15：速度/暂停仅房主可操作（服务器端强制）
     if (t === 'game:speed') { if (room.hostId !== player.pid) return { err: '只有房主可以调整战斗速度' }; g.speed = Math.min(4, Math.max(0.5, Number(msg.speed) || 1)); return { ok: true }; }
     if (t === 'game:pause') { if (room.hostId !== player.pid) return { err: '只有房主可以暂停' }; g.paused = !!msg.paused; return { ok: true }; }
@@ -288,7 +295,7 @@ export class Rooms {
   // ---------- 快照 ----------
   snapshotFor(player) {
     // 大厅视图
-    if (!player.roomCode) return { view: 'lobby', rooms: this.roomList(), dungeons: DUNGEONS.map(d => ({ id: d.id, name: d.name, icon: d.icon, desc: d.desc, publicGoal: d.publicGoal.text })), personas: PERSONAS.map(personaSummary), me: { pid: player.pid, name: player.name } };
+    if (!player.roomCode) return { view: 'lobby', online: this._onlineCount ? this._onlineCount() : 0, rooms: this.roomList(), dungeons: DUNGEONS.map(d => ({ id: d.id, name: d.name, icon: d.icon, desc: d.desc, publicGoal: d.publicGoal.text })), personas: PERSONAS.map(personaSummary), me: { pid: player.pid, name: player.name } };
     const room = this.rooms.get(player.roomCode);
     if (!room) { player.roomCode = null; return this.snapshotFor(player); }
     const members = room.members.map(pid => ({
@@ -321,7 +328,7 @@ export class Rooms {
     };
   }
   // 由index.mjs注入注册表引用与广播函数
-  bindRegistry(getName, isOnline, broadcast) { this._registryName = getName; this._isOnline = isOnline; this._broadcast = broadcast; }
+  bindRegistry(getName, isOnline, broadcast, onlineCount) { this._registryName = getName; this._isOnline = isOnline; this._broadcast = broadcast; this._onlineCount = onlineCount; }
   _broadcastRoom(room) { if (this._broadcast) this._broadcast(room); }
 
   isMember(pid, room) { return room.members.includes(pid); }

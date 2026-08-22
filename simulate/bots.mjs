@@ -117,6 +117,9 @@ class Bot {
       case 'dash': this.send('game:dash'); break;
       case 'hide': this.send('game:hide'); break;
       case 'claim': this.send('game:claim'); break;
+      case 'bossVote': this.send('game:boss-vote', { vote: act.vote }); break; // F-30：BOSS表决自动同意
+      case 'campRest': this.send('game:camp-rest'); break;                    // F-30：营地恢复
+      case 'campLeave': this.send('game:camp-leave'); break;                  // F-30：营地返回
     }
     } catch (e) {
       log('  ❌ [' + this.name + '] maybeAct异常: ' + (e && e.stack ? e.stack.split('\n').slice(0, 3).join(' ') : e));

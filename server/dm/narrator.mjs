@@ -22,6 +22,10 @@ function defaultVoice(key) {
     npcTalk: '{actor}与{target}交谈。', levelUp: '{actor}升到了{n}级！', rest: '队伍休息了一会儿。', travel: '队伍前往{place}。',
     goalAssign: '每人都收到了一个隐藏目标。', claimConfirm: '{actor}的隐藏目标达成了！', claimDeny: '{actor}的隐藏目标尚未达成。',
     victory: '胜利！', defeat: '冒险失败了……', kick: '{actor}离开了队伍。',
+    // F-30/F-29：BOSS遭遇/逃跑/营地
+    bossSpotted: '{actor}发现了你们——它的视线仿佛无穷无尽，一场恶战在所难免。',
+    fleeSuccess: '你们在混乱中成功脱身，一路逃回了营地。',
+    campStart: '{actor}点燃了篝火，大家围坐下来，享受片刻安宁。',
   };
   return map[key] || '……';
 }

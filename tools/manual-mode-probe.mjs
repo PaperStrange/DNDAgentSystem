@@ -61,41 +61,69 @@ async function main() {
     const me = gv.entities.find(e => e.eid === gv.me.eid);
     return { x: me.x, y: me.y, turn: gv.turn?.playerId };
   });
-  await sleep(9000);
+  await sleep(16500); // F-27：旧实现在线玩家15秒自动结束回合——等待超过该阈值验证不再发生
   const pos1 = await m.page.evaluate(() => {
     const gv = window.__e2e.view().game;
     const me = gv.entities.find(e => e.eid === gv.me.eid);
     return { x: me.x, y: me.y, turn: gv.turn?.playerId };
   });
-  if (pos0.x === pos1.x && pos0.y === pos1.y) ok('手动模式9秒后角色未自动移动（位置 ' + pos1.x + ',' + pos1.y + '）');
+  if (pos0.x === pos1.x && pos0.y === pos1.y) ok('手动模式16.5秒后角色未自动移动（位置 ' + pos1.x + ',' + pos1.y + '）');
   else fail('手动模式角色自动移动了：(' + pos0.x + ',' + pos0.y + ')→(' + pos1.x + ',' + pos1.y + ')');
-  // 严格回合制：怪物回合必须等待玩家确认推进
+  // F-27：玩家回合只有点击按钮确认结束后才进入下一顺位（不允许超时自动结束；战斗触发导致的回合移交除外）
+  const f27 = await m.page.evaluate(() => {
+    const gv = window.__e2e.view().game;
+    const logs = (gv.log || []).map(l => l.text);
+    const autoSkipped = logs.some(t => t.includes('回合自动跳过'));
+    const myTurnStill = gv.turn?.playerId === window.__S.pid;
+    const combat = gv.combat?.active;
+    return { autoSkipped, myTurnStill, combat, turnKind: gv.turn?.kind };
+  });
+  if (!f27.autoSkipped && (f27.myTurnStill || f27.combat)) ok('F-27 手动模式玩家回合未被超时自动结束（无「回合自动跳过」日志）');
+  else fail('F-27 手动模式回合被自动结束：' + JSON.stringify(f27));
+  // 16.5s等待期间可能触发视野遭遇：手动模式怪物回合需确认推进，清到回到自己回合再测门控
+  await m.page.evaluate(async () => {
+    const gv = () => window.__e2e.view().game;
+    const net = window.__S.net;
+    const sleep = (ms) => new Promise(r => setTimeout(r, ms));
+    for (let i = 0; i < 10; i++) {
+      const g = gv();
+      if (g.turn?.kind === 'monster') net.send('game:endturn');
+      else if (g.turn?.playerId === window.__S.pid) break;
+      await sleep(450);
+    }
+  });
+  // F-28：手动模式不展示快捷键提示文字
+  const hintHidden = await m.page.locator('.game-hint').evaluate(el => getComputedStyle(el).display === 'none');
+  if (hintHidden) ok('F-28 手动模式快捷键提示文字已隐藏');
+  else fail('F-28 手动模式快捷键提示文字未隐藏');
+  // 严格回合制：怪物回合必须等待玩家确认推进（改用视野察觉触发战斗，避免玩家攻击秒杀怪物导致无敌方回合）
   const gate = await m.page.evaluate(async () => {
     const gv = () => window.__e2e.view().game;
     const net = window.__S.net;
     const sleep = (ms) => new Promise(r => setTimeout(r, ms));
-    const foe = gv().entities.find(e => e.kind === 'monster');
-    if (!foe) return { error: '无怪物' };
-    // 靠近怪物
-    for (let i = 0; i < 14; i++) {
+    // 靠近怪物但不攻击：由怪物视野察觉（察觉vs潜行判定）触发战斗，怪物得以存活
+    for (let i = 0; i < 30; i++) {
       const g = gv();
       const me = g.entities.find(e => e.eid === g.me.eid);
       const f = g.entities.find(e => e.kind === 'monster' && !e.dead);
       if (!f) break;
+      if (g.combat?.active) break;
       const d = Math.abs(me.x - f.x) + Math.abs(me.y - f.y);
-      if (d <= 1) break;
-      const step = { x: me.x, y: me.y };
-      if (me.x < f.x) step.x++; else if (me.x > f.x) step.x--;
-      else if (me.y < f.y) step.y++; else step.y--;
-      net.send('game:move', step);
-      await sleep(350);
+      if (d > 1) {
+        const step = { x: me.x, y: me.y };
+        if (me.x < f.x) step.x++; else if (me.x > f.x) step.x--;
+        else if (me.y < f.y) step.y++; else step.y--;
+        net.send('game:move', step);
+      }
+      await sleep(400);
     }
-    // 攻击触发战斗
-    const f2 = gv().entities.find(e => e.kind === 'monster' && !e.dead);
-    if (f2) net.send('game:attack', { targetEid: f2.eid });
-    await sleep(800);
+    for (let i = 0; i < 20; i++) {
+      if (gv().combat?.active) break;
+      await sleep(700);
+    }
+    if (!gv().combat?.active) return { error: '视野察觉未触发战斗', combat: gv().combat };
     // 结束自己回合直到轮到怪物
-    for (let i = 0; i < 6; i++) {
+    for (let i = 0; i < 8; i++) {
       const g3 = gv();
       if (g3.turn?.kind === 'monster') break;
       net.send('game:endturn');
@@ -128,6 +156,9 @@ async function main() {
   const badge2 = await a.page.locator('.badge').first().textContent();
   if (badge2.includes('自动')) ok('自动模式徽章正确：' + badge2.trim());
   else fail('自动模式徽章错误：' + badge2);
+  const hintVisibleAuto = await a.page.locator('.game-hint').evaluate(el => getComputedStyle(el).display !== 'none');
+  if (hintVisibleAuto) ok('F-28 自动模式快捷键提示正常展示');
+  else fail('F-28 自动模式快捷键提示被隐藏');
   const posA0 = await a.page.evaluate(() => {
     const gv = window.__e2e.view().game;
     const me = gv.entities.find(e => e.eid === gv.me.eid);

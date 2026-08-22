@@ -26,8 +26,27 @@ const newToken = () => 'tk_' + randomBytes(18).toString('hex'); // 秘密重连�
 rooms.bindRegistry(
   (pid) => players.get(pid)?.name || pid,
   (pid) => players.get(pid)?.online ?? true,
-  broadcastRoom
+  broadcastRoom,
+  uniqueIpCount // F-19：大厅在线人数卡片=同一局域网Unique IP数
 );
+
+function uniqueIpCount() {
+  const ips = new Set();
+  for (const p of players.values()) {
+    if (!p.online) continue;
+    const ip = p.ip || '';
+    if (ip) ips.add(ip);
+  }
+  return ips.size;
+}
+// F-19：大厅快照定时刷新（在线人数/房间列表实时可见）
+function broadcastLobby() {
+  for (const p of players.values()) {
+    if (p.roomCode || !p.ws || p.ws.readyState !== 1) continue;
+    try { p.ws.send(JSON.stringify({ t: 's:state', view: rooms.snapshotFor(p) })); } catch (e) {}
+  }
+}
+setInterval(broadcastLobby, 5000);
 
 function send(pid, obj) {
   const p = players.get(pid);
@@ -171,10 +190,13 @@ wss.on('connection', (ws, req) => {
         }
         const token = newToken();
         accountSessions.set(account, token);
-        // 同一连接上的访客身份作废（登录前是访客态），避免幽灵条目常驻
-        if (ws.__pid && ws.__pid !== pid) {
-          const ghost = players.get(ws.__pid);
-          if (ghost && !ghost.account) players.delete(ws.__pid);
+        // 同一连接上的访客身份作废（登录前是访客态），避免幽灵条目常驻；
+        // 修复：旧条件 ws.__pid !== pid 恒为false（此时pid即访客pid），幽灵从未被清理，
+        // 新增的大厅定时广播会向幽灵连接推送大厅快照导致误跳大厅
+        const ghostPid = ws.__pid;
+        if (ghostPid) {
+          const ghost = players.get(ghostPid);
+          if (ghost && ghost.ws === ws && !ghost.account) players.delete(ghostPid);
         }
         pid = uid('p');
         ws.__pid = pid;
@@ -190,6 +212,7 @@ wss.on('connection', (ws, req) => {
           if (old.ws && old.ws !== ws && old.ws.readyState === 1) { try { old.ws.close(); } catch (e) {} }
           pid = old.pid;
           old.ws = ws; old.online = true;
+          old.ip = String(req.socket.remoteAddress || '').replace(/^::ffff:/, ''); // F-19：重连刷新IP
           if (msg.rename && name) old.name = name;
           ws.__pid = pid;
           send(pid, { t: 's:hello', pid, name: old.name, roomCode: old.roomCode, token: old.token, account: old.account || null });
@@ -204,7 +227,7 @@ wss.on('connection', (ws, req) => {
       pid = uid('p');
       ws.__pid = pid;
       const token = newToken();
-      players.set(pid, { pid, name, ws, roomCode: null, online: true, token });
+      players.set(pid, { pid, name, ws, roomCode: null, online: true, token, ip: String(req.socket.remoteAddress || '').replace(/^::ffff:/, '') });
       send(pid, { t: 's:hello', pid, name, roomCode: null, token });
       send(pid, { t: 's:state', view: rooms.snapshotFor(players.get(pid)) });
       return;
@@ -239,6 +262,7 @@ wss.on('connection', (ws, req) => {
       const pp = players.get(pid);
       if (pp && !pp.online && !pp.roomCode) players.delete(pp);
     }, 600e3);
+    broadcastLobby(); // F-19：断线后在线人数即时刷新
   });
   ws.on('error', () => {});
 });

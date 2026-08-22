@@ -34,6 +34,34 @@ export function el(tag, cls, text) {
   return n;
 }
 
+// F-18：冒险卡片（藏书室）与账号绑定——未登录时藏书室内容为空
+export function loadCards() {
+  try {
+    const acct = S.account || '';
+    if (!acct) return []; // 未登录：藏书室为空
+    const v = JSON.parse(localStorage.getItem('dnd_cards:' + acct) || '[]');
+    return Array.isArray(v) ? v : [];
+  } catch (e) { return []; }
+}
+export function saveCard(record) {
+  try {
+    const acct = S.account || '';
+    if (!acct) return; // 未登录不保存（游戏中建房必须登录，此路为防御）
+    let cards = loadCards();
+    cards = cards.filter(c => c && c.id !== record.id);
+    cards.unshift(record);
+    localStorage.setItem('dnd_cards:' + acct, JSON.stringify(cards.slice(0, 50)));
+  } catch (e) { /* 存储失败静默 */ }
+}
+export function deleteCard(id) {
+  try {
+    const acct = S.account || '';
+    if (!acct) return;
+    const cards = loadCards().filter(c => c.id !== id);
+    localStorage.setItem('dnd_cards:' + acct, JSON.stringify(cards));
+  } catch (e) {}
+}
+
 // R-23: 客户端报错自查——未捕获错误/未处理Promise拒绝自动记录到本地环形缓冲（最多50条）
 const ERR_KEY = 'dnd_errlog';
 export function captureErr(src, msg) {

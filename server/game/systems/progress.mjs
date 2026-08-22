@@ -1,6 +1,5 @@
 // 进度系统（架构迁移）：升级/休息/章节目标/出口传送——角色成长与剧情推进与回合引擎解耦
-import { roll } from '../../util.mjs';
-
+// F-30：短休改为进入营地界面（营地休整/恢复/购买见 systems/camp.mjs）
 export function installProgress(game) {
   game._levelUp = function (p, level) {
     p.level = level;
@@ -19,19 +18,13 @@ export function installProgress(game) {
     const p = this.players.get(pid);
     const t = this.turn;
     if (!p || !t || t.playerId !== pid) return { ok: false, msg: '不是你的回合' };
-    if (this.combat.active) return { ok: false, msg: '战斗中无法休息' };
+    if (this.combat.active) return { ok: false, msg: '战斗中无法休息' }; // F-30：战斗中无法进入短休
+    if (this.camp?.active) return { ok: false, msg: '队伍已在营地中' };
     if (t.actionUsed) return { ok: false, msg: '本回合已使用动作' };
-    const e = this.entities.get(p.eid);
     if ((p.charges.shortrest || 0) <= 0) return { ok: false, msg: '本章的短休次数已用完' };
     t.actionUsed = true;
-    p.charges.shortrest--;
-    p.stats.restsUsed++;
-    const d = roll('1d' + p.sheet.hitDie);
-    const heal = d.total + p.sheet.mods.CON;
-    this._heal(e, heal, e);
-    this.narrate('rest', { actor: e.name });
-    this.logMsg('system', '🍖 ' + e.name + ' 短休，恢复 ' + heal + ' 点生命');
-    return { ok: true };
+    // F-30：短休不再立即恢复生命值，而是进入营地界面（篝火围坐；恢复生命/购买商品/回到冒险）
+    return this.enterCamp(pid);
   };
 
   game._checkChapterObjective = function () {
@@ -67,6 +60,9 @@ export function installProgress(game) {
     if (nextIdx < 0) return { ok: false, msg: '未知地点' };
     const forward = nextIdx > this.chapterIdx;
     const wasBossChapter = this.chapter.boss && this.flags.has('obj:' + this.chapter.objective?.id);
+    // F-32：按上一章节玩家表现，AI DM调整下一章难度（离线公式立即应用，LLM异步精调热更新）
+    const perf = this._chapterPerformance();
+    if (forward) this._scheduleChapterAdjust(nextIdx, perf);
     this.narrate('travel', { place: this.dungeon.chapters[nextIdx].place });
     this.logMsg('system', '🚶 队伍前往：' + this.dungeon.chapters[nextIdx].place);
     this._loadChapter(nextIdx);

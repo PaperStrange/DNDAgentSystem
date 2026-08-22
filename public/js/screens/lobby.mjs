@@ -1,5 +1,5 @@
 // 大厅：昵称 / 房间列表 / 创建房间（选副本+12位AI DM人设） / 加入房间 / 冒险者名册
-import { store, el, loadErrLog, clearErrLog } from '../app.mjs';
+import { store, el, loadErrLog, clearErrLog, loadCards, deleteCard } from '../app.mjs';
 import { loadRoster } from '../roster.mjs';
 import { RACES, CLASSES } from '../../shared/char-defs.mjs';
 
@@ -79,6 +79,16 @@ export function mountLobby(root, view) {
 
   // 左侧：房间列表 + 加入（看板式模块间距）
   const left = el('div', 'lobby-left');
+  // F-19：在线人数卡片——数字=同一局域网的Unique IP数（服务端实时统计）
+  const onlinePanel = el('div', 'panel online-panel');
+  const onlineNum = el('span', 'online-num', '0');
+  const onlineBox = el('div', 'spread');
+  onlineBox.appendChild(el('span', '', '🌐 在线冒险者'));
+  onlineBox.appendChild(onlineNum);
+  onlinePanel.appendChild(onlineBox);
+  onlinePanel.appendChild(el('div', 'muted', '数字为同一局域网内的设备数（Unique IP）'));
+  onlineNum.textContent = String(view.online ?? 0);
+  left.appendChild(onlinePanel);
   const joinBox = el('div', 'join-box');
   const codeInput = el('input', '');
   codeInput.placeholder = '房间码，如 AB3CD';
@@ -108,16 +118,20 @@ export function mountLobby(root, view) {
   left.appendChild(roomList);
 
   // R-10: 冒险故事集——藏书室样式（书架展示书籍，点开书籍查看评语+高光时刻配图）
+  // F-18：藏书室与账号绑定——未登录时展示内容为空
   const storyPanel = el('div', 'panel');
   storyPanel.appendChild(el('h4', '', '📖 冒险故事集（藏书室）'));
-  const loadCards = () => { try { const v = JSON.parse(localStorage.getItem('dnd_cards') || '[]'); return Array.isArray(v) ? v : []; } catch (e) { return []; } };
   const storyCount = el('div', 'muted', '');
-  const refreshCount = () => { const n = loadCards().length; storyCount.textContent = n ? '书架上有 ' + n + ' 本冒险传记，点击进入藏书室翻阅。' : '暂无冒险记录。完成一场冒险后，AI DM 会自动为你撰写传记并收入藏书室。'; };
+  const refreshCount = () => {
+    if (!store.account) { storyCount.textContent = '藏书室与账号绑定：登录后才会展示属于你的冒险传记。'; return; }
+    const n = loadCards().length;
+    storyCount.textContent = n ? '书架上有 ' + n + ' 本冒险传记，点击进入藏书室翻阅。' : '暂无冒险记录。完成一场冒险后，AI DM 会自动为你撰写传记并收入藏书室。';
+  };
   refreshCount();
   storyPanel.appendChild(storyCount);
   const enterBtn = el('button', 'btn gold', '🚪 进入藏书室');
   enterBtn.style.width = '100%';
-  enterBtn.onclick = openLibrary;
+  enterBtn.onclick = () => { if (!store.account) { openLoginModal('login'); return; } openLibrary(); };
   storyPanel.appendChild(enterBtn);
   left.appendChild(storyPanel);
 
@@ -185,8 +199,7 @@ export function mountLobby(root, view) {
     back.onclick = () => ov.remove();
     const del = el('button', 'btn small danger', '🗑 删除这本传记');
     del.onclick = () => {
-      const all = loadCards().filter(x => x.id !== c.id);
-      localStorage.setItem('dnd_cards', JSON.stringify(all));
+      deleteCard(c.id); // F-18：按账号删除
       ov.remove();
       parent.remove();
       refreshCount();
@@ -341,8 +354,8 @@ export function mountLobby(root, view) {
     openLoginModal('login');
   }
   return {
-    update(v) { renderRooms(v); renderAccount(); },
-    onAuthOk() { if (loginModal) { loginModal.remove(); loginModal = null; } renderAccount(); },
+    update(v) { renderRooms(v); renderAccount(); onlineNum.textContent = String(v.online ?? 0); refreshCount(); },
+    onAuthOk() { if (loginModal) { loginModal.remove(); loginModal = null; } renderAccount(); refreshCount(); },
     onAuthError(msg) {
       if (!loginModal) openLoginModal('login');
       const errEl = loginModal.querySelector('.auth-err');

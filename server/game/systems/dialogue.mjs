@@ -8,6 +8,7 @@ export function installDialogue(game) {
     const t = this.turn;
     if (!p || !t || t.playerId !== pid) return { ok: false, msg: '不是你的回合' };
     if (t.actionUsed) return { ok: false, msg: '本回合已使用动作' };
+    const campG = this._campGuard(pid); if (campG) return campG; // F-30：营地休整中
     const e = this.entities.get(p.eid);
     // 目标实体（NPC/箱子）
     if (targetEid) {
@@ -75,9 +76,9 @@ export function installDialogue(game) {
       if (o.need && !p.keys.includes(o.need) && !this.keys.has(o.need)) { available = false; hint = o.missingText || '缺少道具'; }
       if (o.once && this.flags.has('dlg:' + npcE.npcId + ':' + o.id)) available = false;
       if (o.cost && o.cost.gold > p.gold) { available = false; hint = '金币不足'; }
-      return { id: o.id, text: o.text, tag: o.tag, available, hint };
+      return { id: o.id, text: this.npcTextOf(npcDef.id, 'option', o.id, o.text), tag: o.tag, available, hint }; // F-32：对话变体
     });
-    this.dialogues.set(p.pid, { npcEid: npcE.eid, npcName: npcDef.name, greet: npcDef.greet, options });
+    this.dialogues.set(p.pid, { npcEid: npcE.eid, npcName: npcDef.name, greet: this.npcTextOf(npcDef.id, 'greet', null, npcDef.greet), options });
     this.narrate('npcTalk', { actor: p.name, target: npcDef.name });
     return { ok: true, dialogue: true };
   };
@@ -86,6 +87,7 @@ export function installDialogue(game) {
     const p = this.players.get(pid);
     const dlg = this.dialogues.get(pid);
     if (!p || !dlg) return { ok: true }; // 对话已关闭：静默成功，防竞态刷屏
+    const campG = this._campGuard(pid); if (campG) return campG; // F-30：营地休整中
     const npcE = this.entities.get(dlg.npcEid);
     const npcDef = NPCS[npcE?.npcId];
     if (!npcDef) return { ok: false, msg: 'NPC数据缺失，请刷新页面重试' };
@@ -110,7 +112,7 @@ export function installDialogue(game) {
     if (res.gold) { p.gold += res.gold; p.stats.goldEarned += res.gold; }
     if (res.heal) { const pe = this.entities.get(p.eid); if (pe) this._heal(pe, res.heal, pe); }
     if (res.upgrade === 'weapon') { p.sheet.upgradeWeapon = true; }
-    const reply = res.log || '……';
+    const reply = this.npcTextOf(npcDef.id, 'result', opt.id, res.log || '……'); // F-32：对话变体
     this.logMsg('narr', '💬 ' + p.name + ' → ' + npcDef.name + '：「' + opt.text.replace(/^\[[^\]]+\]\s*/, '') + '」');
     this.logMsg('narr', '💬 ' + npcDef.name + '：' + reply, { dm: true });
     // 目标完成检查（救出西达尔 → 章节目标）

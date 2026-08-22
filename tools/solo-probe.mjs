@@ -62,6 +62,9 @@ async function main() {
       case 'search': send('game:search'); break;
       case 'dash': send('game:dash'); break;
       case 'hide': send('game:hide'); break;
+      case 'bossVote': send('game:boss-vote', { vote: act.vote }); break; // F-30：BOSS表决自动同意
+      case 'campRest': send('game:camp-rest'); break;                    // F-30：营地恢复
+      case 'campLeave': send('game:camp-leave'); break;                  // F-30：营地返回
       }
     } catch (e) { /* 快照竞态忽略 */ }
   }
