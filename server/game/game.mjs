@@ -160,7 +160,19 @@ export class Game {
     this.turn = null;
     this.dialogues.clear();
     // 玩家实体
-    const spawns = this.map.spawns.length ? this.map.spawns : [{ x: 1, y: 1 }];
+    // F-33：出生点安全筛选——距BOSS≥17格（避免进章即触发BOSS遭遇表决）、距怪物≥视野+2（开局保持「冒险中」不被逼战）
+    const rawSpawns = this.map.spawns.length ? this.map.spawns : [{ x: 1, y: 1 }];
+    const safeSpawns = rawSpawns.filter(s => {
+      for (const ent of this.map.entities) {
+        if (ent.kind !== 'monster') continue;
+        const def = MONSTERS[ent.def];
+        const minDist = def?.boss ? 17 : (def?.vision || 6) + 2;
+        if (Math.abs(s.x - ent.x) + Math.abs(s.y - ent.y) < minDist) return false;
+      }
+      return true;
+    });
+    const spawns = safeSpawns.length ? safeSpawns : rawSpawns;
+    const keepAway = spawns.map(s => ({ x: s.x, y: s.y, r: 8 })); // F-33：补刷怪物远离玩家出生区（≥8格）
     let si = 0;
     for (const [pid, p] of this.players) {
       if (p.dead) continue;
@@ -201,7 +213,7 @@ export class Game {
       if (this.deadSquads.has(squadKey)) continue;
       const target = targetCount(meta);
       for (let i = placed; i < target; i++) {
-        const pt = this._randomWalkable();
+        const pt = this._randomWalkable({ minDistFrom: keepAway }); // F-33：补刷怪物远离玩家出生区
         const e = this._monsterEntity(meta.def, meta, pt.x, pt.y, meta.squad);
         this.entities.set(e.eid, e);
       }
@@ -315,6 +327,7 @@ export class Game {
         this.combat.idx = 0;
         this.combat.round++;
         this.logMsg('combat', '━━━ 第' + this.combat.round + '回合 ━━━');
+        this.narrate('roundStart', { n: this.combat.round }); // F-37：回合开始人设旁白
         for (const eid of order) { const e = this.entities.get(eid); if (e && e.kind === 'player') { const p = this.players.get(e.playerId); if (p) p.halflingReroll = true; } }
       }
     }
@@ -411,6 +424,7 @@ export class Game {
     }
     this.logMsg('combat', '━━━ 第1回合 ━━━');
     this.narrate('combatStart', {});
+    this.director.flourish(this, 'combatStart'); // F-37：开战LLM加戏（异步，节流）
     if (!surprise && order[0]?.kind === 'player') {
       const tp = this.players.get(order[0].playerId);
       if (tp) tp.stats.initiativeWins++;
@@ -549,6 +563,7 @@ export class Game {
       return;
     }
     if (nat20) this.narrate('crit', { actor: attName, target: defName, dmg: '?' });
+    if (nat20) this.director.flourish(this, 'crit'); // F-37：暴击LLM加戏
     const mul = atk.dmgMul || 1; // F-22/F-32：AI DM调校的伤害倍率
     const d = roll(atk.dmg);
     let dmg = Math.max(1, Math.round(d.total * mul));
@@ -629,7 +644,10 @@ export class Game {
       if (this.chapterPerf) this.chapterPerf.kills++;
       if (e.finalBoss) killer.stats.bossLastHit = true;
     }
-    if (e.boss || e.finalBoss) this.actorEvent(killer || null, '💀 击杀了BOSS「' + e.name + '」', e);
+    if (e.boss || e.finalBoss) {
+      this.actorEvent(killer || null, '💀 击杀了BOSS「' + e.name + '」', e);
+      this.director.flourish(this, 'bossDown'); // F-37：BOSS倒下LLM加戏
+    }
     if (e.lootKey && !this.keys.has(e.lootKey)) {
       this.keys.add(e.lootKey);
       this.logMsg('system', '🔑 队伍获得了【' + (e.lootKey === 'cage_key' ? '笼子钥匙' : '城堡钥匙') + '】');
@@ -656,6 +674,7 @@ export class Game {
     p.deathSaves = { s: 0, f: 0 };
     this.addDebuff(p.pid, { id: 'downed', name: '倒地', icon: '💀' }); // F-23：debuff状态机
     this.actorEvent(this.entities.get(this.turn?.actorEid) || null, '💀 ' + e.name + ' 倒下了！', e);
+    this.director.flourish(this, 'playerDown'); // F-37：冒险者倒地LLM加戏
     this.narrate('down', { actor: e.name });
     this.event('down', { pid: p.pid });
   }
@@ -1389,7 +1408,8 @@ export class Game {
           if (o.need && !(p ? p.keys.includes(o.need) : false) && !this.keys.has(o.need)) { available = false; hint = o.missingText || '缺少道具'; }
           if (o.once && this.flags.has('dlg:' + ent.npcId + ':' + o.id)) available = false;
           if (o.cost && o.cost.gold > (p ? p.gold : 0)) { available = false; hint = '金币不足'; }
-          return { id: o.id, text: this.npcTextOf(npcDef.id, 'option', o.id, o.text), tag: o.tag, available, hint };
+          return { id: o.id, text: this.npcTextOf(npcDef.id, 'option', o.id, o.text), tag: o.tag, available, hint,
+            rescue: !!(o.need && o.tag === 'aid') }; // 机器可读标记：解救类选项（文本经AI变体后可能不含"解救"字样，禁止用文本匹配）
         }),
       };
     }

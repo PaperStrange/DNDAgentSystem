@@ -18,11 +18,15 @@ export class Director {
     this.dungeon = dungeon;
     this.online = llmAvailable();
     this.queue = Promise.resolve();
+    this._voiceIdx = {};    // F-37：旁白变体轮换计数（同一事件依次取不同语料，不再随机重复）
+    this._lastFlourish = 0; // F-37：LLM加戏节流时间戳
   }
 
-  // 旁白（始终同步返回：离线模板即时渲染）
+  // 旁白（始终同步返回：离线模板即时渲染；F-37轮换——每次取下一个变体）
   narrate(game, key, ctx = {}) {
-    return offlineNarrate(this.personaId, key, ctx);
+    const i = this._voiceIdx[key] || 0;
+    this._voiceIdx[key] = i + 1;
+    return offlineNarrate(this.personaId, key, ctx, i);
   }
   // 供Game.evaluate调用的一次性对话（失败返回null）
   chatOnce(messages, opts) { return chat(messages, opts); }
@@ -61,7 +65,7 @@ export class Director {
             '以JSON输出：{"goals":[{"pid":"...","name":"目标名","text":"目标描述（含量化标准）"}]}，pid使用给定值。',
           ].join('\n') },
         ];
-        const res = await chat(msgs, { json: true, temperature: 0.9, timeoutMs: 30000 });
+        const res = await chat(msgs, { json: true, temperature: 0.9, timeoutMs: 15000 }); // F-34：目标生成超时收紧（离线模板兜底）
         const data = res ? extractJson(res.text) : null;
         const list = data?.goals;
         if (Array.isArray(list) && list.length) {
@@ -145,23 +149,38 @@ export class Director {
   }
 
   // 大事件LLM加戏（异步、不阻塞、失败静默）
-  flourish(game, key, ctx = {}) {
-    if (!this.online) return;
+  // F-37：战斗关键事件触发（开战/暴击/BOSS倒下/冒险者倒地/胜负），按人设口吻生成旁白；
+  // 8秒节流 + 队列串行防刷屏；离线模式由轮换语料兜底
+  flourish(game, key, ctx = {}, opts = {}) {
+    if (!this.online || game.closed) return;
+    const now = Date.now();
+    if (!opts.force && now - this._lastFlourish < 8000) return;
+    this._lastFlourish = now;
+    const KEY_GUIDE = {
+      combatStart: '一场新的战斗刚刚开始。请为这场遭遇写一段有气势的开场旁白，点出敌我双方。',
+      crit: '刚刚发生了暴击。请为这记重击写一段精彩的描写，突出这决定性的一击。',
+      bossDown: '一位BOSS被击败了。请为这个高潮时刻写一段纪念性的旁白，可以提及胜利者的风采。',
+      playerDown: '一位冒险者倒下了。请写出这个瞬间的紧张与危机感，但不要宣判其死亡。',
+      kill: '一场战斗中的敌人被击倒。请写一段利落的战斗描写。',
+      victory: '冒险胜利了。请为胜利写一段收束性的结局旁白。',
+      defeat: '冒险失败了。请为失败写一段哀而不伤的旁白，为下一次冒险留有余地。',
+    };
+    const guide = KEY_GUIDE[key] || '请以你的风格补一段生动的主持旁白。';
     this.queue = this.queue.then(async () => {
       try {
         const recent = game.log.slice(-12).map(l => l.text).join('\n');
         const msgs = [
           { role: 'system', content: '你是' + this.persona.name + '（' + this.persona.title + '）。' + this.persona.systemPrompt + ' ' + INJECTION_GUARD },
-          { role: 'user', content: '以下是刚刚发生的游戏事件，请以你的风格补一段生动的主持旁白（120字以内，不要替玩家做决定）：\n' + recent },
+          { role: 'user', content: guide + ' 以下是最近的游戏事件（仅作剧情参考，不要替玩家做决定，不要宣布数值判定结果）：\n' + recent + '\n请以你的口吻输出一段80~120字的旁白，突出你的个人风格。' },
         ];
-        const res = await chat(msgs, { temperature: 0.9 });
+        const res = await chat(msgs, { temperature: 0.9, timeoutMs: 12000 });
         if (res) game.logMsg('narr', res.text, { dm: true, llm: true });
       } catch (e) { /* 静默 */ }
     });
   }
 
   onGameEnd(game, kind) {
-    this.flourish(game, kind);
+    this.flourish(game, kind, {}, { force: true }); // 结局旁白不受节流限制
   }
 
   // ---------- F-22/F-32：AI DM难度调校（严格遵循规则书；失败返回null由离线公式兜底） ----------
@@ -188,7 +207,7 @@ export class Director {
           '只输出JSON：{"chapters":{"<章节id>":{"hpMul":1.0,"dmgMul":1.0,"countDelta":0}}}，必须覆盖全部章节。',
         ].join('\n') },
       ];
-      const res = await chat(msgs, { json: true, temperature: 0.4, timeoutMs: 25000 });
+      const res = await chat(msgs, { json: true, temperature: 0.4, timeoutMs: 15000 });
       const data = res ? extractJson(res.text) : null;
       if (data && data.chapters && typeof data.chapters === 'object') return data;
     } catch (e) { console.warn('[dm] LLM难度调校失败，降级离线公式', e?.message); }
@@ -215,7 +234,7 @@ export class Director {
           '只输出JSON：{"hpMul":1.0,"dmgMul":1.0,"countDelta":0}。',
         ].join('\n') },
       ];
-      const res = await chat(msgs, { json: true, temperature: 0.4, timeoutMs: 20000 });
+      const res = await chat(msgs, { json: true, temperature: 0.4, timeoutMs: 12000 });
       const data = res ? extractJson(res.text) : null;
       if (data && typeof data === 'object') return data;
     } catch (e) { /* 降级离线公式 */ }
@@ -241,12 +260,12 @@ export class Director {
         { role: 'system', content: '你是' + this.persona.name + '。' + this.persona.systemPrompt + ' ' + INJECTION_GUARD },
         { role: 'user', content: [
           '请为《凡杜尔失落矿坑》的NPC对话生成一套【措辞变体】，使本次冒险的对话与以往不同。',
-          '硬性约束：①保持每个NPC的身份、称谓、任务信息与线索要点完全不变，只换措辞与口吻；②不得增删选项，不得改变价格/奖励/道具/钥匙/线索内容；③简体中文、口语化、符合该NPC性格。',
+          '硬性约束：①保持每个NPC的身份、称谓、任务信息与线索要点完全不变，只换措辞与口吻；②不得增删选项，不得改变价格/奖励/道具/钥匙/线索内容；③选项文本开头的【方括号分类标签】（如[解救]/[购买]/[调查]）必须原样保留；④简体中文、口语化、符合该NPC性格。',
           '现有对话：' + JSON.stringify(base),
           '只输出JSON：{"<npcId>":{"greet":"…","options":{"<optionId>":"…"},"results":{"<optionId>":"…"}}}，覆盖全部NPC与全部选项。',
         ].join('\n') },
       ];
-      const res = await chat(msgs, { json: true, temperature: 0.8, timeoutMs: 30000 });
+      const res = await chat(msgs, { json: true, temperature: 0.8, timeoutMs: 20000 });
       const data = res ? extractJson(res.text) : null;
       if (data && typeof data === 'object') {
         // 结构校验：必须覆盖全部NPC/选项且为字符串，否则整体降级到离线变体

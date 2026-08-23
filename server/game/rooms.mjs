@@ -121,9 +121,10 @@ export class Rooms {
     const g = room.game;
     const origEnd = g._endGame.bind(g);
     g._endGame = (kind, reason) => { origEnd(kind, reason); room.phase = 'ended'; this.touch(room); this._writeLogFile(room); }; // R-23: 冒险结束时在房主本地落盘完整日志
-    // F-22：AI DM开局前按队伍人数与等级调校怪物数值（严格遵循规则书；离线公式兜底，绝不阻塞开局）
-    await g.prepareTuning().catch(e => console.error('[room] 难度调校失败，使用离线公式', e?.message));
-    // 开场：旁白+隐藏目标（LLM可能耗时，就绪后进入playing）
+    // F-22/F-34：AI DM难度调校在后台并行执行，绝不阻塞开局——
+    // 离线公式在prepareTuning内同步兜底立即生效，LLM精调与NPC对话变体就绪后热应用
+    g.prepareTuning().catch(e => console.error('[room] 难度调校失败，使用离线公式', e?.message));
+    // 开场：旁白+隐藏目标（LLM可能耗时，就绪后进入playing；超时收紧由director内控）
     room.director.intro(room.game).then(() => {
       room.phase = 'playing';
       this.touch(room);

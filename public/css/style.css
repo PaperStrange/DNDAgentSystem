@@ -127,7 +127,7 @@ input, select, textarea { font-family: var(--font); }
 .color-swatch.sel { border-color: var(--gold); box-shadow: 0 0 0 2px rgba(232,193,90,.3); }
 .cg-side { position: sticky; top: 16px; align-self: start; } /* 整列吸顶：预览+派生属性跟随可视区，滚动不漂移 */
 .cg-preview .preview-label { color: var(--dim); font-size: 12px; margin-bottom: 6px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.cg-preview canvas { image-rendering: pixelated; width: 100%; max-height: 200px; object-fit: contain; border-radius: 8px; background: #181422; border: 2px solid var(--line); }
+.cg-preview canvas { image-rendering: pixelated; width: 160px; height: 180px; display: block; margin: 0 auto; border-radius: 8px; background: #5c5672; border: 2px solid var(--line); }
 .derived-list { font-size: 12px; color: var(--dim); line-height: 1.7; }
 .derived-list b { color: var(--txt); }
 

@@ -82,6 +82,13 @@ async function main() {
   await page.screenshot({ path: 'e2e-shots/ui-chargen.png' });
   const labelVisible = await page.locator('.preview-label').isVisible();
   check('B-5 预览标签可见', labelVisible);
+  // F-35：预览1:1清晰渲染——画布160×180（10倍）与CSS尺寸一致，亮色画室背景让深色轮廓/发色可辨
+  const pvSize = await page.locator('.cg-preview canvas').evaluate(c => {
+    const d = c.getContext('2d').getImageData(0, 0, 1, 1).data;
+    return { w: c.width, h: c.height, corner: d[0] + ',' + d[1] + ',' + d[2] };
+  });
+  check('F-35 预览画布160×180（10倍1:1渲染，杜绝非整数缩放模糊）', pvSize.w === 160 && pvSize.h === 180, pvSize.w + 'x' + pvSize.h);
+  check('F-35 预览亮色画室背景（角像素亮度>60，深色轮廓对比清晰）', parseInt(pvSize.corner.split(',')[0], 10) > 60, 'corner=' + pvSize.corner);
   // B-6: 保存车卡反馈
   await page.click('button:has-text("保存车卡")');
   await page.waitForTimeout(1200);
@@ -115,13 +122,27 @@ async function main() {
   await page.waitForTimeout(600);
   await page.click('button:has-text("准备就绪")');
   await page.waitForSelector('.dialog-overlay', { timeout: 5000 });
+  const tStart = Date.now();
   await page.click('.dialog-overlay button:has-text("立即开始")');
   await page.waitForSelector('.screen-game', { timeout: 20000 });
   check('B-10 确认后进入游戏', await page.locator('.screen-game').isVisible());
+  // F-34：隐藏目标生成并行化——从点击「立即开始」到进入playing < 20秒（含在线LLM）
+  const tPlaying = await page.waitForFunction(() => {
+    const v = window.__e2e && window.__e2e.view();
+    return v && v.game && v.game.state === 'playing';
+  }, { timeout: 20000 }).then(() => Date.now() - tStart).catch(() => -1);
+  check('F-34 开局等待<20秒（难度调校后台化+目标生成并行）', tPlaying > 0 && tPlaying < 20000, tPlaying + 'ms');
   // F-24：游戏内竖状区域（回合数+全员头像，战斗中追加怪物）
   check('F-24 竖状区域存在（回合数+头像）', await page.locator('.turn-strip').isVisible() && (await page.locator('.turn-strip .strip-chip').count()) >= 1, '头像数=' + await page.locator('.turn-strip .strip-chip').count());
   // F-28：自动模式快捷键提示展示（手动模式隐藏由manual-mode-probe验证）
   check('F-28 自动模式快捷键提示展示', await page.locator('.game-hint').evaluate(el => getComputedStyle(el).display !== 'none'));
+  // F-36：行动按钮可用性=当前能否使用 + 射程直接标注（开局出生点附近无敌人→长剑置灰、长弓射程内可用）
+  const swordBtn = page.locator('.action-bar button:has-text("长剑")');
+  const bowBtn = page.locator('.action-bar button:has-text("长弓")');
+  check('F-36 长剑按钮直接标注射程（·1格）', (await swordBtn.textContent()).includes('1格'), (await swordBtn.textContent()).trim());
+  check('F-36 长弓按钮直接标注射程（·15格）', (await bowBtn.textContent()).includes('15格'), (await bowBtn.textContent()).trim());
+  check('F-36 开局无1格内敌人→长剑置灰（不可交互）', await swordBtn.isDisabled());
+  check('F-36 按钮悬停提示含射程说明', ((await swordBtn.getAttribute('title')) || '').includes('射程1格') && ((await bowBtn.getAttribute('title')) || '').includes('射程15格'), (await bowBtn.getAttribute('title')) || '');
   // 离开进行中的冒险回大厅
   await page.evaluate(() => window.__S.net.send('room:leave'));
   await page.waitForSelector('.lobby-title', { timeout: 10000 });

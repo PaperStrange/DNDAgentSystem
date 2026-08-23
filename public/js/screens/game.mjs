@@ -217,15 +217,30 @@ export function mountGame(root, view) {
     if (myTurn && gv.turn) {
       actPanel.appendChild(el('div', 'mode-hint', '👑 你的回合！移动 ' + gv.turn.moveLeft + ' 格' + (gv.turn.actionUsed ? '（动作已用）' : '') + (gv.turn.bonusUsed ? '（附赠已用）' : '')));
       const bar = el('div', 'action-bar');
+      // F-36：按钮可用性=当前能否使用（武器按射程内有无敌人实时置灰），按钮与title直接标注射程
+      const myEnt = gv.entities.find(e => e.eid === gv.me?.eid);
+      const foesAlive = gv.entities.filter(e => e.kind === 'monster' && !e.dead && e.hp > 0);
+      const anyInRange = (a) => foesAlive.some(f => manhattan(myEnt || { x: -99, y: -99 }, f) <= a.range && (a.melee || losClear(gv, myEnt, f)));
+      const rangeHint = (a) => (a.kind === 'weapon' || a.range ? '射程' + a.range + '格' + (a.melee ? '（近战）' : '') : '');
       for (const a of me.attacks || []) {
-        const btn = el('button', 'btn small', a.icon + ' ' + a.name);
-        btn.disabled = gv.turn.actionUsed || (a.cost === 'slot' && (!me.slots || !me.slots['1'])) || (a.cost === 'chapter' && !(me.charges[a.id] > 0));
+        const label = a.icon + ' ' + a.name + (a.range ? ' ·' + a.range + '格' : '');
+        const btn = el('button', 'btn small', label);
+        const needTarget = a.kind === 'weapon' || ['spellAttack', 'saveAttack', 'autoHit', 'mark'].includes(a.kind);
+        const noResource = (a.cost === 'slot' && (!me.slots || !me.slots['1'])) || (a.cost === 'chapter' && !(me.charges[a.id] > 0));
+        const outOfRange = needTarget && !anyInRange(a);
+        btn.disabled = gv.turn.actionUsed || noResource || outOfRange;
+        btn.title = (a.desc || '') + '｜' + (rangeHint(a) || '无需目标') + (noResource ? '｜资源不足' : outOfRange ? '｜射程内没有敌人' : '');
         btn.onclick = () => setPending({ kind: 'cast', spellId: a.id, attack: a });
         bar.appendChild(btn);
       }
       for (const a of me.bonusAttacks || []) {
-        const btn = el('button', 'btn small', a.icon + ' ' + a.name + '·附赠');
-        btn.disabled = gv.turn.bonusUsed || (a.cost === 'slot' && (!me.slots || !me.slots['1']));
+        const label = a.icon + ' ' + a.name + '·附赠' + (a.range ? ' ·' + a.range + '格' : '');
+        const btn = el('button', 'btn small', label);
+        const needTarget = a.kind === 'mark'; // 治疗可对自己使用，不因无目标置灰
+        const noResource = a.cost === 'slot' && (!me.slots || !me.slots['1']);
+        const outOfRange = needTarget && !anyInRange(a);
+        btn.disabled = gv.turn.bonusUsed || noResource || outOfRange;
+        btn.title = (a.desc || '') + '｜' + (rangeHint(a) || '无需目标') + (noResource ? '｜资源不足' : outOfRange ? '｜射程内没有敌人' : '');
         btn.onclick = () => setPending({ kind: 'cast', spellId: a.id, attack: a });
         bar.appendChild(btn);
       }

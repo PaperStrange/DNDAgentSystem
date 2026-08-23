@@ -112,8 +112,8 @@ export function installStealth(game) {
     this.logMsg('system', '🗳️ ' + (p?.name || pid) + (v === 'flee' ? ' 提议逃跑' : ' 同意开战') + '（' + [...pb.votes.values()].filter(x => x === 'agree').length + '同意/' + [...pb.votes.values()].filter(x => x === 'flee').length + '逃跑）');
     if (v === 'flee') return this._resolveBossFlee();
     const alive = [...this.players.values()].filter(x => !x.dead);
-    // 离线玩家不阻塞表决（掉线窗口内默认视为弃权跟随多数）
-    if (alive.every(x => pb.votes.get(x.pid) === 'agree' || !this.isPlayerOnline(x.pid))) this._startBossCombat();
+    // 离线玩家与倒地玩家视为弃权（倒地者昏迷无法表决，不能阻塞其余队友）
+    if (alive.every(x => pb.votes.get(x.pid) === 'agree' || !this.isPlayerOnline(x.pid) || x.downed)) this._startBossCombat();
     return { ok: true };
   };
 
@@ -231,14 +231,29 @@ export function installStealth(game) {
       return;
     }
     // 3) 绿（未暴露）：随机游荡（50%概率原地停留）
+    // F-33：游荡限界=锚点半径6格，且不进入任何玩家的视野范围——
+    // 未暴露的怪物不会主动靠近玩家，开局/手动模式不会被怪物逼战（遭遇由玩家移动或主动攻击触发）
     if (rnd() < 0.5) return;
     const opts = [[1, 0], [-1, 0], [0, 1], [0, -1]]
       .map(([dx, dy]) => ({ x: m.x + dx, y: m.y + dy }))
-      .filter(pt => this._wanderable(pt.x, pt.y, m));
+      .filter(pt => this._wanderable(pt.x, pt.y, m)
+        && Math.abs(pt.x - m.ax) + Math.abs(pt.y - m.ay) <= 6
+        && !this._inAnyPlayerVision(pt, m));
     if (!opts.length) return;
     const to = opts[Math.floor(rnd() * opts.length)];
     m.x = to.x; m.y = to.y;
     this.onChange();
+  };
+
+  // F-33：某格是否落在任一玩家的视野范围内（距离判定，保守——不依赖LOS）
+  game._inAnyPlayerVision = function (pt, m) {
+    for (const [pid, p] of this.players) {
+      if (p.dead) continue;
+      const pe = this.entities.get(p.eid);
+      if (!pe || pe.dead) continue;
+      if (manhattan(pt, pe) <= this.visionOf(m)) return true;
+    }
+    return false;
   };
 
   game._wanderable = function (x, y, m) {

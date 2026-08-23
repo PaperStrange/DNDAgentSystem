@@ -54,10 +54,10 @@ function decide(gv, pid, mem) {
   if (!gv.turn || gv.turn.playerId !== pid) return null;
   const now = Date.now();
   if (now - mem.lastAct < (mem.throttle || 200)) return null; // 温和节流（有节拍器兜底，不会死锁）
-  // 对话（仅限自己回合，且受节流约束）：优先解救类，其次情报，再次其他援助，最后交易
+  // 对话（仅限自己回合，且受节流约束）：优先解救类（用机器可读rescue标记，不依赖文本措辞），其次情报，再次其他援助，最后交易
   if (gv.dialogue) {
     const infoTags = ['investigation', 'persuasion', 'insight', 'religion', 'arcana'];
-    const opt = gv.dialogue.options.find(o => o.available && o.tag === 'aid' && o.text.includes('解救'))
+    const opt = gv.dialogue.options.find(o => o.available && o.rescue)
       || gv.dialogue.options.find(o => o.available && infoTags.includes(o.tag))
       || gv.dialogue.options.find(o => o.available && o.tag === 'aid')
       || gv.dialogue.options.find(o => o.available);
@@ -154,13 +154,18 @@ function combatDecide(gv, me, ent, target, foes, mem, now) {
   const turn = gv.turn;
   const d = manhattan(ent, target);
   const done = (a) => { mem.lastAct = now; return a; };
-  // 附赠动作：治疗祷言（优先倒地队友，其次最低血量）
+  // 附赠动作：治疗祷言（优先倒地队友，其次最低血量；超出射程则向其移动保持治疗距离）
   const clericHeal = (me.bonusAttacks || []).find(a => a.id === 's:healingword');
   const hurtAllies = gv.entities.filter(e => e.kind === 'player' && !e.dead && e.hp < e.maxHp)
     .sort((a, b) => (a.hp / a.maxHp) - (b.hp / b.maxHp));
   const hurtAlly = hurtAllies.find(e => manhattan(ent, e) <= 6);
   if (hurtAlly && clericHeal && !turn.bonusUsed && me.slots && me.slots['1'] > 0) {
     return done({ type: 'cast', spellId: 's:healingword', targetEid: hurtAlly.eid });
+  }
+  // 治疗者无射程内目标但有伤员：向其靠拢（保证后续治疗可达）
+  if (clericHeal && hurtAllies.length && !turn.bonusUsed && me.slots && me.slots['1'] > 0 && !hurtAlly && turn.moveLeft > 0) {
+    const mv = moveToward(gv, ent, hurtAllies[0], mem);
+    if (mv) return done(mv);
   }
   // 附赠动作：药水自救（血量偏低时更积极，20260822批次平衡：0.35→0.5）
   if (!turn.bonusUsed && me.items.potion > 0 && ent.hp / ent.maxHp < 0.5) {
@@ -187,9 +192,14 @@ function combatDecide(gv, me, ent, target, foes, mem, now) {
     const sp = (me.attacks || []).find(a => ['spellAttack', 'saveAttack', 'autoHit'].includes(a.kind) && (a.cost === 'cantrip' || (a.cost === 'slot' && me.slots && me.slots['1'] > 0)));
     if (sp && d <= sp.range && losClearSafe(gv, ent, target)) return done({ type: 'cast', spellId: sp.id, targetEid: target.eid });
   }
-  // 移动（朝目标靠近，直到进入武器射程或移动耗尽）
+  // 移动：纯近战目标→远程/施法者保持距离风筝；远程型怪物（会射箭/施法）→贴近集火（反正会被射，近战换更高输出与治疗聚集）
+  const RANGED_FOES = new Set(['goblin', 'ruffian', 'skeleton', 'glasstaff', 'nezznar']);
+  const targetRanged = target?.defKey ? RANGED_FOES.has(target.defKey) : false;
   const wp2 = weaponFor(gv, me, ent, target);
-  if (turn.moveLeft > 0 && (d > 1 || !wp2)) {
+  const rangedSpell = (me.attacks || []).find(a => ['spellAttack', 'saveAttack', 'autoHit'].includes(a.kind) && (a.cost === 'cantrip' || (a.cost === 'slot' && me.slots && me.slots['1'] > 0)));
+  const canHitFromHere = (wp2 && d <= wp2.range) || (rangedSpell && d <= rangedSpell.range && losClearSafe(gv, ent, target));
+  const shouldClose = targetRanged && d > 1; // 远程型目标：贴脸集火
+  if (turn.moveLeft > 0 && (!canHitFromHere || shouldClose)) {
     const mv = moveToward(gv, ent, target, mem);
     if (mv) return done(mv);
     // 当前目标不可达：尝试其他敌人
@@ -202,12 +212,12 @@ function combatDecide(gv, me, ent, target, foes, mem, now) {
 function exploreDecide(gv, me, ent, foes, mem, now) {
   const turn = gv.turn;
   const chapterId = gv.chapter.id;
-  // NPC优先级：①有可执行的"解救"类选项（如已拿到钥匙） ②没聊过的NPC
+  // NPC优先级：①有可执行的"解救"类选项（机器可读rescue标记） ②没聊过的NPC
   const npcDefs = gv.npcDefs || {};
   const npcEnts = gv.entities.filter(e => e.kind === 'npc');
   const rescueNpc = npcEnts.find(e => {
     const def = npcDefs[e.npcId];
-    return def && def.options.some(o => o.available && o.tag === 'aid' && o.text.includes('解救'));
+    return def && def.options.some(o => o.available && o.rescue);
   });
   const freshNpc = npcEnts.find(e => !mem.talked.has(chapterId + ':' + e.npcId));
   const npc = rescueNpc || freshNpc;

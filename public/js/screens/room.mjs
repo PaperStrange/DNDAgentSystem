@@ -206,7 +206,8 @@ export function mountChargen(root, view, net) {
 
   const wrap = el('div', 'cg-wrap');
   const previewCanvas = el('canvas', '');
-  previewCanvas.width = 16 * 8; previewCanvas.height = 18 * 8; // R-13: 提高内部分辨率，轮廓更清晰
+  // F-35：内部160×180（10倍）与CSS 1:1显示，杜绝非整数缩放导致的模糊
+  previewCanvas.width = 16 * 10; previewCanvas.height = 18 * 10;
   const previewWrap = el('div', 'cg-preview');
   const previewLabel = el('div', 'preview-label', '👤 外观预览（种族·职业·配色）');
   previewWrap.appendChild(previewLabel);
@@ -221,24 +222,25 @@ export function mountChargen(root, view, net) {
     const ctx = previewCanvas.getContext('2d');
     ctx.imageSmoothingEnabled = false;
     ctx.clearRect(0, 0, previewCanvas.width, previewCanvas.height);
-    // F-21：场景化预览背景——渐变天幕+地面阴影，角色轮廓与配色更突出
-    const g = ctx.createLinearGradient(0, 0, 0, previewCanvas.height);
-    g.addColorStop(0, '#2a2240');
-    g.addColorStop(0.72, '#201a30');
-    g.addColorStop(1, '#2c2218');
+    // F-35：亮色「画室」背景——浅色聚光舞台让深色轮廓与发色清晰可辨
+    const g = ctx.createRadialGradient(80, 60, 8, 80, 100, 150);
+    g.addColorStop(0, '#b8b0cc');
+    g.addColorStop(0.55, '#8f88a8');
+    g.addColorStop(1, '#5c5672');
     ctx.fillStyle = g;
     ctx.fillRect(0, 0, previewCanvas.width, previewCanvas.height);
-    ctx.fillStyle = 'rgba(255,214,120,.10)';
+    ctx.fillStyle = 'rgba(255,244,214,.16)';
     ctx.beginPath();
-    ctx.ellipse(64, 100, 42, 14, 0, 0, Math.PI * 2);
+    ctx.ellipse(80, 122, 58, 16, 0, 0, Math.PI * 2);
     ctx.fill();
-    ctx.fillStyle = 'rgba(0,0,0,.38)';
-    ctx.fillRect(24, 120, 80, 5); // 地面阴影
+    ctx.fillStyle = 'rgba(20,14,26,.30)';
+    ctx.fillRect(30, 152, 100, 6); // 地面阴影
     const pal = spritePalette('player', 'human', colors);
     pal.e = colors.eye; pal.U = colors.accent; // 捏脸：瞳色+饰色
+    pal.o = '#14101e'; // F-35：预览用纯黑轮廓，脸/头发轮廓更清晰
     const c = spriteToCanvas('player', 'human', pal, selClass, selRace, look);
     ctx.imageSmoothingEnabled = false;
-    ctx.drawImage(c, 0, 0, 16 * 8, 18 * 8);
+    ctx.drawImage(c, 0, 0, previewCanvas.width, previewCanvas.height);
   };
 
   // R-11: 读取已保存的在世角色（已阵亡角色不列出 → 禁止出战）

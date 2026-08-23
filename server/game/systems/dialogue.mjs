@@ -76,7 +76,8 @@ export function installDialogue(game) {
       if (o.need && !p.keys.includes(o.need) && !this.keys.has(o.need)) { available = false; hint = o.missingText || '缺少道具'; }
       if (o.once && this.flags.has('dlg:' + npcE.npcId + ':' + o.id)) available = false;
       if (o.cost && o.cost.gold > p.gold) { available = false; hint = '金币不足'; }
-      return { id: o.id, text: this.npcTextOf(npcDef.id, 'option', o.id, o.text), tag: o.tag, available, hint }; // F-32：对话变体
+      return { id: o.id, text: this.npcTextOf(npcDef.id, 'option', o.id, o.text), tag: o.tag, available, hint,
+        rescue: !!(o.need && o.tag === 'aid') }; // 机器可读解救标记（AI变体文本可能改写"解救"措辞）
     });
     this.dialogues.set(p.pid, { npcEid: npcE.eid, npcName: npcDef.name, greet: this.npcTextOf(npcDef.id, 'greet', null, npcDef.greet), options });
     this.narrate('npcTalk', { actor: p.name, target: npcDef.name });

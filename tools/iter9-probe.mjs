@@ -85,7 +85,7 @@ async function main() {
   if (hostChat.length === 2 && guestChat.length === 2 && hostChat.some(t => t.includes('我是房主')) && guestChat.some(t => t.includes('一起加油'))) ok('R-18 聊天双向可见（kind=chat）: ' + hostChat.join(' / '));
   else fail('R-18 聊天异常 host=' + JSON.stringify(hostChat) + ' guest=' + JSON.stringify(guestChat));
 
-  // R-16: 等战斗开始后检查 combat.round/order/turn
+  // R-16: 驱动房主靠近怪物触发战斗（F-33后开局保持冒险中——战斗不再自动发生，属设计行为）
   let sawCombat = false;
   for (let i = 0; i < 60; i++) {
     await sleep(1000);
@@ -97,6 +97,17 @@ async function main() {
       else fail('R-16 turn.actorEid 无法定位');
       break;
     }
+    // 主动向最近的怪物移动（进入视野→察觉判定→暴露开战）
+    try {
+      const me = gv?.entities?.find(e => e.eid === gv?.me?.eid);
+      const foe = gv?.entities?.find(e => e.kind === 'monster' && !e.dead);
+      if (me && foe && gv?.turn?.playerId === host.pid) {
+        const step = { x: me.x, y: me.y };
+        if (me.x < foe.x) step.x++; else if (me.x > foe.x) step.x--;
+        else if (me.y < foe.y) step.y++; else step.y--;
+        host.send('game:move', step);
+      }
+    } catch (e) { /* 快照竞态忽略 */ }
   }
   if (!sawCombat) fail('R-16 60秒内未进入战斗');
 

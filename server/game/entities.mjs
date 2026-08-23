@@ -4,11 +4,14 @@ import { uid, pick } from '../util.mjs';
 import { MONSTERS, NPCS } from './dungeon.mjs';
 
 export function installEntities(game) {
-  game._randomWalkable = function () {
+  game._randomWalkable = function (opts = {}) {
+    const { minDistFrom = [] } = opts; // F-33：排除距指定点位过近的格子 [{x,y,r}]（补刷怪物远离玩家出生区）
     const list = [];
     for (let y = 1; y < this.map.h - 1; y++) for (let x = 1; x < this.map.w - 1; x++) {
       const t = this.map.tiles[y][x];
-      if (!t.blockMove && !this.entitiesAt(x, y).length) list.push({ x, y });
+      if (!t.blockMove && !this.entitiesAt(x, y).length) {
+        if (minDistFrom.every(pt => Math.abs(x - pt.x) + Math.abs(y - pt.y) >= pt.r)) list.push({ x, y });
+      }
     }
     return pick(list) || { x: 1, y: 1 };
   };
@@ -44,6 +47,7 @@ export function installEntities(game) {
       boss: !!m.boss, finalBoss: !!m.finalBoss, undead: !!m.undead,
       dex: m.dex || 10, vision: m.vision || 8, mp: m.mp || 0, maxMp: m.mp || 0, // F-25敏捷/F-29视野/F-26蓝条
       alert: 'calm', lastSeen: null, baseHp, monDef: m,
+      ax: x, ay: y, // F-33：游荡锚点（出生点）——随机游荡以锚点为中心限界，避免怪物漫游到玩家出生区
       gold: m.gold, xp: m.xp, lootKey: meta.lootKey || null, webSkip: false, prone: false, desc: m.desc };
   };
   game._npcEntity = function (defKey, x, y) {

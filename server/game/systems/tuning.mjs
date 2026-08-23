@@ -69,13 +69,19 @@ export function installTuning(game) {
       e.hp = Math.max(1, Math.min(base, Math.round(e.hp * ratio)));
       for (const a of e.attacks) a.dmgMul = t.dmgMul;
     }
-    // 数量不足：按缺口补刷（不超过本章定义上限）
+    // 数量不足：按缺口补刷（不超过本章定义上限；F-33：远离玩家当前位置）
     const metas = chDef?.monsters || [];
+    const keepAway = [];
+    for (const [pid, p] of this.players) {
+      if (p.dead) continue;
+      const pe = this.entities.get(p.eid);
+      if (pe && !pe.dead) keepAway.push({ x: pe.x, y: pe.y, r: 8 });
+    }
     for (const meta of metas) {
       const target = this._monsterTargetCount(meta, t);
       const cur = [...this.entities.values()].filter(e => e.kind === 'monster' && e.defKey === meta.def && !e.dead).length;
       for (let i = cur; i < target; i++) {
-        const pt = this._randomWalkable();
+        const pt = this._randomWalkable({ minDistFrom: keepAway });
         const e = this._monsterEntity(meta.def, meta, pt.x, pt.y, meta.squad);
         this.entities.set(e.eid, e);
       }
@@ -102,32 +108,35 @@ export function installTuning(game) {
     return { ...this.chapterPerf };
   };
 
-  // 开局前准备：AI DM调校全章节（离线公式兜底，绝不阻塞开局）+ NPC对话变体
+  // 开局前准备（F-22/F-34）：离线公式**同步**兜底全章节立即可用（玩家推进到任何章节都有调校），
+  // LLM精调与NPC对话变体**并行**异步增强（Promise.all），就绪后热应用——绝不阻塞开局
   game.prepareTuning = async function () {
-    try {
-      const t = await this.director.tuneAdventure(this);
-      if (t && typeof t === 'object') {
-        for (const ch of this.dungeon.chapters) {
-          const raw = t.chapters?.[ch.id];
-          const fallback = this.offlineTuningFor(ch, null);
-          let clamped = raw ? (this._clampTuning(raw, !!ch.boss) || fallback) : fallback;
-          clamped = this._levelGateTuning(ch, clamped, fallback); // 规则书：等级未达标只降不升
-          this.tuning.chapters[ch.id] = clamped;
-        }
-      }
-    } catch (e) { /* 离线公式兜底 */ }
-    // 确保全章节都有调校
+    // 同步兜底：全章节立即套用离线公式
     for (const ch of this.dungeon.chapters) {
       if (!this.tuning.chapters[ch.id]) this.tuning.chapters[ch.id] = this.offlineTuningFor(ch, null);
     }
-    try {
-      const v = await this.director.npcTextVariants(this);
-      if (v && typeof v === 'object') this.npcTexts = v;
-    } catch (e) { /* 离线变体 */ }
-    this.applyTuningForChapter(this.chapter.id);
     const cur = this.tuningFor(this.chapter.id);
     this.logMsg('system', '⚖️ AI DM 依据规则书完成本次冒险难度调校（队伍Lv' + this.avgLevel().toFixed(1) + '：本章怪物生命×' + cur.hpMul + '、伤害×' + cur.dmgMul + (cur.countDelta ? '、数量' + (cur.countDelta > 0 ? '+' : '') + cur.countDelta : '') + '）。');
     this.onChange();
+    // 异步增强：LLM调校 + NPC对话变体并行（失败/离线静默降级到上面的离线公式）
+    try {
+      const [t, v] = await Promise.all([
+        this.director.tuneAdventure(this).catch(() => null),
+        this.director.npcTextVariants(this).catch(() => null),
+      ]);
+      if (t && typeof t === 'object') {
+        for (const ch of this.dungeon.chapters) {
+          const raw = t.chapters?.[ch.id];
+          if (!raw) continue;
+          const fallback = this.offlineTuningFor(ch, null);
+          const clamped = this._clampTuning(raw, !!ch.boss) || fallback;
+          this.tuning.chapters[ch.id] = this._levelGateTuning(ch, clamped, fallback); // 规则书：等级未达标只降不升
+        }
+      }
+      if (v && typeof v === 'object') this.npcTexts = v;
+      this.applyTuningForChapter(this.chapter.id);
+      this.onChange();
+    } catch (e) { /* 离线公式兜底 */ }
   };
 
   // 规则书门控：队伍平均等级低于本章等级上限时，调校只能调低或持平（遭遇难度与队伍等级相称）

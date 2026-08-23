@@ -25,6 +25,7 @@ const ok = (m) => log('✅ ' + m);
 const fail = (m) => { failed = true; log('❌ ' + m); };
 const flags = { sawCombat: false, sawExposed: false, sawSuspicious: false, sawCamp: false, sawBossVote: false, sawWander: false, sawEventTree: false, sawTeamCombat: false, sawTeamCamp: false, sawMp: false };
 let firstOrder = null;
+let firstPlaying = null; // F-33：首个playing快照采样（开局=冒险中且无战斗）
 let lastMonPos = null; // {eid -> x,y} 冒险态采样
 
 async function main() {
@@ -41,6 +42,8 @@ async function main() {
   function sample() {
     const gv = view?.game;
     if (!gv || gv.state !== 'playing') return;
+    // F-33：首个playing快照必须=冒险中且无战斗（出生点安全/怪物不逼战）
+    if (!firstPlaying) firstPlaying = { team: gv.team?.state, combat: !!gv.combat?.active, bossVote: !!gv.bossVote?.active, ch: gv.chapter?.id };
     if (gv.combat?.active) flags.sawCombat = true;
     if (gv.team?.state === 'combat') flags.sawTeamCombat = true;
     if (gv.team?.state === 'camp') flags.sawTeamCamp = true;
@@ -119,6 +122,10 @@ async function main() {
   clearInterval(ticker);
   const gv = view?.game;
   log('结局：' + (gv?.win ? gv.win.kind + ' | ' + gv.win.reason : '未结束（提前收工）') + ' 动作数=' + actionsSent);
+  // F-33：开局=冒险中且无战斗
+  if (firstPlaying && firstPlaying.team === 'adventuring' && !firstPlaying.combat && !firstPlaying.bossVote) {
+    ok('F-33 首个playing快照=冒险中且无战斗（' + firstPlaying.ch + '）');
+  } else fail('F-33 开局状态异常：' + JSON.stringify(firstPlaying));
   // F-29/F-31
   if (flags.sawWander) ok('F-31 冒险态怪物随机游荡（玩家不动时怪物位置变化）'); else fail('F-31 未观测到怪物游荡');
   if (flags.sawExposed) ok('F-29 暴露状态出现（red/combat）'); else fail('F-29 未观测到暴露状态');

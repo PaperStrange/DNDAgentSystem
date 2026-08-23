@@ -53,6 +53,13 @@ async function main() {
   const badge = await m.page.locator('.badge').first().textContent();
   if (badge.includes('手动')) ok('手动模式徽章正确：' + badge.trim());
   else fail('手动模式徽章错误：' + badge);
+  // F-33：开局=冒险中状态且无战斗（出生点安全筛选+怪物游荡不主动进入玩家视野）
+  const startState = await m.page.evaluate(() => {
+    const gv = window.__e2e.view().game;
+    return { team: gv.team?.state, combat: gv.combat?.active, ch: gv.chapter?.id };
+  });
+  if (startState.team === 'adventuring' && !startState.combat) ok('F-33 开局=冒险中状态且无战斗（' + startState.ch + '）');
+  else fail('F-33 开局状态异常：' + JSON.stringify(startState));
   const autoGold = await m.page.locator('button:has-text("自动")').first().evaluate(el => el.classList.contains('gold'));
   if (!autoGold) ok('手动模式自动游玩未开启（按钮无高亮）');
   else fail('手动模式自动游玩被错误开启');
@@ -69,6 +76,13 @@ async function main() {
   });
   if (pos0.x === pos1.x && pos0.y === pos1.y) ok('手动模式16.5秒后角色未自动移动（位置 ' + pos1.x + ',' + pos1.y + '）');
   else fail('手动模式角色自动移动了：(' + pos0.x + ',' + pos0.y + ')→(' + pos1.x + ',' + pos1.y + ')');
+  // F-33：16.5秒原地不动，怪物不得靠近逼战（游荡限界+不进入玩家视野）
+  const noForced = await m.page.evaluate(() => {
+    const gv = window.__e2e.view().game;
+    return !gv.combat?.active && gv.team?.state === 'adventuring';
+  });
+  if (noForced) ok('F-33 手动模式16.5秒未被怪物逼战（仍处于冒险中）');
+  else fail('F-33 手动模式被怪物逼战');
   // F-27：玩家回合只有点击按钮确认结束后才进入下一顺位（不允许超时自动结束；战斗触发导致的回合移交除外）
   const f27 = await m.page.evaluate(() => {
     const gv = window.__e2e.view().game;
