@@ -381,12 +381,15 @@ export function mountGame(root, view) {
       }
       logPanel.appendChild(filterRow);
       const logBox = el('div', 'log-box');
-      const highlight = (text) => {
+      // S1-5：优先用服务端结构化重要度标签（imp），正则仅作旧日志兜底
+      const highlight = (l) => {
+        if (l.imp === 'key') return ' important';
+        if (l.imp === 'minor') return ' minor';
         let cls = '';
-        if (/🎉|🏆|升到了|获得新特性|BOSS|涅兹纳尔/.test(text)) cls = ' important';
-        else if (/受到|💥/.test(text)) cls = ' dmg';
-        else if (/恢复|💖|治疗/.test(text)) cls = ' heal';
-        else if (/金币|💰/.test(text)) cls = ' gold';
+        if (/🎉|🏆|升到了|获得新特性|BOSS|涅兹纳尔/.test(l.text)) cls = ' important';
+        else if (/受到|💥/.test(l.text)) cls = ' dmg';
+        else if (/恢复|💖|治疗/.test(l.text)) cls = ' heal';
+        else if (/金币|💰/.test(l.text)) cls = ' gold';
         return cls;
       };
       for (const l of gv.log) {
@@ -397,7 +400,7 @@ export function mountGame(root, view) {
           if (g.logFilter === 'dice' && l.kind !== 'dice') continue;
           if (g.logFilter === 'ruling' && l.kind !== 'ruling') continue;
         }
-        const div = el('div', 'lg ' + (l.kind || '') + highlight(l.text), l.text);
+        const div = el('div', 'lg ' + (l.kind || '') + highlight(l), l.text);
         logBox.appendChild(div);
       }
       logPanel.appendChild(logBox);

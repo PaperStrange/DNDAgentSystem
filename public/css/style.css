@@ -186,7 +186,8 @@ input, select, textarea { font-family: var(--font); }
 .log-box .lg.goal { color: #e8a05a; }
 .log-box .lg.system { color: #9a92b8; }
 .log-box .lg.ruling { color: #ffd9a0; }
-.log-box .lg.important { color: #ffd040; font-weight: 700; background: rgba(255,208,64,.08); border-left: 2px solid #ffd040; padding-left: 5px; }
+.log-box .lg.important { color: #ffd040; font-weight: 700; background: rgba(255,208,64,.08); border-left: 2px solid #ffd040; padding-left: 5px; border-radius: 3px; }
+.log-box .lg.minor { color: #7f7896; opacity: .72; font-size: 11px; } /* S1-5：低优先级信息（普通命中/未命中掷骰）压缩降级 */
 .log-box .lg.dmg { color: #ff9a8a; }
 .log-box .lg.heal { color: #8ae08a; }
 .log-box .lg.gold { color: #ffd98a; }

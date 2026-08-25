@@ -80,7 +80,7 @@ export function installStealth(game) {
     boss.alert = 'exposed';
     boss.lastSeen = { x: spotter.x, y: spotter.y };
     this.pendingBoss = { bossEid: boss.eid, votes: new Map(), startedAt: Date.now() };
-    this.logMsg('combat', '👑 ' + boss.name + ' 察觉到了你们！它的视野无限——战斗一触即发（全队表决：开战或逃跑）。');
+    this.logMsg('combat', '👑 ' + boss.name + ' 察觉到了你们！它的视野无限——战斗一触即发（全队表决：开战或逃跑）。', { imp: 'key' });
     this.narrate('bossSpotted', { actor: boss.name });
     this.onChange();
   };

@@ -280,12 +280,12 @@ export class Game {
       // 死亡豁免
       const r = d20();
       if (p.sheet.race === 'halforc' && p.deathSaves.f === 0) { p.deathSaves.f = 0; }
-      if (r.total === 20) { p.deathSaves = { s: 0, f: 0 }; p.downed = false; e.hp = 1; this.logMsg('system', '💫 奇迹！' + e.name + ' 以1点生命苏醒！'); this.narrate('down', { actor: e.name }); }
-      else if (r.total >= 10) { p.deathSaves.s++; this.logMsg('dice', '💀 ' + e.name + ' 死亡豁免：d20=' + r.total + ' 成功(' + p.deathSaves.s + '/3)'); }
+      if (r.total === 20) { p.deathSaves = { s: 0, f: 0 }; p.downed = false; e.hp = 1; this.logMsg('system', '💫 奇迹！' + e.name + ' 以1点生命苏醒！', { imp: 'key' }); this.narrate('down', { actor: e.name }); }
+      else if (r.total >= 10) { p.deathSaves.s++; this.logMsg('dice', '💀 ' + e.name + ' 死亡豁免：d20=' + r.total + ' 成功(' + p.deathSaves.s + '/3)', { imp: 'minor' }); }
       else {
         if (p.sheet.race === 'halforc') { p.deathSaves.f--; p.sheet._usedResilience = true; }
         p.deathSaves.f++;
-        this.logMsg('dice', '💀 ' + e.name + ' 死亡豁免：d20=' + r.total + ' 失败(' + p.deathSaves.f + '/3)');
+        this.logMsg('dice', '💀 ' + e.name + ' 死亡豁免：d20=' + r.total + ' 失败(' + p.deathSaves.f + '/3)', { imp: 'key' });
       }
       if (p.sheet.race === 'halforc' && p.deathSaves.f === 0 && r.total < 10) { p.deathSaves.f = 0; }
       if (p.deathSaves.f >= 3) { this._killPlayer(p); return this._endTurn(); }
@@ -418,9 +418,9 @@ export class Game {
     this.combatEvents = [];   // F-24：新战斗重置事件树
     this._enterCombatState(); // F-23：团队与全员进入「战斗中」
     const why = surprise ? '（突袭：你们未被发现，先发制人！）' : (firstCombat ? '（首场遭遇：冒险者率先行动）' : '（比较阵营敏捷：' + (order[0]?.kind === 'player' ? '团队更高，先行动' : '敌方更高，先行动') + '）');
-    this.logMsg('combat', '━━━ ⚔️ 战斗开始！' + why + ' ━━━');
+    this.logMsg('combat', '━━━ ⚔️ 战斗开始！' + why + ' ━━━', { imp: 'key' });
     for (const e of order) {
-      this.logMsg('dice', (e.kind === 'player' ? '🎲 ' : '⚔️ ') + e.name + ' 敏捷 ' + this._dexOf(e));
+      this.logMsg('dice', (e.kind === 'player' ? '🎲 ' : '⚔️ ') + e.name + ' 敏捷 ' + this._dexOf(e), { imp: 'minor' });
     }
     this.logMsg('combat', '━━━ 第1回合 ━━━');
     this.narrate('combatStart', {});
@@ -443,7 +443,7 @@ export class Game {
     this.combat = { active: false, round: 0, order: [], idx: 0 };
     for (const [pid, p] of this.players) { p.blessed = false; p.mark = null; this.removeBuff(pid, 'bless'); this.removeBuff(pid, 'mark'); }
     this._exitCombatState(); // F-23：战斗结束→团队与全员回到「冒险中」
-    this.logMsg('combat', '━━━ 🏳️ 战斗结束 ━━━');
+    this.logMsg('combat', '━━━ 🏳️ 战斗结束 ━━━', { imp: 'key' });
     this._checkSquadDead();
   }
   _checkSquadDead() {
@@ -552,10 +552,10 @@ export class Game {
     const nat20 = use.total === 20, nat1 = use.total === 1;
     let hit = nat20 ? true : nat1 ? false : total >= def.ac;
     if (nat20) { hit = true; }
-    if (!hit && (adv || dis)) this.logMsg('dice', '🎲 ' + attName + ' 攻击：d20=' + r1.total + (r2 ? '/' + r2.total : '') + '+' + (atk.bonus || 0) + '=' + total + ' vs AC' + def.ac + '（未命中）');
-    else if (nat20) this.logMsg('dice', '🎲 ' + attName + ' 攻击：d20=20（自然20）+' + (atk.bonus || 0) + '=' + total + ' vs AC' + def.ac + '（重击！）');
-    else if (nat1) this.logMsg('dice', '🎲 ' + attName + ' 攻击：d20=1（自然1）+' + (atk.bonus || 0) + ' vs AC' + def.ac + '（大失败！）');
-    else this.logMsg('dice', '🎲 ' + attName + ' 攻击：d20=' + use.total + '+' + (atk.bonus || 0) + '=' + total + ' vs AC' + def.ac + '（' + (hit ? '命中' : '未命中') + '！）');
+    if (!hit && (adv || dis)) this.logMsg('dice', '🎲 ' + attName + ' 攻击：d20=' + r1.total + (r2 ? '/' + r2.total : '') + '+' + (atk.bonus || 0) + '=' + total + ' vs AC' + def.ac + '（未命中）', { imp: 'minor' });
+    else if (nat20) this.logMsg('dice', '🎲 ' + attName + ' 攻击：d20=20（自然20）+' + (atk.bonus || 0) + '=' + total + ' vs AC' + def.ac + '（重击！）', { imp: 'key' });
+    else if (nat1) this.logMsg('dice', '🎲 ' + attName + ' 攻击：d20=1（自然1）+' + (atk.bonus || 0) + ' vs AC' + def.ac + '（大失败！）', { imp: 'key' });
+    else this.logMsg('dice', '🎲 ' + attName + ' 攻击：d20=' + use.total + '+' + (atk.bonus || 0) + '=' + total + ' vs AC' + def.ac + '（' + (hit ? '命中' : '未命中') + '！）', { imp: 'minor' });
     if (!hit) {
       if (att.kind === 'player') { const p = this.players.get(att.playerId); if (p) p.stats.attacksMissed++; }
       this.narrate(nat1 ? 'fumble' : 'miss', { actor: attName, target: defName });
@@ -608,7 +608,7 @@ export class Game {
       p.stats.damageTaken += dmg;
       if (this.chapterPerf) this.chapterPerf.damageTaken += dmg; // F-32：本章表现统计
     }
-    this.logMsg('combat', '💥 ' + def.name + ' 受到 ' + dmg + ' 点' + type + '伤害' + (crit ? '（重击）' : '') + '（剩余' + Math.max(0, def.hp) + '/' + def.maxHp + '）');
+    this.logMsg('combat', '💥 ' + def.name + ' 受到 ' + dmg + ' 点' + type + '伤害' + (crit ? '（重击）' : '') + '（剩余' + Math.max(0, def.hp) + '/' + def.maxHp + '）', crit ? { imp: 'key' } : {});
     this.event('damage', { src: src.eid, def: def.eid, dmg, type, crit });
     if (def.hp <= 0) {
       def.hp = 0;
@@ -628,6 +628,7 @@ export class Game {
       }
     }
     this.narrate('kill', { actor: killer ? killer.name : '众人', target: e.name });
+    this.logMsg('combat', (e.boss || e.finalBoss ? '👑 BOSS「' : '☠️ ') + e.name + (e.boss || e.finalBoss ? '」' : '') + ' 被击败！', { imp: 'key' });
     this.event('kill', { def: e.eid, killer: killer ? killer.pid : null });
     // 掉落
     let goldAmt = 0;
@@ -674,6 +675,7 @@ export class Game {
     p.deathSaves = { s: 0, f: 0 };
     this.addDebuff(p.pid, { id: 'downed', name: '倒地', icon: '💀' }); // F-23：debuff状态机
     this.actorEvent(this.entities.get(this.turn?.actorEid) || null, '💀 ' + e.name + ' 倒下了！', e);
+    this.logMsg('combat', '💀 ' + e.name + ' 倒下了！死亡豁免开始计数，需要队友救援', { imp: 'key' });
     this.director.flourish(this, 'playerDown'); // F-37：冒险者倒地LLM加戏
     this.narrate('down', { actor: e.name });
     this.event('down', { pid: p.pid });
@@ -683,6 +685,7 @@ export class Game {
     const e = this.entities.get(p.eid);
     if (e) e.dead = true;
     this.actorEvent(e || null, '☠️ ' + p.name + ' 阵亡了…', e);
+    this.logMsg('combat', '☠️ ' + p.name + ' 阵亡了…', { imp: 'key' });
     this.narrate('death', { actor: p.name });
     this.event('death', { pid: p.pid });
     if (this.turn && this.turn.playerId === p.pid) { this.turn = null; this._endTurn(); }
@@ -828,7 +831,7 @@ export class Game {
       rollTxt = 'd20=' + r1.total + (r2 ? '/' + r2.total : '') + (p.sheet.attackBonus ? '+' + p.sheet.attackBonus : '') + (blessBonus ? '+1d4(' + blessBonus + ')' : '');
       const crit = nat === 20;
       const hit = nat1 ? false : (crit ? true : total >= target.ac);
-      this.logMsg('dice', '🎲 ' + e.name + ' 用' + used.name + '攻击 ' + target.name + '：' + rollTxt + '=' + total + ' vs AC' + target.ac + '（' + (crit ? '重击！' : nat1 ? '大失败！' : hit ? '命中！' : '未命中') + '）');
+      this.logMsg('dice', '🎲 ' + e.name + ' 用' + used.name + '攻击 ' + target.name + '：' + rollTxt + '=' + total + ' vs AC' + target.ac + '（' + (crit ? '重击！' : nat1 ? '大失败！' : hit ? '命中！' : '未命中') + '）', { imp: crit || nat1 ? 'key' : 'minor' });
       if (crit) p.stats.crits++;
       if (hit) {
         const { dmg, dr } = rollDmg();
@@ -906,7 +909,7 @@ export class Game {
         const r = d20();
         const total = r.total + spellBonus;
         const hit = r.total === 20 ? true : (r.total === 1 ? false : total >= target.ac);
-        this.logMsg('dice', '🔮 ' + e.name + ' 施放' + def.name + '：d20=' + r.total + '+' + spellBonus + '=' + total + ' vs AC' + target.ac + '（' + (r.total === 20 ? '重击！' : r.total === 1 ? '大失败！' : hit ? '命中！' : '未命中') + '）');
+        this.logMsg('dice', '🔮 ' + e.name + ' 施放' + def.name + '：d20=' + r.total + '+' + spellBonus + '=' + total + ' vs AC' + target.ac + '（' + (r.total === 20 ? '重击！' : r.total === 1 ? '大失败！' : hit ? '命中！' : '未命中') + '）', { imp: r.total === 20 || r.total === 1 ? 'key' : 'minor' });
         if (hit) {
           const d = roll(def.dice);
           let dmg = d.total + (p.level >= 3 && p.sheet.class === 'wizard' ? roll('1d4').total : 0);
