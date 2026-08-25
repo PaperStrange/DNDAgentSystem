@@ -45,8 +45,13 @@ test-results/
 tools/security-test.mjs
 tools/llm-test.mjs
 master_tests/
-docs/llm_session
+docs/*.patch
 
 # large documentation extensions
 *.zip
 *.pdf
+
+# Qoder
+.qoder-collab-runtime
+.qoder-user-skill-runtime
+.qoder-sop-runtime
