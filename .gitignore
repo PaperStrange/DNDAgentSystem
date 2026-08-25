@@ -45,7 +45,7 @@ test-results/
 tools/security-test.mjs
 tools/llm-test.mjs
 master_tests/
-docs/*.patch
+docs/
 
 # large documentation extensions
 *.zip
