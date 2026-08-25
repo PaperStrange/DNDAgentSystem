@@ -3,6 +3,7 @@ import { Net } from './net.mjs';
 import { mountLobby } from './screens/lobby.mjs';
 import { mountRoom } from './screens/room.mjs';
 import { mountGame } from './screens/game.mjs';
+import { migrateColors, migrateLook } from './pixel.mjs';
 
 const S = {
   view: null, snapshot: null, pid: null, name: '', net: null,
@@ -40,7 +41,13 @@ export function loadCards() {
     const acct = S.account || '';
     if (!acct) return []; // 未登录：藏书室为空
     const v = JSON.parse(localStorage.getItem('dnd_cards:' + acct) || '[]');
-    return Array.isArray(v) ? v : [];
+    if (!Array.isArray(v)) return [];
+    return v.map(c => {
+      if (!c) return c;
+      if (c.colors) c.colors = migrateColors(c.colors);
+      if (c.look) c.look = migrateLook(c.look);
+      return c;
+    });
   } catch (e) { return []; }
 }
 export function saveCard(record) {

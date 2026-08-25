@@ -1,10 +1,17 @@
 // R-11：冒险者名册（localStorage）——车卡角色存档、角色状态（在世/已阵亡）、死亡角色禁止再次出战
+import { migrateColors, migrateLook } from './pixel.mjs';
 export const ROSTER_KEY = 'dnd_roster';
 
 export function loadRoster() {
   try {
     const v = JSON.parse(localStorage.getItem(ROSTER_KEY) || '[]');
-    return Array.isArray(v) ? v : [];
+    if (!Array.isArray(v)) return [];
+    return v.map(e => {
+      if (!e) return e;
+      if (e.colors) e.colors = migrateColors(e.colors);
+      if (e.look) e.look = migrateLook(e.look);
+      return e;
+    });
   } catch (e) { return []; }
 }
 
