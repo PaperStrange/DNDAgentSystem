@@ -439,9 +439,12 @@ const CLASS_TWEAK = {
   ranger: (g) => [g[0], g[1], '..ohhhhhho..', '..ohhhHHho..', '..ohhhhhho..', g[5], g[6], g[7], '..ouuuuuuo..', '.ouuuuuuuuo.', '.ouuuuuuuuo.', '.ouuuuuuuuo.', '.ouduuuduo..', '..ouuuuuuo..', '..oouooouo..', '..oouooouo..'],
 };
 
-export const SKIN_TONES = ['#f0c8a0', '#e8b88a', '#d8a06a', '#c08a58', '#a06a3e', '#8a5634', '#5f3a24']; // F-21：拉开明度差，肤色差异一目了然
-export const HAIR_TONES = ['#5b3a1e', '#2a2018', '#8a5a2e', '#c88a2e', '#b8b8c0', '#d84848', '#3a5a8a', '#e8e8f0'];
-export const OUTFIT_TONES = ['#4a6b8a', '#8a4a4a', '#4a8a5a', '#6a4a8a', '#8a7a3a', '#3a5a6a', '#7a4a6a', '#5a5a5a', '#c9a23f', '#3a3a4a'];
+// S1-3：色板全面升级——相邻色明度差≥12%，1px像素尺度肉眼可辨
+export const SKIN_TONES = ['#f5d0a8', '#e8b88a', '#d4a06a', '#b8844e', '#986838', '#7a5028', '#5c3818', '#42260e']; // 8色·明度均匀梯度
+export const HAIR_TONES = ['#1a1210', '#4a2a18', '#8a4a22', '#c8882e', '#e8d060', '#c83030', '#3060a0', '#60a048', '#b0b0b8', '#e8e0e8']; // 10色·高色相区分度
+export const OUTFIT_TONES = ['#8a3030', '#c05040', '#c87830', '#c8a838', '#8a6848', '#5a4030', '#304878', '#4878a8', '#387858', '#58a868', '#684890', '#484858']; // 12色·冷暖分组
+export const EYE_TONES = ['#2860a0', '#48a048', '#c89030', '#9050b0', '#c83838', '#d0d0d8', '#383838', '#886848']; // 8色
+export const ACCENT_TONES = ['#c8a030', '#c0c0c8', '#b87838', '#c05050', '#5088c0', '#50b888', '#9868b8', '#484848']; // 8色·金属+宝石
 
 function lighten(hex, amt = 38) {
   const n = parseInt(hex.slice(1), 16);
@@ -497,40 +500,142 @@ export function spritePalette(kind, defKey, colors) {
   return withShades(base);
 }
 
-// 捏脸层（R-13后续）：发型/胡须/瞳色/饰色——通用像素变换，适用于所有种族网格
+// S1-1：捏脸系统扩展——8发型/5胡须/4眉型/3唇部/4纹饰，通用像素变换
 export function applyLook(grid, palette, look) {
   const rows = grid.map(r => r.split(''));
   if (look.eye) palette = { ...palette, e: look.eye };
   if (look.accent) palette = { ...palette, U: look.accent };
   const hairRows = [];
-  // 只统计头部主导发行（每行≥3个发色像素），避免眼睛行的侧发像素污染锚点
   for (let i = 0; i < rows.length; i++) if (rows[i].filter(c => c === 'h' || c === 'H').length >= 3) hairRows.push(i);
+  const eyeRow = rows.findIndex(r => r.includes('e'));
+  const mouthRow = eyeRow >= 0 ? eyeRow + 1 : -1;
   if (hairRows.length) {
     const first = hairRows[0], last = hairRows[hairRows.length - 1];
     const cols = [];
     for (const i of hairRows) rows[i].forEach((c, j) => { if ((c === 'h' || c === 'H') && !cols.includes(j)) cols.push(j); });
     const center = Math.floor((cols[0] + cols[cols.length - 1]) / 2);
-    if (look.hair === 1) { // 长发：两侧垂下两行（允许向外延伸轮廓）
+    const leftCol = cols[0];
+    const rightCol = cols[cols.length - 1];
+    const hairStyle = look.hair || 0;
+    if (hairStyle === 1) { // 长发：两侧垂下
       for (let k = 1; k <= 2; k++) {
         const r = last + k;
         if (r < rows.length) {
-          if (rows[r][cols[0] - 1] !== undefined) rows[r][cols[0] - 1] = 'h';
-          if (rows[r][cols[cols.length - 1] + 1] !== undefined) rows[r][cols[cols.length - 1] + 1] = 'h';
+          if (rows[r][leftCol - 1] !== undefined) rows[r][leftCol - 1] = 'h';
+          if (rows[r][rightCol + 1] !== undefined) rows[r][rightCol + 1] = 'h';
         }
       }
-    } else if (look.hair === 2) { // 发髻：额前盘发
+    } else if (hairStyle === 2) { // 发髻：额前盘发
       const r = first - 1;
       if (r >= 0) for (let c = center - 1; c <= center + 1; c++) if (rows[r][c] !== undefined && rows[r][c] !== 'o') rows[r][c] = 'h';
-    } else if (look.hair === 3) { // 短发：头发换肤色
+    } else if (hairStyle === 3) { // 短发：头发换肤色
       for (let i = 0; i < rows.length; i++) for (let c = 0; c < rows[i].length; c++) if (rows[i][c] === 'h' || rows[i][c] === 'H') rows[i][c] = 's';
+    } else if (hairStyle === 4) { // 马尾：右侧竖线 row last+1 到 last+4
+      for (let k = 1; k <= 4; k++) {
+        const r = last + k;
+        if (r < rows.length && rightCol + 1 < rows[r].length) rows[r][rightCol + 1] = 'h';
+      }
+    } else if (hairStyle === 5) { // 双辫：两侧各一列
+      for (let k = 1; k <= 4; k++) {
+        const r = last + k;
+        if (r < rows.length) {
+          if (leftCol - 1 >= 0) rows[r][leftCol - 1] = 'h';
+          if (rightCol + 1 < rows[r].length) rows[r][rightCol + 1] = 'h';
+        }
+      }
+    } else if (hairStyle === 6) { // 蓬松：左右各扩1px
+      for (const i of hairRows) {
+        if (leftCol - 1 >= 0 && rows[i][leftCol - 1] === '.') rows[i][leftCol - 1] = 'h';
+        if (rightCol + 1 < rows[i].length && rows[i][rightCol + 1] === '.') rows[i][rightCol + 1] = 'h';
+      }
+    } else if (hairStyle === 7) { // 背头：发色行后移，露出额头
+      for (const i of hairRows) {
+        for (let c = rows[i].length - 1; c > 0; c--) {
+          if (rows[i][c] === 'h' || rows[i][c] === 'H') {
+            rows[i][c] = rows[i][c - 1] === 'h' || rows[i][c - 1] === 'H' ? rows[i][c] : 's';
+          }
+        }
+        if (rows[i][cols[0]] === 'h' || rows[i][cols[0]] === 'H') rows[i][cols[0]] = 's';
+      }
     }
   }
-  if (look.beard) { // 胡须：眼行下一行中段
-    const eyeRow = rows.findIndex(r => r.includes('e'));
-    if (eyeRow >= 0 && eyeRow + 1 < rows.length) {
-      const r = eyeRow + 1;
-      const mid = Math.floor(rows[r].length / 2);
-      for (let c = mid - 2; c <= mid + 2; c++) if (rows[r][c] !== undefined && rows[r][c] !== '.' && rows[r][c] !== 'o') rows[r][c] = 'h';
+  // S1-1：胡须扩展（5种）
+  const beardType = look.beard || 0;
+  if (beardType > 0 && eyeRow >= 0) {
+    const mid = Math.floor(rows[eyeRow].length / 2);
+    if (beardType === 1) { // 短须：row eyeRow+1 中央3-4px
+      const r = mouthRow;
+      if (r > 0 && r < rows.length) for (let c = mid - 1; c <= mid + 1; c++) if (rows[r][c] !== undefined && rows[r][c] !== '.' && rows[r][c] !== 'o') rows[r][c] = 'h';
+    } else if (beardType === 2) { // 长须：row eyeRow+1 到 eyeRow+3 中央4-5px
+      for (let k = 1; k <= 3; k++) {
+        const r = eyeRow + k;
+        if (r < rows.length) { const w = k <= 2 ? 2 : 1; for (let c = mid - w; c <= mid + w; c++) if (rows[r][c] !== undefined && rows[r][c] !== '.' && rows[r][c] !== 'o') rows[r][c] = 'h'; }
+      }
+    } else if (beardType === 3) { // 络腮：两侧+中央连接
+      for (let k = 0; k <= 2; k++) {
+        const r = eyeRow + k;
+        if (r < rows.length) {
+          for (let c = mid - 3; c <= mid - 1; c++) if (rows[r][c] !== undefined && rows[r][c] !== '.' && rows[r][c] !== 'o') rows[r][c] = 'h';
+          for (let c = mid + 1; c <= mid + 3; c++) if (rows[r][c] !== undefined && rows[r][c] !== '.' && rows[r][c] !== 'o') rows[r][c] = 'h';
+          if (k >= 1) for (let c = mid - 1; c <= mid + 1; c++) if (rows[r][c] !== undefined && rows[r][c] !== '.' && rows[r][c] !== 'o') rows[r][c] = 'h';
+        }
+      }
+    } else if (beardType === 4) { // 山羊胡：仅下巴尖端
+      const r1 = eyeRow + 2;
+      const r2 = eyeRow + 3;
+      if (r1 < rows.length) for (let c = mid - 1; c <= mid; c++) if (rows[r1][c] !== undefined && rows[r1][c] !== '.' && rows[r1][c] !== 'o') rows[r1][c] = 'h';
+      if (r2 < rows.length) if (rows[r2][mid] !== undefined && rows[r2][mid] !== '.' && rows[r2][mid] !== 'o') rows[r2][mid] = 'h';
+    }
+  }
+  // S1-1：眉型（4种）——修改眼睛上方一行
+  const browType = look.brow || 0;
+  if (browType > 0 && eyeRow > 0) {
+    const browRow = eyeRow - 1;
+    if (browType === 1) { // 粗眉：眼上方发色加粗
+      for (let c = 0; c < rows[browRow].length; c++) if (rows[browRow][c] === 's') rows[browRow][c] = 'h';
+    } else if (browType === 2) { // 细眉：仅保留眼睛正上方
+      for (let c = 0; c < rows[browRow].length; c++) {
+        if (rows[browRow][c] === 's') {
+          const isAboveEye = (c > 0 && rows[eyeRow][c - 1] === 'e') || rows[eyeRow][c] === 'e' || (c < rows[eyeRow].length - 1 && rows[eyeRow][c + 1] === 'e');
+          if (!isAboveEye) rows[browRow][c] = '.';
+        }
+      }
+    } else if (browType === 3) { // 伤疤眉：左侧加饰色点
+      if (rows[browRow][3] !== undefined && rows[browRow][3] !== 'o') rows[browRow][3] = 'U';
+    }
+  }
+  // S1-1：唇部（3种）——修改嘴部行中央
+  const mouthType = look.mouth || 0;
+  if (mouthType > 0 && mouthRow > 0 && mouthRow < rows.length) {
+    const mid = Math.floor(rows[mouthRow].length / 2);
+    if (mouthType === 1) { // 微笑：嘴角上移
+      if (rows[mouthRow][mid - 2] !== undefined && rows[mouthRow][mid - 2] === 's') rows[mouthRow][mid - 2] = 'o';
+      if (rows[mouthRow][mid + 2] !== undefined && rows[mouthRow][mid + 2] === 's') rows[mouthRow][mid + 2] = 'o';
+      if (mouthRow > 0) {
+        if (rows[mouthRow - 1][mid - 2] !== undefined && rows[mouthRow - 1][mid - 2] === 'o') rows[mouthRow - 1][mid - 2] = 's';
+        if (rows[mouthRow - 1][mid + 2] !== undefined && rows[mouthRow - 1][mid + 2] === 'o') rows[mouthRow - 1][mid + 2] = 's';
+      }
+    } else if (mouthType === 2) { // 严肃：嘴角拉平
+      if (rows[mouthRow][mid - 2] !== undefined && rows[mouthRow][mid - 2] !== '.' && rows[mouthRow][mid - 2] !== 'o') rows[mouthRow][mid - 2] = 's';
+      if (rows[mouthRow][mid + 2] !== undefined && rows[mouthRow][mid + 2] !== '.' && rows[mouthRow][mid + 2] !== 'o') rows[mouthRow][mid + 2] = 's';
+    }
+  }
+  // S1-1：面部纹饰（4种）——饰色U点缀
+  const markingType = look.marking || 0;
+  if (markingType > 0) {
+    const mid = Math.floor(rows[0].length / 2);
+    if (markingType === 1 && rows[2]) { // 额纹
+      if (rows[2][mid] !== undefined && rows[2][mid] !== 'o') rows[2][mid] = 'U';
+    } else if (markingType === 2) { // 颊纹
+      const cheekRow = eyeRow >= 0 ? eyeRow + 1 : 5;
+      if (cheekRow < rows.length) {
+        if (rows[cheekRow][3] !== undefined && rows[cheekRow][3] !== 'o' && rows[cheekRow][3] !== '.') rows[cheekRow][3] = 'U';
+        const rc = rows[cheekRow].length - 4;
+        if (rows[cheekRow][rc] !== undefined && rows[cheekRow][rc] !== 'o' && rows[cheekRow][rc] !== '.') rows[cheekRow][rc] = 'U';
+      }
+    } else if (markingType === 3) { // 下巴纹
+      const chinRow = eyeRow >= 0 ? eyeRow + 2 : 7;
+      if (chinRow < rows.length && rows[chinRow][mid] !== undefined && rows[chinRow][mid] !== 'o' && rows[chinRow][mid] !== '.') rows[chinRow][mid] = 'U';
     }
   }
   return { grid: rows.map(r => r.join('')), palette };

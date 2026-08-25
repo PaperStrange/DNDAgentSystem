@@ -1,10 +1,7 @@
 // 房间：成员列表/踢人/车卡/准备。所有成员准备后自动开局
 import { store, el, toast } from '../app.mjs';
 import { RACES, CLASSES, MAX_STAT, MIN_STAT, POINT_POOL } from '../../shared/char-defs.mjs';
-import { SKIN_TONES, HAIR_TONES, OUTFIT_TONES, spriteToCanvas, spritePalette } from '../pixel.mjs';
-// 捏脸扩展色板（R-13重做：瞳色/饰色）
-const EYE_TONES = ['#3a6a9a', '#5b7a3a', '#8a5a2a', '#6a4a8a', '#3a3a4a', '#8a3a2a'];
-const ACCENT_TONES = ['#c8a030', '#c05a5a', '#5a8ac0', '#7a5ac0', '#5ac0a0', '#d0c0c8'];
+import { SKIN_TONES, HAIR_TONES, OUTFIT_TONES, EYE_TONES, ACCENT_TONES, spriteToCanvas, spritePalette } from '../pixel.mjs';
 import { aliveEntries, upsertEntry, loadRoster } from '../roster.mjs';
 
 export function mountRoom(root, view) {
@@ -188,7 +185,7 @@ export function mountChargen(root, view, net) {
   let stats = sheet ? { ...sheet.stats } : null;
   let flexList = []; // 自由加点：按槽位存储属性分配（如 ['STR','CON']），互不干扰
   let colors = sheet ? { ...sheet.colors } : { skin: SKIN_TONES[0], hair: HAIR_TONES[0], outfit: OUTFIT_TONES[0], eye: EYE_TONES[0], accent: ACCENT_TONES[0] };
-  let look = sheet ? { ...(sheet.look || {}) } : { hair: 0, beard: 0 }; // 捏脸：发型/胡须
+  let look = sheet ? { hair: 0, beard: 0, brow: 0, mouth: 0, marking: 0, ...(sheet.look || {}) } : { hair: 0, beard: 0, brow: 0, mouth: 0, marking: 0 };
   let carryLevel = sheet ? (sheet.level || 1) : 1; // 跨冒险继承的等级
   let carryXp = sheet ? (sheet.xp || 0) : 0; // 跨冒险继承的经验
   let name = sheet ? sheet.name : '';
@@ -206,12 +203,19 @@ export function mountChargen(root, view, net) {
 
   const wrap = el('div', 'cg-wrap');
   const previewCanvas = el('canvas', '');
-  // F-35：内部160×180（10倍）与CSS 1:1显示，杜绝非整数缩放导致的模糊
-  previewCanvas.width = 16 * 10; previewCanvas.height = 18 * 10;
+  // S1-2：预览画布升级 200×240（12倍缩放），纯色深底
+  previewCanvas.width = 12 * 16; previewCanvas.height = 12 * 18;
   const previewWrap = el('div', 'cg-preview');
-  const previewLabel = el('div', 'preview-label', '👤 外观预览（种族·职业·配色）');
+  const previewLabel = el('div', 'preview-label', '外观预览');
   previewWrap.appendChild(previewLabel);
   previewWrap.appendChild(previewCanvas);
+  // S1-2：面部放大窗口
+  const faceZoomCanvas = el('canvas', '');
+  faceZoomCanvas.width = 12 * 8; faceZoomCanvas.height = 12 * 8;
+  const faceZoomWrap = el('div', 'face-zoom-wrap');
+  faceZoomWrap.appendChild(el('div', 'face-zoom-label', '面部细节'));
+  faceZoomWrap.appendChild(faceZoomCanvas);
+  previewWrap.appendChild(faceZoomWrap);
 
   const cg = el('div', 'cg-layout');
   const mainCol = el('div', 'cg-main');
@@ -222,25 +226,35 @@ export function mountChargen(root, view, net) {
     const ctx = previewCanvas.getContext('2d');
     ctx.imageSmoothingEnabled = false;
     ctx.clearRect(0, 0, previewCanvas.width, previewCanvas.height);
-    // F-35：亮色「画室」背景——浅色聚光舞台让深色轮廓与发色清晰可辨
-    const g = ctx.createRadialGradient(80, 60, 8, 80, 100, 150);
-    g.addColorStop(0, '#b8b0cc');
-    g.addColorStop(0.55, '#8f88a8');
-    g.addColorStop(1, '#5c5672');
-    ctx.fillStyle = g;
+    // S1-2：纯色深底背景，取消渐变干扰
+    ctx.fillStyle = '#12101e';
     ctx.fillRect(0, 0, previewCanvas.width, previewCanvas.height);
-    ctx.fillStyle = 'rgba(255,244,214,.16)';
+    // 地面阴影
+    ctx.fillStyle = 'rgba(10,8,20,.5)';
     ctx.beginPath();
-    ctx.ellipse(80, 122, 58, 16, 0, 0, Math.PI * 2);
+    ctx.ellipse(previewCanvas.width / 2, previewCanvas.height - 14, 50, 10, 0, 0, Math.PI * 2);
     ctx.fill();
-    ctx.fillStyle = 'rgba(20,14,26,.30)';
-    ctx.fillRect(30, 152, 100, 6); // 地面阴影
     const pal = spritePalette('player', 'human', colors);
-    pal.e = colors.eye; pal.U = colors.accent; // 捏脸：瞳色+饰色
-    pal.o = '#14101e'; // F-35：预览用纯黑轮廓，脸/头发轮廓更清晰
+    pal.e = colors.eye; pal.U = colors.accent;
+    pal.o = '#0a0814'; // S1-2：描边对比度强化
     const c = spriteToCanvas('player', 'human', pal, selClass, selRace, look);
     ctx.imageSmoothingEnabled = false;
     ctx.drawImage(c, 0, 0, previewCanvas.width, previewCanvas.height);
+    // S1-2：面部放大窗口——截取头部 row 0-7
+    const fctx = faceZoomCanvas.getContext('2d');
+    fctx.imageSmoothingEnabled = false;
+    fctx.clearRect(0, 0, faceZoomCanvas.width, faceZoomCanvas.height);
+    fctx.fillStyle = '#1a1828';
+    fctx.fillRect(0, 0, faceZoomCanvas.width, faceZoomCanvas.height);
+    const headH = 8;
+    const srcCanvas = document.createElement('canvas');
+    srcCanvas.width = 16; srcCanvas.height = 18;
+    const sctx = srcCanvas.getContext('2d');
+    sctx.imageSmoothingEnabled = false;
+    const pal2 = spritePalette('player', 'human', colors);
+    pal2.e = colors.eye; pal2.U = colors.accent; pal2.o = '#0a0814';
+    const headSprite = spriteToCanvas('player', 'human', pal2, selClass, selRace, look);
+    fctx.drawImage(headSprite, 0, 0, 16, headH, 0, 0, faceZoomCanvas.width, faceZoomCanvas.height);
   };
 
   // R-11: 读取已保存的在世角色（已阵亡角色不列出 → 禁止出战）
@@ -278,7 +292,7 @@ export function mountChargen(root, view, net) {
     stats = e.stats ? { ...e.stats } : null;
     flexList = e.flex ? Object.keys(e.flex).flatMap(a => Array(Math.min(6, e.flex[a] || 0)).fill(a)) : [];
     colors = { ...(e.colors || { skin: SKIN_TONES[0], hair: HAIR_TONES[0], outfit: OUTFIT_TONES[0], eye: EYE_TONES[0], accent: ACCENT_TONES[0] }) };
-    look = { ...(e.look || { hair: 0, beard: 0 }) };
+    look = { hair: 0, beard: 0, brow: 0, mouth: 0, marking: 0, ...(e.look || {}) };
     carryLevel = e.level || 1;
     carryXp = e.xp || 0;
     background = e.background || '';
@@ -494,95 +508,158 @@ export function mountChargen(root, view, net) {
     }
   }
 
+  let activeTab = 'color';
   function renderLook() {
     lookBox.innerHTML = '';
-    const row1 = el('div', 'color-row');
-    row1.appendChild(el('span', 'muted', '肤色'));
-    for (const c of SKIN_TONES) {
-      const sw = el('div', 'color-swatch');
-      sw.style.background = c;
-      if (colors.skin === c) sw.classList.add('sel');
-      sw.onclick = () => { colors.skin = c; renderLook(); renderPreview(); };
-      row1.appendChild(sw);
+    // S1-1：Tab 分区 UI
+    const tabBar = el('div', 'look-tabs');
+    const TABS = [
+      { id: 'color', label: '颜色' },
+      { id: 'hair', label: '发型' },
+      { id: 'face', label: '面部' },
+      { id: 'preset', label: '预设' },
+    ];
+    for (const t of TABS) {
+      const tb = el('button', 'look-tab' + (activeTab === t.id ? ' active' : ''), t.label);
+      tb.onclick = () => { activeTab = t.id; renderLook(); };
+      tabBar.appendChild(tb);
     }
-    lookBox.appendChild(row1);
-    const row2 = el('div', 'color-row mt8');
-    row2.appendChild(el('span', 'muted', '发色'));
-    for (const c of HAIR_TONES) {
-      const sw = el('div', 'color-swatch');
-      sw.style.background = c;
-      if (colors.hair === c) sw.classList.add('sel');
-      sw.onclick = () => { colors.hair = c; renderLook(); renderPreview(); };
-      row2.appendChild(sw);
+    lookBox.appendChild(tabBar);
+    const content = el('div', 'look-tab-content');
+    if (activeTab === 'color') {
+      const colorGroups = [
+        { label: '肤色', key: 'skin', tones: SKIN_TONES },
+        { label: '发色', key: 'hair', tones: HAIR_TONES },
+        { label: '服色', key: 'outfit', tones: OUTFIT_TONES },
+        { label: '瞳色', key: 'eye', tones: EYE_TONES },
+        { label: '饰色', key: 'accent', tones: ACCENT_TONES },
+      ];
+      for (const g of colorGroups) {
+        const row = el('div', 'color-row');
+        row.appendChild(el('span', 'color-label', g.label));
+        const swatchWrap = el('div', 'color-swatches');
+        for (const c of g.tones) {
+          const sw = el('div', 'color-swatch');
+          sw.style.background = c;
+          if (colors[g.key] === c) sw.classList.add('sel');
+          sw.onclick = () => { colors[g.key] = c; renderLook(); renderPreview(); };
+          swatchWrap.appendChild(sw);
+        }
+        row.appendChild(swatchWrap);
+        content.appendChild(row);
+      }
+    } else if (activeTab === 'hair') {
+      const HAIR_STYLES = ['默认', '长发', '发髻', '短发', '马尾', '双辫', '蓬松', '背头'];
+      const hairSec = el('div', 'look-subsection');
+      hairSec.appendChild(el('div', 'look-sublabel', '发型（8种）'));
+      const hairGrid = el('div', 'style-grid');
+      HAIR_STYLES.forEach((label, i) => {
+        const b = el('button', 'style-btn' + (look.hair === i ? ' sel' : ''), label);
+        b.onclick = () => { look.hair = i; renderLook(); renderPreview(); };
+        hairGrid.appendChild(b);
+      });
+      hairSec.appendChild(hairGrid);
+      content.appendChild(hairSec);
+      const BEARD_STYLES = ['无', '短须', '长须', '络腮', '山羊胡'];
+      const beardSec = el('div', 'look-subsection');
+      beardSec.appendChild(el('div', 'look-sublabel', '胡须（5种）'));
+      const beardGrid = el('div', 'style-grid');
+      BEARD_STYLES.forEach((label, i) => {
+        const b = el('button', 'style-btn' + (look.beard === i ? ' sel' : ''), label);
+        b.onclick = () => { look.beard = i; renderLook(); renderPreview(); };
+        beardGrid.appendChild(b);
+      });
+      beardSec.appendChild(beardGrid);
+      content.appendChild(beardSec);
+    } else if (activeTab === 'face') {
+      const BROW_TYPES = ['标准', '粗眉', '细眉', '伤疤眉'];
+      const browSec = el('div', 'look-subsection');
+      browSec.appendChild(el('div', 'look-sublabel', '眉型'));
+      const browGrid = el('div', 'style-grid');
+      BROW_TYPES.forEach((label, i) => {
+        const b = el('button', 'style-btn' + (look.brow === i ? ' sel' : ''), label);
+        b.onclick = () => { look.brow = i; renderLook(); renderPreview(); };
+        browGrid.appendChild(b);
+      });
+      browSec.appendChild(browGrid);
+      content.appendChild(browSec);
+      const MOUTH_TYPES = ['默认', '微笑', '严肃'];
+      const mouthSec = el('div', 'look-subsection');
+      mouthSec.appendChild(el('div', 'look-sublabel', '唇部'));
+      const mouthGrid = el('div', 'style-grid');
+      MOUTH_TYPES.forEach((label, i) => {
+        const b = el('button', 'style-btn' + (look.mouth === i ? ' sel' : ''), label);
+        b.onclick = () => { look.mouth = i; renderLook(); renderPreview(); };
+        mouthGrid.appendChild(b);
+      });
+      mouthSec.appendChild(mouthGrid);
+      content.appendChild(mouthSec);
+      const MARKING_TYPES = ['无', '额纹', '颊纹', '下巴纹'];
+      const markSec = el('div', 'look-subsection');
+      markSec.appendChild(el('div', 'look-sublabel', '面部纹饰'));
+      const markGrid = el('div', 'style-grid');
+      MARKING_TYPES.forEach((label, i) => {
+        const b = el('button', 'style-btn' + (look.marking === i ? ' sel' : ''), label);
+        b.onclick = () => { look.marking = i; renderLook(); renderPreview(); };
+        markGrid.appendChild(b);
+      });
+      markSec.appendChild(markGrid);
+      content.appendChild(markSec);
+    } else if (activeTab === 'preset') {
+      const PRESETS = {
+        human: [{ name: '骑士', skin: 1, hair: 0, outfit: 5, eye: 0, accent: 1, hairS: 3, beardS: 1 }, { name: '游侠', skin: 1, hair: 3, outfit: 8, eye: 1, accent: 5, hairS: 4, beardS: 0 }, { name: '法师', skin: 1, hair: 8, outfit: 10, eye: 3, accent: 6, hairS: 7, beardS: 0 }],
+        elf: [{ name: '月精灵', skin: 0, hair: 8, outfit: 6, eye: 0, accent: 1, hairS: 1, beardS: 0 }, { name: '木精灵', skin: 2, hair: 2, outfit: 8, eye: 1, accent: 5, hairS: 5, beardS: 0 }],
+        dwarf: [{ name: '山地矮人', skin: 3, hair: 5, outfit: 5, eye: 7, accent: 2, hairS: 0, beardS: 2 }],
+        halfling: [{ name: '轻足', skin: 1, hair: 2, outfit: 5, eye: 7, accent: 2, hairS: 6, beardS: 0 }],
+        halforc: [{ name: '战士', skin: 4, hair: 0, outfit: 5, eye: 6, accent: 7, hairS: 3, beardS: 3 }],
+        dragonborn: [{ name: '龙骑士', skin: 3, hair: 9, outfit: 0, eye: 4, accent: 0, hairS: 7, beardS: 0 }],
+        gnome: [{ name: '发明家', skin: 1, hair: 5, outfit: 2, eye: 1, accent: 2, hairS: 6, beardS: 1 }],
+        halfelf: [{ name: '游吟诗人', skin: 1, hair: 3, outfit: 6, eye: 0, accent: 1, hairS: 1, beardS: 0 }],
+      };
+      const presets = PRESETS[selRace] || PRESETS.human;
+      const presetSec = el('div', 'look-subsection');
+      presetSec.appendChild(el('div', 'look-sublabel', '推荐外观'));
+      const presetGrid = el('div', 'preset-grid');
+      for (const p of presets) {
+        const card = el('div', 'preset-card');
+        card.appendChild(el('div', 'preset-name', p.name));
+        card.onclick = () => {
+          colors.skin = SKIN_TONES[p.skin]; colors.hair = HAIR_TONES[p.hair]; colors.outfit = OUTFIT_TONES[p.outfit];
+          colors.eye = EYE_TONES[p.eye]; colors.accent = ACCENT_TONES[p.accent];
+          look.hair = p.hairS; look.beard = p.beardS; look.brow = 0; look.mouth = 0; look.marking = 0;
+          renderLook(); renderPreview();
+        };
+        presetGrid.appendChild(card);
+      }
+      presetSec.appendChild(presetGrid);
+      content.appendChild(presetSec);
     }
-    lookBox.appendChild(row2);
-    const row3 = el('div', 'color-row mt8');
-    row3.appendChild(el('span', 'muted', '服色'));
-    for (const c of OUTFIT_TONES) {
-      const sw = el('div', 'color-swatch');
-      sw.style.background = c;
-      if (colors.outfit === c) sw.classList.add('sel');
-      sw.onclick = () => { colors.outfit = c; renderLook(); renderPreview(); };
-      row3.appendChild(sw);
-    }
-    lookBox.appendChild(row3);
-    // R-13重做：瞳色
-    const row4 = el('div', 'color-row mt8');
-    row4.appendChild(el('span', 'muted', '瞳色'));
-    for (const c of EYE_TONES) {
-      const sw = el('div', 'color-swatch');
-      sw.style.background = c;
-      if (colors.eye === c) sw.classList.add('sel');
-      sw.onclick = () => { colors.eye = c; renderLook(); renderPreview(); };
-      row4.appendChild(sw);
-    }
-    lookBox.appendChild(row4);
-    // R-13重做：饰色（服装高光/金属件）
-    const row5 = el('div', 'color-row mt8');
-    row5.appendChild(el('span', 'muted', '饰色'));
-    for (const c of ACCENT_TONES) {
-      const sw = el('div', 'color-swatch');
-      sw.style.background = c;
-      if (colors.accent === c) sw.classList.add('sel');
-      sw.onclick = () => { colors.accent = c; renderLook(); renderPreview(); };
-      row5.appendChild(sw);
-    }
-    lookBox.appendChild(row5);
-    // R-13重做：发型
-    const hairRow = el('div', 'color-row mt8');
-    hairRow.appendChild(el('span', 'muted', '发型'));
-    const HAIR_STYLES = ['默认', '长发', '发髻', '短发'];
-    HAIR_STYLES.forEach((label, i) => {
-      const b = el('button', 'btn small' + (look.hair === i ? ' gold' : ''), label);
-      b.onclick = () => { look.hair = i; renderLook(); renderPreview(); };
-      hairRow.appendChild(b);
-    });
-    lookBox.appendChild(hairRow);
-    // R-13重做：胡须
-    const beardRow = el('div', 'color-row mt8');
-    beardRow.appendChild(el('span', 'muted', '胡须'));
-    ['无', '有'].forEach((label, i) => {
-      const b = el('button', 'btn small' + (look.beard === i ? ' gold' : ''), label);
-      b.onclick = () => { look.beard = i; renderLook(); renderPreview(); };
-      beardRow.appendChild(b);
-    });
-    lookBox.appendChild(beardRow);
-    // 随机外观
-    const rndRow = el('div', 'mt8');
-    const rndBtn = el('button', 'btn small gold', '🎲 随机外观');
-    rndBtn.title = '随机生成一套完整外观（肤色/发色/服色/瞳色/饰色/发型/胡须）';
+    lookBox.appendChild(content);
+    // 底部操作按钮
+    const btnRow = el('div', 'look-actions');
+    const rndBtn = el('button', 'btn small gold', '随机外观');
     rndBtn.onclick = () => {
       colors.skin = SKIN_TONES[Math.floor(Math.random() * SKIN_TONES.length)];
       colors.hair = HAIR_TONES[Math.floor(Math.random() * HAIR_TONES.length)];
       colors.outfit = OUTFIT_TONES[Math.floor(Math.random() * OUTFIT_TONES.length)];
       colors.eye = EYE_TONES[Math.floor(Math.random() * EYE_TONES.length)];
       colors.accent = ACCENT_TONES[Math.floor(Math.random() * ACCENT_TONES.length)];
-      look.hair = Math.floor(Math.random() * 4);
-      look.beard = Math.floor(Math.random() * 2);
+      look.hair = Math.floor(Math.random() * 8);
+      look.beard = Math.floor(Math.random() * 5);
+      look.brow = Math.floor(Math.random() * 4);
+      look.mouth = Math.floor(Math.random() * 3);
+      look.marking = Math.floor(Math.random() * 4);
       renderLook(); renderPreview();
     };
-    rndRow.appendChild(rndBtn);
-    lookBox.appendChild(rndRow);
+    const resetBtn = el('button', 'btn small', '重置');
+    resetBtn.onclick = () => {
+      look.hair = 0; look.beard = 0; look.brow = 0; look.mouth = 0; look.marking = 0;
+      colors.skin = SKIN_TONES[0]; colors.hair = HAIR_TONES[0]; colors.outfit = OUTFIT_TONES[0];
+      colors.eye = EYE_TONES[0]; colors.accent = ACCENT_TONES[0];
+      renderLook(); renderPreview();
+    };
+    btnRow.append(rndBtn, resetBtn);
+    lookBox.appendChild(btnRow);
   }
 
   function renderDerived() {
