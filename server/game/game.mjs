@@ -328,6 +328,7 @@ export class Game {
         this.combat.round++;
         this.logMsg('combat', '━━━ 第' + this.combat.round + '回合 ━━━', { imp: 'minor' });
         this.narrate('roundStart', { n: this.combat.round }); // F-37：回合开始人设旁白
+        this.director.flourish(this, 'roundStart', { n: this.combat.round }); // BUG-4：回合开始LLM加戏（常规事件，受每场≤4次上限约束）
         for (const eid of order) { const e = this.entities.get(eid); if (e && e.kind === 'player') { const p = this.players.get(e.playerId); if (p) p.halflingReroll = true; } }
       }
     }
@@ -575,6 +576,7 @@ export class Game {
     if (nat20) dmg = Math.max(1, Math.round((d.total + roll(atk.dmg.replace(/\+\d+$/, '')).total) * mul));
     this._applyDamage(def, dmg, att, { type: atk.type || '物理', crit: nat20, attack: atk });
     this.actorEvent(att, '⚔️ 用' + atk.name + '攻击' + defName + '：命中，造成' + dmg + '点伤害' + (nat20 ? '（重击）' : ''), def);
+    if (!nat20) this.director.flourish(this, 'hit', { actor: attName, target: defName }); // BUG-4：普通命中LLM加戏（常规事件，受每场≤4次上限约束）
     if (atk.poison && !def.dead) {
       const r = d20();
       const mod = this._monsterSaveMod(def, 'CON');
