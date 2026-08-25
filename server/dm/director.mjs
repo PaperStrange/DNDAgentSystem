@@ -20,6 +20,48 @@ export class Director {
     this.queue = Promise.resolve();
     this._voiceIdx = {};    // F-37：旁白变体轮换计数（同一事件依次取不同语料，不再随机重复）
     this._lastFlourish = 0; // F-37：LLM加戏节流时间戳
+    // S1-4：每场战斗LLM加戏上限 + 战况摘要素材
+    this._flourishCount = 0;       // 本场战斗已触发的LLM加戏次数（常规事件上限4次）
+    this._flourishCombatId = -1;   // 计数对应的遭遇id（combatCount），换新战斗自动重置
+    this._recentMoments = [];      // 本场战斗关键时刻的叙事化描述（不含精确数值）
+    this._lastEncounterSnap = null; // 战斗结束前快照（胜利/败北旁白用，_endCombat会重置combat数据）
+  }
+
+  // S1-4：记录战斗关键时刻（叙事化措辞，供加戏的战况摘要引用）
+  noteCombat(text) {
+    if (!text) return;
+    this._recentMoments.push(text);
+    if (this._recentMoments.length > 4) this._recentMoments.shift();
+  }
+
+  // S1-4：战斗结束前快照战况（_endCombat会重置combat，胜/负旁白需在重置前取数）
+  noteEncounterEnd(game) {
+    this._lastEncounterSnap = this.encounterSnapshot(game);
+  }
+
+  // S1-4：当前遭遇战况快照（回合/存活比例/最近关键时刻）
+  encounterSnapshot(game) {
+    const aliveP = [...game.players.values()].filter(p => !p.dead).length;
+    const aliveM = [...game.entities.values()].filter(e => e.kind === 'monster' && !e.dead && e.hp > 0).length;
+    return {
+      combatId: game.combatCount || 0,
+      round: game.combat?.round || 0,
+      alivePlayers: aliveP, totalPlayers: game.players.size, aliveMonsters: aliveM,
+      moments: this._recentMoments.slice(),
+    };
+  }
+
+  // S1-4：战况摘要（回合数/双方存活比例/最近关键事件；叙事化措辞，不含精确数值）
+  _battleSummary(game, key) {
+    let snap = this.encounterSnapshot(game);
+    if ((key === 'victory' || key === 'defeat') && this._lastEncounterSnap && this._lastEncounterSnap.combatId === snap.combatId) {
+      snap = this._lastEncounterSnap; // 战斗已结束：使用结束前快照
+    }
+    if (!snap.totalPlayers) return '';
+    const enemyPart = snap.aliveMonsters > 0 ? '敌方尚有' + snap.aliveMonsters + '名敌人负隅顽抗' : '敌方已被全部击倒';
+    const lines = ['当前战况：第' + Math.max(1, snap.round) + '回合，' + snap.alivePlayers + '/' + snap.totalPlayers + '名冒险者仍在战斗，' + enemyPart + '。'];
+    if (snap.moments.length) lines.push('刚刚发生的关键时刻：' + snap.moments.join('；') + '。');
+    return lines.join('\n');
   }
 
   // 旁白（始终同步返回：离线模板即时渲染；F-37轮换——每次取下一个变体）
@@ -149,29 +191,45 @@ export class Director {
   }
 
   // 大事件LLM加戏（异步、不阻塞、失败静默）
-  // F-37：战斗关键事件触发（开战/暴击/BOSS倒下/冒险者倒地/胜负），按人设口吻生成旁白；
-  // 8秒节流 + 队列串行防刷屏；离线模式由轮换语料兜底
+  // F-37：战斗关键事件触发，按人设口吻生成旁白；离线模式由轮换语料兜底
+  // S1-4：触发面扩大（hit/miss/fumble/kill/heal等常规事件）；节流8s→4s；
+  //       每场战斗常规事件加戏≤4次（关键事件与结局不受限）；字数分档（常规100~150/关键200~300）；注入战况摘要
   flourish(game, key, ctx = {}, opts = {}) {
     if (!this.online || game.closed) return;
+    const cid = game.combatCount || 0;
+    if (this._flourishCombatId !== cid) { // 新的一场战斗：重置计数与关键时刻
+      this._flourishCombatId = cid;
+      this._flourishCount = 0;
+      this._recentMoments = [];
+    }
     const now = Date.now();
-    if (!opts.force && now - this._lastFlourish < 8000) return;
+    if (!opts.force && now - this._lastFlourish < 4000) return; // S1-4：节流8s→4s
+    const KEY_TIER = { combatStart: 1, crit: 1, bossDown: 1, playerDown: 1, victory: 1, defeat: 1 };
+    if (!opts.force && !KEY_TIER[key] && this._flourishCount >= 4) return; // S1-4：每场战斗常规加戏上限4次
     this._lastFlourish = now;
+    this._flourishCount++;
     const KEY_GUIDE = {
-      combatStart: '一场新的战斗刚刚开始。请为这场遭遇写一段有气势的开场旁白，点出敌我双方。',
-      crit: '刚刚发生了暴击。请为这记重击写一段精彩的描写，突出这决定性的一击。',
+      combatStart: '一场新的战斗刚刚开始。请为这场遭遇写一段有气势的开场旁白，点出敌我双方与战场氛围。',
+      crit: '刚刚发生了暴击。请为这记重击写一段精彩的描写，突出这决定性的一击与出手者的风采。',
       bossDown: '一位BOSS被击败了。请为这个高潮时刻写一段纪念性的旁白，可以提及胜利者的风采。',
-      playerDown: '一位冒险者倒下了。请写出这个瞬间的紧张与危机感，但不要宣判其死亡。',
-      kill: '一场战斗中的敌人被击倒。请写一段利落的战斗描写。',
+      playerDown: '一位冒险者倒下了。请写出这个瞬间的紧张与危机感，以及队友的反应，但不要宣判其死亡。',
+      kill: '一名敌人刚刚被击倒。请写一段干净利落的战斗收束描写，突出出手者。',
+      hit: '刚刚有一记攻击命中。请为这一击补一段有画面感的描写（动作、声响或敌人的反应）。',
+      miss: '刚刚有一记攻击落空了。请为这次失手补一段生动的描写（闪避、格挡或惊险瞬间）。',
+      fumble: '刚刚发生了大失败（掷出自然1）。请为这个尴尬瞬间补一段戏剧化的描写，但不要过度惩罚角色。',
+      heal: '有队友施放了治疗。请为这次救援补一段温暖或振奋的描写。',
       victory: '冒险胜利了。请为胜利写一段收束性的结局旁白。',
       defeat: '冒险失败了。请为失败写一段哀而不伤的旁白，为下一次冒险留有余地。',
     };
     const guide = KEY_GUIDE[key] || '请以你的风格补一段生动的主持旁白。';
+    const wordRange = KEY_TIER[key] ? '200~300字' : '100~150字'; // S1-4：字数分档，节奏有起伏
+    const summary = this._battleSummary(game, key);
     this.queue = this.queue.then(async () => {
       try {
         const recent = game.log.slice(-12).map(l => l.text).join('\n');
         const msgs = [
-          { role: 'system', content: '你是' + this.persona.name + '（' + this.persona.title + '）。' + this.persona.systemPrompt + ' ' + INJECTION_GUARD },
-          { role: 'user', content: guide + ' 以下是最近的游戏事件（仅作剧情参考，不要替玩家做决定，不要宣布数值判定结果）：\n' + recent + '\n请以你的口吻输出一段80~120字的旁白，突出你的个人风格。' },
+          { role: 'system', content: '你是' + this.persona.name + '（' + this.persona.title + '）。' + this.persona.systemPrompt + ' 注意：本次是大场面旁白加戏，字数以用户要求为准，可突破常规字数上限。' + INJECTION_GUARD },
+          { role: 'user', content: guide + (summary ? '\n' + summary : '') + '\n以下是最近的游戏事件（仅作剧情参考，不要替玩家做决定，不要宣布数值判定结果）：\n' + recent + '\n请以你的口吻输出一段' + wordRange + '的旁白，突出你的个人风格。' },
         ];
         const res = await chat(msgs, { temperature: 0.9, timeoutMs: 12000 });
         if (res) game.logMsg('narr', res.text, { dm: true, llm: true });

@@ -440,6 +440,7 @@ export class Game {
     this._endTurn();
   }
   _endCombat() {
+    this.director.noteEncounterEnd(this); // S1-4：战斗数据重置前快照战况，胜负旁白摘要用
     this.combat = { active: false, round: 0, order: [], idx: 0 };
     for (const [pid, p] of this.players) { p.blessed = false; p.mark = null; this.removeBuff(pid, 'bless'); this.removeBuff(pid, 'mark'); }
     this._exitCombatState(); // F-23：战斗结束→团队与全员回到「冒险中」
@@ -559,11 +560,15 @@ export class Game {
     if (!hit) {
       if (att.kind === 'player') { const p = this.players.get(att.playerId); if (p) p.stats.attacksMissed++; }
       this.narrate(nat1 ? 'fumble' : 'miss', { actor: attName, target: defName });
+      this.director.flourish(this, nat1 ? 'fumble' : 'miss', { actor: attName, target: defName }); // S1-4：常规事件LLM加戏
       this.event('attack', { att: att.eid, def: def.eid, hit: false });
       return;
     }
     if (nat20) this.narrate('crit', { actor: attName, target: defName, dmg: '?' });
-    if (nat20) this.director.flourish(this, 'crit'); // F-37：暴击LLM加戏
+    if (nat20) {
+      this.director.noteCombat(attName + '对' + defName + '打出了致命暴击'); // S1-4：战况摘要素材
+      this.director.flourish(this, 'crit', { actor: attName, target: defName }); // F-37：暴击LLM加戏
+    }
     const mul = atk.dmgMul || 1; // F-22/F-32：AI DM调校的伤害倍率
     const d = roll(atk.dmg);
     let dmg = Math.max(1, Math.round(d.total * mul));
@@ -628,6 +633,8 @@ export class Game {
       }
     }
     this.narrate('kill', { actor: killer ? killer.name : '众人', target: e.name });
+    this.director.noteCombat(e.name + '被' + (killer ? killer.name : '众人') + '击倒'); // S1-4：战况摘要素材
+    this.director.flourish(this, 'kill', { actor: killer ? killer.name : '众人', target: e.name }); // S1-4：常规事件LLM加戏
     this.logMsg('combat', (e.boss || e.finalBoss ? '👑 BOSS「' : '☠️ ') + e.name + (e.boss || e.finalBoss ? '」' : '') + ' 被击败！', { imp: 'key' });
     this.event('kill', { def: e.eid, killer: killer ? killer.pid : null });
     // 掉落
@@ -647,7 +654,7 @@ export class Game {
     }
     if (e.boss || e.finalBoss) {
       this.actorEvent(killer || null, '💀 击杀了BOSS「' + e.name + '」', e);
-      this.director.flourish(this, 'bossDown'); // F-37：BOSS倒下LLM加戏
+      this.director.flourish(this, 'bossDown', { target: e.name }); // F-37：BOSS倒下LLM加戏
     }
     if (e.lootKey && !this.keys.has(e.lootKey)) {
       this.keys.add(e.lootKey);
@@ -676,7 +683,8 @@ export class Game {
     this.addDebuff(p.pid, { id: 'downed', name: '倒地', icon: '💀' }); // F-23：debuff状态机
     this.actorEvent(this.entities.get(this.turn?.actorEid) || null, '💀 ' + e.name + ' 倒下了！', e);
     this.logMsg('combat', '💀 ' + e.name + ' 倒下了！死亡豁免开始计数，需要队友救援', { imp: 'key' });
-    this.director.flourish(this, 'playerDown'); // F-37：冒险者倒地LLM加戏
+    this.director.noteCombat(e.name + '倒下了，生死未卜'); // S1-4：战况摘要素材
+    this.director.flourish(this, 'playerDown', { actor: e.name }); // F-37：冒险者倒地LLM加戏
     this.narrate('down', { actor: e.name });
     this.event('down', { pid: p.pid });
   }
@@ -1031,6 +1039,7 @@ export class Game {
     }
     if (target.downed && target.hp > 0) { target.downed = false; p.downed = false; p.stable = false; p.deathSaves = { s: 0, f: 0 }; p.stats.rescues = p.stats.rescues || []; this.removeDebuff(p.pid, 'downed'); }
     this.narrate('heal', { actor: srcE ? srcE.name : target.name, target: target.name, hp: amount });
+    this.director.flourish(this, 'heal', { actor: srcE ? srcE.name : target.name, target: target.name }); // S1-4：常规事件LLM加戏
     this.logMsg('system', '💖 ' + target.name + ' 恢复了 ' + amount + ' 点生命（' + target.hp + '/' + target.maxHp + '）');
     this.event('heal', { src: srcE ? srcE.eid : null, def: target.eid, amount });
   }
