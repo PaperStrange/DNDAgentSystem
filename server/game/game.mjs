@@ -326,7 +326,7 @@ export class Game {
       if (this.combat.idx >= order.length) {
         this.combat.idx = 0;
         this.combat.round++;
-        this.logMsg('combat', '━━━ 第' + this.combat.round + '回合 ━━━');
+        this.logMsg('combat', '━━━ 第' + this.combat.round + '回合 ━━━', { imp: 'minor' });
         this.narrate('roundStart', { n: this.combat.round }); // F-37：回合开始人设旁白
         for (const eid of order) { const e = this.entities.get(eid); if (e && e.kind === 'player') { const p = this.players.get(e.playerId); if (p) p.halflingReroll = true; } }
       }
@@ -422,7 +422,7 @@ export class Game {
     for (const e of order) {
       this.logMsg('dice', (e.kind === 'player' ? '🎲 ' : '⚔️ ') + e.name + ' 敏捷 ' + this._dexOf(e), { imp: 'minor' });
     }
-    this.logMsg('combat', '━━━ 第1回合 ━━━');
+    this.logMsg('combat', '━━━ 第1回合 ━━━', { imp: 'minor' });
     this.narrate('combatStart', {});
     this.director.flourish(this, 'combatStart'); // F-37：开战LLM加戏（异步，节流）
     if (!surprise && order[0]?.kind === 'player') {

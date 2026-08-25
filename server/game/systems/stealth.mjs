@@ -123,12 +123,12 @@ export function installStealth(game) {
     this.pendingBoss = null;
     const r = d20();
     if (r.total >= 11) { // 50%概率逃跑成功
-      this.logMsg('dice', '🏃 逃跑掷骰：d20=' + r.total + '（需≥11）——成功！你们甩掉了' + (boss?.name || 'BOSS') + '。');
+      this.logMsg('dice', '🏃 逃跑掷骰：d20=' + r.total + '（需≥11）——成功！你们甩掉了' + (boss?.name || 'BOSS') + '。', { imp: 'key' });
       this.narrate('fleeSuccess', {});
       this._fleeToCamp();
       return { ok: true, fled: true };
     }
-    this.logMsg('dice', '🏃 逃跑掷骰：d20=' + r.total + '（需≥11）——失败！' + (boss?.name || 'BOSS') + ' 拦住了去路！');
+    this.logMsg('dice', '🏃 逃跑掷骰：d20=' + r.total + '（需≥11）——失败！' + (boss?.name || 'BOSS') + ' 拦住了去路！', { imp: 'key' });
     this._startBossCombat();
     return { ok: true, fled: false };
   };
