@@ -446,6 +446,36 @@ export const OUTFIT_TONES = ['#8a3030', '#c05040', '#c87830', '#c8a838', '#8a684
 export const EYE_TONES = ['#2860a0', '#48a048', '#c89030', '#9050b0', '#c83838', '#d0d0d8', '#383838', '#886848']; // 8色
 export const ACCENT_TONES = ['#c8a030', '#c0c0c8', '#b87838', '#c05050', '#5088c0', '#50b888', '#9868b8', '#484848']; // 8色·金属+宝石
 
+// S1-3 BUG-2：旧存档颜色自动映射——欧氏距离匹配最近似新色
+function hexDist(a, b) {
+  const na = parseInt(a.slice(1), 16), nb = parseInt(b.slice(1), 16);
+  const dr = ((na >> 16) & 255) - ((nb >> 16) & 255);
+  const dg = ((na >> 8) & 255) - ((nb >> 8) & 255);
+  const db = (na & 255) - (nb & 255);
+  return dr * dr + dg * dg + db * db;
+}
+function nearestIn(hex, palette) {
+  if (palette.includes(hex)) return hex;
+  let best = palette[0], bestD = Infinity;
+  for (const c of palette) { const d = hexDist(hex, c); if (d < bestD) { best = c; bestD = d; } }
+  return best;
+}
+export function migrateColors(colors) {
+  if (!colors || typeof colors !== 'object') return colors;
+  return {
+    ...colors,
+    skin: nearestIn(colors.skin || '#e8b88a', SKIN_TONES),
+    hair: nearestIn(colors.hair || '#4a2a18', HAIR_TONES),
+    outfit: nearestIn(colors.outfit || '#304878', OUTFIT_TONES),
+    eye: nearestIn(colors.eye || '#2860a0', EYE_TONES),
+    accent: nearestIn(colors.accent || '#c8a030', ACCENT_TONES),
+  };
+}
+export function migrateLook(look) {
+  if (!look || typeof look !== 'object') return look;
+  return { hair: 0, beard: 0, brow: 0, mouth: 0, marking: 0, ...look };
+}
+
 function lighten(hex, amt = 38) {
   const n = parseInt(hex.slice(1), 16);
   const r = Math.min(255, ((n >> 16) & 255) + amt), g = Math.min(255, ((n >> 8) & 255) + amt), b = Math.min(255, (n & 255) + amt);

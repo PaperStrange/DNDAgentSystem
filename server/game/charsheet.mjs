@@ -21,8 +21,8 @@ export function buildSheet({ name, raceId, classId, stats, flex = {}, colors = {
   return {
     name: name || '无名冒险者', icon: cls.icon, race: race.id, raceName: race.name, class: cls.id, className: cls.name,
     level: lv, xp: Number(xp) || 0,
-    background: background || '平凡的旅人', colors: { skin: '#e8b88a', hair: '#5b3a1e', outfit: '#4a6b8a', eye: '#3a6a9a', accent: '#c8a030', ...colors },
-    look: { hair: 0, beard: 0, ...look },
+    background: background || '平凡的旅人', colors: { skin: '#e8b88a', hair: '#4a2a18', outfit: '#304878', eye: '#2860a0', accent: '#c8a030', ...colors },
+    look: { hair: 0, beard: 0, brow: 0, mouth: 0, marking: 0, ...look },
     stats: final, mods, hp, maxHp: hp, ac, prof, mainAttr: main,
     attackBonus: meleeBonus, damageBonus: mods[main],
     speed: race.speed, skills, spells: cls.spells || [], weapons: cls.weapons,
