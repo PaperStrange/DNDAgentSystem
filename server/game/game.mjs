@@ -668,7 +668,7 @@ export class Game {
   _downPlayer(e) {
     const p = this.players.get(e.playerId);
     if (!p) return;
-    if (e.downed && p.downed) { /* 已倒地再受伤 → 直接视为死亡豁免失败1次 */ p.deathSaves.f++; this.logMsg('dice', '💀 ' + e.name + ' 在倒地中受伤，死亡豁免自动失败(' + p.deathSaves.f + '/3)'); if (p.deathSaves.f >= 3) this._killPlayer(p); return; }
+    if (e.downed && p.downed) { /* 已倒地再受伤 → 直接视为死亡豁免失败1次 */ p.deathSaves.f++; this.logMsg('dice', '💀 ' + e.name + ' 在倒地中受伤，死亡豁免自动失败(' + p.deathSaves.f + '/3)', { imp: 'key' }); if (p.deathSaves.f >= 3) this._killPlayer(p); return; }
     e.downed = true; p.downed = true; p.stable = false;
     p.stats.downedCount++;
     if (this.chapterPerf) this.chapterPerf.downs++; // F-32：本章表现统计
