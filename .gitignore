@@ -52,6 +52,7 @@ docs/
 *.pdf
 
 # Qoder
+.qoder
 .qoder-collab-runtime
 .qoder-user-skill-runtime
 .qoder-sop-runtime
