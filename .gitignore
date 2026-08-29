@@ -51,6 +51,7 @@ docs/design/*
 !docs/design/portrait-baseline
 docs/design/portrait-baseline/*.png
 docs/design/portrait-baseline/*.svg
+docs/design/portrait-baseline/portrait-spec-v1.0.md
 docs/design/portrait-baseline/output/*
 !docs/design/portrait-baseline/output/
 !docs/design/portrait-baseline/output/*-baseline-final.png
