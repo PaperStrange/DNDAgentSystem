@@ -6,6 +6,8 @@
 #   3. 下颌圆润收窄（4 级渐收），告别直筒脸
 #   4. 五官精细化：眉弓阴影 / 上眼睑线 / 眼下阴影 / 鼻根-鼻梁-鼻翼-鼻底四段 / 上下唇双色+唇峰
 #   5. 光影加密：额高光加宽、右脸阴影带加宽、颧阴影、下唇下阴影
+#   6. [复审修正] 躯干消灭大面积纯色：肩高光/领口阴影/左右肩光影带/三条衣褶线/下摆阴影 + 斜纹 dithering，
+#      新增衣褶暗蓝 token B(#2a4a6c)；头发补充发丝高光与右侧发层暗部
 # 画布 32x40, SCALE=12, 输出 384x480 SVG
 use strict;
 use warnings;
@@ -24,7 +26,7 @@ my %PAL = (
   h=>'#5b3a24', H=>'#8a5a33', d=>'#4a2f1d',
   e=>'#f5efe6', i=>'#4a6b8a', p=>'#241812', k=>'#ffffff',
   n=>'#b06a45', m=>'#b35a50', M=>'#8a3f38', L=>'#c96a5e',
-  E=>'#d9a077', t=>'#b97a50', u=>'#3a5a8c', U=>'#5a7aac',
+  E=>'#d9a077', t=>'#b97a50', u=>'#3a5a8c', U=>'#5a7aac', B=>'#2a4a6c',
 );
 
 sub make_grid { [ map { [ ('.') x $W ] } 1..$H ] }
@@ -79,7 +81,9 @@ sub draw_human_male_v11 {
   for my $y (3..7) { span_fill($g,8,23,$y,'h'); }
   # 发丝高光（左上光源）
   set_px($g,10,3,'H'); set_px($g,11,3,'H'); set_px($g,11,2,'H'); set_px($g,12,2,'H');
-  set_px($g,9,4,'H');
+  set_px($g,9,4,'H'); set_px($g,14,4,'H'); set_px($g,16,5,'H');
+  # 发层暗部（右侧受光少）
+  set_px($g,19,4,'d'); set_px($g,20,5,'d'); set_px($g,18,6,'d');
   # 鬓角
   for my $y (8..12) { span_fill($g,8,9,$y,'h'); span_fill($g,22,23,$y,'h'); }
 
@@ -102,11 +106,34 @@ sub draw_human_male_v11 {
   span_fill($g,12,19,29,'s');
   span_fill($g,12,19,30,'s');
 
-  # ---- 躯干 ----
+  # ---- 躯干（衣褶/光影结构，消灭大面积纯色）----
   span_fill($g,8,23,30,'u');
   for my $y (31..39) { span_fill($g,5,26,$y,'u'); }
-  span_fill($g,13,18,31,'U');
-  set_px($g,7,31,'U'); set_px($g,7,32,'U');
+  # 肩部高光（左上光源）
+  span_fill($g,9,12,30,'U'); span_fill($g,19,22,30,'U');
+  # 领口：颈下阴影 + 领口亮带 + 领角
+  span_fill($g,12,19,31,'B');
+  span_fill($g,13,18,32,'U'); set_px($g,12,32,'B'); set_px($g,19,32,'B');
+  # 左肩亮带 / 右肩阴影带（光源左上）
+  span_fill($g,5,6,31,'U'); set_px($g,5,32,'U');
+  span_fill($g,25,26,31,'B'); set_px($g,26,32,'B'); set_px($g,26,33,'B');
+  # 衣褶：左斜褶 / 右纵褶 / 中腹褶（暗线 + 受光侧高光线）
+  set_px($g,10,33,'B'); set_px($g,9,34,'B'); set_px($g,9,35,'B'); set_px($g,8,36,'B');
+  set_px($g,11,34,'U'); set_px($g,10,35,'U');
+  set_px($g,21,33,'B'); set_px($g,22,34,'B'); set_px($g,22,35,'B'); set_px($g,23,36,'B');
+  set_px($g,20,34,'U'); set_px($g,21,35,'U');
+  set_px($g,15,35,'B'); set_px($g,16,36,'B'); set_px($g,16,37,'B');
+  # 下摆阴影
+  span_fill($g,7,9,38,'B'); span_fill($g,22,24,38,'B'); set_px($g,15,39,'B'); set_px($g,16,39,'B');
+  # 织物 dithering：斜纹过渡消灭残余 2x2 纯色（受光半区 U / 背光半区 B）
+  for my $y (30..39) {
+    for my $x (5..26) {
+      next unless $g->[$y][$x] eq 'u';
+      next if $x == 25 && $y == 32;    # 避免与右肩阴影带构成 2x2 同色
+      next unless (($x + $y) % 3) == 0;
+      $g->[$y][$x] = ($x <= 15) ? 'U' : 'B';
+    }
+  }
 
   # ---- 光影（统一左上光源）----
   span_fill($g,11,15,8,'T');                                  # 额高光（发际下）
