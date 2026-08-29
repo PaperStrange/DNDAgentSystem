@@ -45,7 +45,10 @@ test-results/
 tools/security-test.mjs
 tools/llm-test.mjs
 master_tests/
-docs/
+docs/*
+!docs/design
+docs/design/*
+!docs/design/portrait-baseline
 
 # large documentation extensions
 *.zip
