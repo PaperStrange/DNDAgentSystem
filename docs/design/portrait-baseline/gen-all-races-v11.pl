@@ -141,9 +141,11 @@ sub render_hair {
     set_px($g,9,3,'H'); set_px($g,10,3,'H'); set_px($g,10,2,'H'); set_px($g,11,2,'H');
     set_px($g,8,4,'H'); set_px($g,13,4,'H'); set_px($g,15,5,'H');
     set_px($g,20,4,'d'); set_px($g,21,5,'d'); set_px($g,19,6,'d');
-    # 冠顶参差碎发（左亮右暗高低发尖，破坏帽状平滑轮廓）
-    set_px($g,12,0,'h'); set_px($g,15,0,'H'); set_px($g,19,0,'d');
-    set_px($g,10,1,'H'); set_px($g,21,1,'d'); set_px($g,17,1,'h');
+    # 冠顶不规则发冠（消除帽子误读）：y0 起伏发尖全覆盖 + 明暗交替，发顶轮廓参差非平滑穹面
+    for my $p ([10,0,'h'],[12,0,'H'],[13,0,'h'],[15,0,'h'],[16,0,'H'],[18,0,'h'],[19,0,'d'],[21,0,'h']) {
+      set_px($g,$p->[0],$p->[1],$p->[2]);
+    }
+    set_px($g,11,1,'H'); set_px($g,14,1,'h'); set_px($g,17,1,'d'); set_px($g,20,1,'H');
     # 明暗断续发缕（左受光亮缕 / 右背光暗缕，避免连续深纵线被读作头盔纵脊）
     set_px($g,13,2,'H'); set_px($g,13,4,'h'); set_px($g,13,5,'H'); set_px($g,13,7,'h');
     set_px($g,18,3,'d'); set_px($g,18,4,'h'); set_px($g,18,6,'d'); set_px($g,18,7,'h');
@@ -193,9 +195,11 @@ sub render_hair {
   } elsif ($t eq 'bald') {
     span_fill($g,13,18,1,'s'); span_fill($g,11,20,2,'s');
     for my $y (3..5) { span_fill($g,10,21,$y,'s'); }
-    # 秃顶油光：散点高光（非整块亮带，避免「帽子」误读）+ 顶部轮廓加深读作头皮
-    set_px($g,13,3,'T'); set_px($g,16,2,'T'); set_px($g,12,4,'T');
-    set_px($g,14,2,'S'); set_px($g,18,3,'S'); set_px($g,17,4,'S'); set_px($g,15,4,'S');
+    # 秃顶油光：不规则稀疏 T 散点（任意两点不同行相邻，绝不构成横向亮带/暗带），
+    # 头顶大面积保持肤色，消除「束发带/帽子」误读；暗部仅右侧 2 点随光源
+    set_px($g,13,2,'T'); set_px($g,16,3,'T'); set_px($g,14,3,'T');
+    set_px($g,12,4,'T'); set_px($g,18,4,'T');
+    set_px($g,19,3,'S'); set_px($g,20,4,'S');
     for my $y (5..13) { set_px($g,8,$y,'h'); set_px($g,9,$y,'h'); set_px($g,22,$y,'h'); set_px($g,23,$y,'h'); }  # 两侧发
     set_px($g,8,6,'H'); set_px($g,9,6,'H'); set_px($g,22,8,'d'); set_px($g,23,9,'d');
   } elsif ($t eq 'none') {
@@ -231,6 +235,15 @@ sub render_hair_front {
     for my $y (18..27) { set_px($g,8,$y,'h'); set_px($g,23,$y,'h'); }    # 耳下垂落发束（贴脸沿下颌至肩）
     set_px($g,8,20,'H'); set_px($g,8,24,'d');                            # 左垂束
     set_px($g,23,19,'d'); set_px($g,23,23,'d'); set_px($g,23,26,'d');    # 右垂束
+    # 参差刘海（破坏发底平直边缘，消除「帽檐」读感）：y8 锯齿发尖 + y9 两撮深发
+    for my $x (10,12,15,16,19,21) { set_px($g,$x,8,'h'); }
+    set_px($g,9,9,'h'); set_px($g,22,9,'h');
+    set_px($g,11,8,'H'); set_px($g,20,8,'d');                            # 刘海左受光/右背光
+  } elsif ($t eq 'buzz') {
+    # 发际线参差化（消除平头「头盔」读感）：y8 锯齿发尖 + 发-肤过渡色 + y7 肤色缺口
+    for my $x (9,11,14,17,20,22) { set_px($g,$x,8,'h'); }
+    set_px($g,10,8,'b'); set_px($g,21,8,'b');                            # 发际过渡（发色渗入肤色）
+    set_px($g,10,7,'s'); set_px($g,21,7,'s'); set_px($g,15,7,'s'); set_px($g,16,7,'s');  # y7 肤色缺口
   } elsif ($t eq 'medium') {
     for my $y (8..16) { set_px($g,8,$y,'h'); set_px($g,23,$y,'h'); }     # 中长发过耳垂
     set_px($g,8,10,'H'); set_px($g,8,14,'H');                            # 左束受光
