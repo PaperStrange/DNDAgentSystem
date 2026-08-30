@@ -136,14 +136,19 @@ sub render_hair {
   my ($g, $cfg, $pal) = @_;
   my $t = $cfg->{hair};
   if ($t eq 'long') {
-    span_fill($g,12,19,1,'h'); span_fill($g,10,21,2,'h');
+    span_fill($g,11,20,1,'h'); span_fill($g,10,21,2,'h');
     for my $y (3..7) { span_fill($g,7,24,$y,'h'); }
     set_px($g,9,3,'H'); set_px($g,10,3,'H'); set_px($g,10,2,'H'); set_px($g,11,2,'H');
     set_px($g,8,4,'H'); set_px($g,13,4,'H'); set_px($g,15,5,'H');
     set_px($g,20,4,'d'); set_px($g,21,5,'d'); set_px($g,19,6,'d');
+    # 冠顶参差碎发（左亮右暗高低发尖，破坏帽状平滑轮廓）
+    set_px($g,12,0,'h'); set_px($g,15,0,'H'); set_px($g,19,0,'d');
+    set_px($g,10,1,'H'); set_px($g,21,1,'d'); set_px($g,17,1,'h');
+    # 左右连续发缝线（连贯纵线读作分缝发缕，散点会误读为帽面格纹）
+    for my $y (2..7) { set_px($g,13,$y,'d'); set_px($g,18,$y,'d'); }
     # 贴面发丝移至 render_hair_front（面部填色之后），避免被擦除
   } elsif ($t eq 'medium') {
-    span_fill($g,12,19,1,'h'); span_fill($g,10,21,2,'h');
+    span_fill($g,11,20,1,'h'); span_fill($g,10,21,2,'h');
     for my $y (3..7) { span_fill($g,7,24,$y,'h'); }
     set_px($g,9,3,'H'); set_px($g,10,3,'H'); set_px($g,10,2,'H'); set_px($g,11,2,'H');
     set_px($g,8,4,'H'); set_px($g,14,4,'H');
@@ -151,6 +156,10 @@ sub render_hair {
     # 发丝纹理（左受光/右背光，高暗交替），消除平涂帽状误读
     set_px($g,12,3,'H'); set_px($g,10,5,'H'); set_px($g,13,6,'H'); set_px($g,9,7,'H');
     set_px($g,18,3,'d'); set_px($g,21,4,'d'); set_px($g,17,6,'d'); set_px($g,22,6,'d'); set_px($g,20,7,'d');
+    # 冠顶参差碎发（左右高低发尖）+ 垂直发缝暗线（破穹面平涂）
+    set_px($g,12,0,'h'); set_px($g,15,0,'H'); set_px($g,19,0,'d');
+    set_px($g,10,1,'H'); set_px($g,21,1,'d'); set_px($g,17,1,'h');
+    set_px($g,13,2,'d'); set_px($g,13,5,'d'); set_px($g,18,3,'d'); set_px($g,18,6,'d');
     # 贴面发丝移至 render_hair_front（面部填色之后），避免被擦除
   } elsif ($t eq 'curly') {
     span_fill($g,11,20,1,'h'); span_fill($g,9,22,2,'h');
@@ -192,9 +201,13 @@ sub render_hair {
     span_fill($g,10,21,3,'s'); span_fill($g,9,22,4,'s');
     for my $y (5..7) { span_fill($g,8,23,$y,'s'); }
     span_fill($g,12,16,2,'T');                                            # 颅顶高光
-    set_px($g,20,3,'S'); set_px($g,21,4,'S'); set_px($g,22,5,'S');        # 颅顶右侧阴影
-    for my $p ([15,3],[16,3],[14,4],[15,4],[16,4],[17,4],[11,5],[20,5],[15,5],[16,5],[10,6],[21,6],[14,6],[17,6]) { set_px($g,$p->[0],$p->[1],'c'); }   # 头鳞-暗
-    for my $p ([13,3],[18,3],[12,4],[19,4],[13,5],[18,5],[12,6],[19,6],[15,6],[16,6]) { set_px($g,$p->[0],$p->[1],'C'); }                              # 头鳞-亮
+    # 头鳞：全覆盖明暗交错棋盘（弱点3：强化鳞片对比），每行错位半格
+    for my $y (3..6) {
+      my ($sx0, $sx1) = ($y == 3) ? (10, 21) : (9, 22);
+      for my $x ($sx0..$sx1) {
+        set_px($g, $x, $y, (($x + $y) % 2 == 0) ? 'C' : 'c');
+      }
+    }
   }
 }
 
@@ -215,8 +228,11 @@ sub render_hair_front {
     for my $y (8..16) { set_px($g,8,$y,'h'); set_px($g,23,$y,'h'); }     # 中长发过耳垂
     set_px($g,8,10,'H'); set_px($g,8,14,'H');                            # 左束受光
     set_px($g,23,11,'d'); set_px($g,23,15,'d'); set_px($g,23,16,'d');    # 右束背光
-    for my $y (17..21) { set_px($g,8,$y,'h'); set_px($g,23,$y,'h'); }    # 耳下短垂发束（贴脸）
-    set_px($g,8,18,'H'); set_px($g,23,19,'d');
+    for my $y (17..24) { set_px($g,8,$y,'h'); set_px($g,23,$y,'h'); }    # 耳下垂发束下延过下颌（弱点2：发长读感）
+    for my $y (19..24) { set_px($g,7,$y,'h'); set_px($g,24,$y,'h'); }    # 下段加宽 2px，发量可读
+    set_px($g,8,18,'H'); set_px($g,8,22,'H'); set_px($g,7,21,'H');       # 左垂束受光
+    set_px($g,23,19,'d'); set_px($g,23,23,'d'); set_px($g,24,22,'d');    # 右垂束背光
+    set_px($g,8,24,'H'); set_px($g,23,24,'d'); set_px($g,7,24,'h'); set_px($g,24,24,'d');  # 发梢参差（左亮右暗，非平齐切边）
   } elsif ($t eq 'wild') {
     for my $y (8..12) { set_px($g,8,$y,'h'); set_px($g,23,$y,'h'); }     # 蓬乱鬓角
     set_px($g,7,9,'h');  set_px($g,24,9,'h');
