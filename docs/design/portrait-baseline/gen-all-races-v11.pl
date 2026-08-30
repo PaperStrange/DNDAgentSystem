@@ -48,9 +48,9 @@ my %RACE_PAL = (
   },
   'dragonborn' => {
     o=>'#1a2418', s=>'#708878', S=>'#506858', D=>'#405444', T=>'#98b8a0',
-    h=>'#587868', H=>'#88a898', d=>'#405848', c=>'#587868', C=>'#88a898',
+    h=>'#587868', H=>'#88a898', d=>'#405848', c=>'#3e584a', C=>'#9cc0a8',
     e=>'#e0e0c8', i=>'#c88820', p=>'#201008', k=>'#ffffff',
-    n=>'#506050', m=>'#4a4238', M=>'#38322a', L=>'#5c5448',
+    n=>'#506050', m=>'#4a4238', M=>'#28221a', L=>'#7a6e58',
     E=>'#607860', t=>'#485848', u=>'#3a4840', U=>'#586858', B=>'#242e28',
   },
   'gnome' => {
@@ -141,16 +141,17 @@ sub render_hair {
     set_px($g,9,3,'H'); set_px($g,10,3,'H'); set_px($g,10,2,'H'); set_px($g,11,2,'H');
     set_px($g,8,4,'H'); set_px($g,13,4,'H'); set_px($g,15,5,'H');
     set_px($g,20,4,'d'); set_px($g,21,5,'d'); set_px($g,19,6,'d');
-    for my $y (8..18) { set_px($g,8,$y,'h'); set_px($g,23,$y,'h'); }     # 长发贴面
-    set_px($g,8,10,'d'); set_px($g,23,12,'d');
+    # 贴面发丝移至 render_hair_front（面部填色之后），避免被擦除
   } elsif ($t eq 'medium') {
     span_fill($g,12,19,1,'h'); span_fill($g,10,21,2,'h');
     for my $y (3..7) { span_fill($g,7,24,$y,'h'); }
     set_px($g,9,3,'H'); set_px($g,10,3,'H'); set_px($g,10,2,'H'); set_px($g,11,2,'H');
     set_px($g,8,4,'H'); set_px($g,14,4,'H');
     set_px($g,20,4,'d'); set_px($g,21,5,'d'); set_px($g,19,6,'d');
-    for my $y (8..14) { set_px($g,8,$y,'h'); set_px($g,23,$y,'h'); }
-    set_px($g,8,10,'d');
+    # 发丝纹理（左受光/右背光，高暗交替），消除平涂帽状误读
+    set_px($g,12,3,'H'); set_px($g,10,5,'H'); set_px($g,13,6,'H'); set_px($g,9,7,'H');
+    set_px($g,18,3,'d'); set_px($g,21,4,'d'); set_px($g,17,6,'d'); set_px($g,22,6,'d'); set_px($g,20,7,'d');
+    # 贴面发丝移至 render_hair_front（面部填色之后），避免被擦除
   } elsif ($t eq 'curly') {
     span_fill($g,11,20,1,'h'); span_fill($g,9,22,2,'h');
     for my $y (3..7) { span_fill($g,7,24,$y,'h'); }
@@ -160,14 +161,19 @@ sub render_hair {
     for my $p ([11,3],[15,3],[19,3],[10,5],[14,5],[18,5],[22,5]) { set_px($g,$p->[0],$p->[1],'d'); }
     for my $y (8..11) { set_px($g,8,$y,'h'); set_px($g,23,$y,'h'); }
   } elsif ($t eq 'wild') {
-    span_fill($g,8,23,1,'h'); span_fill($g,7,24,2,'h');
-    for my $y (3..4) { span_fill($g,6,25,$y,'h'); }
-    for my $y (5..7) { span_fill($g,7,24,$y,'h'); }
-    for my $p ([8,2],[12,2],[17,2],[22,3],[9,4],[14,4],[20,4],[11,6],[16,6],[21,6]) {
-      set_px($g,$p->[0],$p->[1],'H');
-    }
-    for my $p ([10,3],[15,3],[20,3],[8,5],[13,5],[18,5],[23,5]) { set_px($g,$p->[0],$p->[1],'d'); }
-    for my $y (8..10) { set_px($g,8,$y,'h'); set_px($g,23,$y,'h'); }
+    span_fill($g,11,20,1,'h'); span_fill($g,9,22,2,'h');
+    span_fill($g,8,23,3,'h'); span_fill($g,7,24,4,'h');
+    span_fill($g,8,23,5,'h'); span_fill($g,8,23,6,'h');
+    span_fill($g,9,22,7,'h');
+    set_px($g,10,0,'h'); set_px($g,21,0,'d'); set_px($g,14,0,'H'); set_px($g,17,0,'h');   # 顶部参差碎发（左亮右暗）
+    set_px($g,8,1,'H');  set_px($g,23,1,'d');                                             # 冠缘（左受光/右暗缺）
+    set_px($g,6,3,'h');  set_px($g,25,3,'d');                                             # 侧飞蓬发
+    set_px($g,5,5,'H');  set_px($g,26,5,'d');
+    set_px($g,6,7,'h');  set_px($g,25,7,'h');                                             # 低位飞丝
+    set_px($g,5,8,'d');  set_px($g,26,8,'d');
+    for my $p ([10,2],[13,3],[9,4],[12,6],[9,6],[14,5]) { set_px($g,$p->[0],$p->[1],'H'); }   # 左侧卷曲高光
+    for my $p ([20,3],[18,4],[22,5],[19,6],[21,2],[16,5]) { set_px($g,$p->[0],$p->[1],'d'); } # 右侧发层暗部
+    # 鬓角蓬发与锯齿刘海移至 render_hair_front（面部填色之后）
   } elsif ($t eq 'buzz') {
     span_fill($g,12,19,2,'h'); span_fill($g,10,21,3,'h');
     for my $y (4..7) { span_fill($g,8,23,$y,'h'); }
@@ -187,8 +193,37 @@ sub render_hair {
     for my $y (5..7) { span_fill($g,8,23,$y,'s'); }
     span_fill($g,12,16,2,'T');                                            # 颅顶高光
     set_px($g,20,3,'S'); set_px($g,21,4,'S'); set_px($g,22,5,'S');        # 颅顶右侧阴影
-    for my $p ([11,4],[14,4],[17,4],[20,4],[10,6],[13,6],[16,6],[19,6]) { set_px($g,$p->[0],$p->[1],'c'); }      # 头鳞
-    for my $p ([12,5],[15,5],[18,5],[21,5]) { set_px($g,$p->[0],$p->[1],'C'); }
+    for my $p ([15,3],[16,3],[14,4],[15,4],[16,4],[17,4],[11,5],[20,5],[15,5],[16,5],[10,6],[21,6],[14,6],[17,6]) { set_px($g,$p->[0],$p->[1],'c'); }   # 头鳞-暗
+    for my $p ([13,3],[18,3],[12,4],[19,4],[13,5],[18,5],[12,6],[19,6],[15,6],[16,6]) { set_px($g,$p->[0],$p->[1],'C'); }                              # 头鳞-亮
+  }
+}
+
+# ---- 前层发（面部填色之后重绘，防止被 span_fill 擦除）----
+sub render_hair_front {
+  my ($g, $cfg) = @_;
+  my $t = $cfg->{hair};
+  if ($t eq 'long') {
+    for my $y (8..21) { set_px($g,8,$y,'h'); set_px($g,23,$y,'h'); }     # 长发贴面下延至颈侧
+    set_px($g,8,9,'H');  set_px($g,8,13,'H'); set_px($g,8,17,'H');       # 左束受光
+    set_px($g,8,11,'d'); set_px($g,8,20,'d');
+    set_px($g,23,10,'d'); set_px($g,23,14,'d'); set_px($g,23,18,'d');    # 右束背光
+    set_px($g,23,21,'d');
+    for my $y (18..27) { set_px($g,8,$y,'h'); set_px($g,23,$y,'h'); }    # 耳下垂落发束（贴脸沿下颌至肩）
+    set_px($g,8,20,'H'); set_px($g,8,24,'d');                            # 左垂束
+    set_px($g,23,19,'d'); set_px($g,23,23,'d'); set_px($g,23,26,'d');    # 右垂束
+  } elsif ($t eq 'medium') {
+    for my $y (8..16) { set_px($g,8,$y,'h'); set_px($g,23,$y,'h'); }     # 中长发过耳垂
+    set_px($g,8,10,'H'); set_px($g,8,14,'H');                            # 左束受光
+    set_px($g,23,11,'d'); set_px($g,23,15,'d'); set_px($g,23,16,'d');    # 右束背光
+    for my $y (17..21) { set_px($g,8,$y,'h'); set_px($g,23,$y,'h'); }    # 耳下短垂发束（贴脸）
+    set_px($g,8,18,'H'); set_px($g,23,19,'d');
+  } elsif ($t eq 'wild') {
+    for my $y (8..12) { set_px($g,8,$y,'h'); set_px($g,23,$y,'h'); }     # 蓬乱鬓角
+    set_px($g,7,9,'h');  set_px($g,24,9,'h');
+    set_px($g,7,11,'d'); set_px($g,24,11,'d');
+    set_px($g,8,9,'H');  set_px($g,23,10,'d');                           # 左亮右暗
+    for my $p ([10,8],[12,8],[16,8],[19,8]) { set_px($g,$p->[0],$p->[1],'h'); }   # 锯齿刘海
+    set_px($g,11,8,'H'); set_px($g,17,8,'d');
   }
 }
 
@@ -196,15 +231,23 @@ sub render_hair {
 sub render_ears {
   my ($g, $cfg) = @_;
   my $t = $cfg->{ears};
-  if ($t eq 'normal' || $t eq 'halfpoint') {
+  if ($t eq 'normal') {
     for my $y (13..16) { span_fill($g,6,7,$y,'E'); span_fill($g,24,25,$y,'E'); }
-    if ($t eq 'halfpoint') { set_px($g,5,12,'E'); set_px($g,26,12,'E'); }
+    set_px($g,7,14,'t'); set_px($g,24,14,'t');
+  } elsif ($t eq 'halfpoint') {
+    for my $y (12..16) { span_fill($g,6,7,$y,'E'); span_fill($g,24,25,$y,'E'); }
+    set_px($g,5,11,'E'); set_px($g,4,10,'E');                            # 微尖耳廓（2 级上挑）
+    set_px($g,26,11,'E'); set_px($g,27,10,'E');
+    set_px($g,5,11,'T'); set_px($g,26,11,'T');                           # 耳尖受光
+    set_px($g,6,13,'t'); set_px($g,25,13,'t');                           # 耳窝阴影
     set_px($g,7,14,'t'); set_px($g,24,14,'t');
   } elsif ($t eq 'pointed') {
     for my $y (12..17) { span_fill($g,6,7,$y,'E'); span_fill($g,24,25,$y,'E'); }
-    set_px($g,5,12,'E'); set_px($g,5,11,'E'); set_px($g,4,10,'E');
-    set_px($g,26,12,'E'); set_px($g,26,11,'E'); set_px($g,27,10,'E');
-    set_px($g,6,14,'t'); set_px($g,25,14,'t');
+    set_px($g,5,12,'E'); set_px($g,5,11,'E'); set_px($g,4,10,'E'); set_px($g,3,9,'E');   # 尖耳上挑 4 级
+    set_px($g,26,12,'E'); set_px($g,26,11,'E'); set_px($g,27,10,'E'); set_px($g,28,9,'E');
+    set_px($g,4,10,'T'); set_px($g,27,10,'T');                           # 耳尖受光
+    set_px($g,5,12,'t'); set_px($g,26,12,'t');                           # 耳廓边缘阴影
+    set_px($g,6,14,'t'); set_px($g,25,14,'t');                           # 耳窝阴影
   } elsif ($t eq 'small') {
     for my $y (13..15) { set_px($g,7,$y,'E'); set_px($g,24,$y,'E'); }
     set_px($g,7,14,'t'); set_px($g,24,14,'t');
@@ -248,6 +291,9 @@ sub draw_race {
   set_px($g,$fx1-2,17,'S'); set_px($g,$fx1-1,17,'S');
   span_fill($g, 18, 20, 25, 'S'); set_px($g, 17, 26, 'S');
 
+  # ---- 前层发（贴面发丝/鬓角/刘海，面部填色后重绘）----
+  render_hair_front($g, $cfg);
+
   # ---- 描边 ----
   my $g2 = auto_outline($g);
 
@@ -277,7 +323,15 @@ sub draw_race {
       set_px($g2,$lx,$ey+1,'i'); set_px($g2,$lx+1,$ey+1,'p'); set_px($g2,$lx+2,$ey+1,'i');
       set_px($g2,$lx+1,$ey,'k');
     }
-    span_fill($g2,10,12,13,'S'); span_fill($g2,19,21,13,'S');
+    if ($cfg->{eyes} eq 'low' && $race eq 'half-orc') {                  # 半兽人红瞳修复：矮人低位眼已过审不动
+      for my $s ([10],[19]) {
+        my $lx = $s->[0];
+        set_px($g2,$lx,$ey,'i'); set_px($g2,$lx+2,$ey,'i');
+      }
+      span_fill($g2,10,12,$ey+2,'S'); span_fill($g2,19,21,$ey+2,'S');    # 眼下阴影下移，不吃虹膜行
+    } else {
+      span_fill($g2,10,12,13,'S'); span_fill($g2,19,21,13,'S');
+    }
   }
 
   # ---- 鼻 ----
@@ -289,10 +343,15 @@ sub draw_race {
     set_px($g2,14,18,'n'); set_px($g2,17,18,'n');
     set_px($g2,15,18,'S'); set_px($g2,16,18,'S');
   } elsif ($cfg->{nose} eq 'snout') {
-    set_px($g2,15,14,'n');
-    for my $y (15..18) { set_px($g2,15,$y,'T'); set_px($g2,16,$y,'n'); }
-    span_fill($g2,14,17,19,'n');
-    set_px($g2,14,20,'S'); set_px($g2,17,20,'S'); set_px($g2,15,20,'S'); set_px($g2,16,20,'S');
+    span_fill($g2,15,16,14,'n');                                          # 鼻根
+    set_px($g2,14,15,'S'); set_px($g2,14,16,'S'); set_px($g2,14,17,'S');  # 左鼻侧影
+    set_px($g2,17,15,'S'); set_px($g2,17,16,'S'); set_px($g2,17,17,'S');  # 右鼻侧影
+    set_px($g2,15,15,'T'); set_px($g2,15,16,'T'); set_px($g2,15,17,'n');  # 鼻梁受光
+    set_px($g2,16,15,'n'); set_px($g2,16,16,'n'); set_px($g2,16,17,'n');
+    span_fill($g2,13,18,18,'n');                                          # 鼻翼外扩
+    set_px($g2,14,18,'D'); set_px($g2,17,18,'D');                         # 深鼻孔
+    span_fill($g2,13,18,19,'n');
+    span_fill($g2,13,18,20,'S');                                          # 翼底阴影
   } else {
     set_px($g2,15,14,'n');
     set_px($g2,15,15,'T'); set_px($g2,16,15,'n');
@@ -303,9 +362,10 @@ sub draw_race {
 
   # ---- 嘴 ----
   if ($cfg->{mouth} eq 'snout') {
-    span_fill($g2,13,18,21,'m');
-    set_px($g2,13,22,'M'); span_fill($g2,14,17,22,'M'); set_px($g2,18,22,'M');
-    span_fill($g2,14,17,23,'S');
+    set_px($g2,12,21,'M'); span_fill($g2,13,18,21,'m'); set_px($g2,19,21,'M');   # 上唇
+    set_px($g2,11,22,'M'); span_fill($g2,12,19,22,'M'); set_px($g2,20,22,'M');   # 深口缝线（宽于唇，嘴角下压）
+    span_fill($g2,13,18,23,'L');                                                  # 下唇亮带
+    span_fill($g2,14,17,24,'S');                                                  # 唇下阴影
   } elsif ($cfg->{mouth} eq 'tusks') {
     set_px($g2,12,20,'M'); span_fill($g2,13,18,20,'m'); set_px($g2,19,20,'M');
     set_px($g2,12,21,'M'); span_fill($g2,13,18,21,'L'); set_px($g2,19,21,'M');
@@ -320,7 +380,9 @@ sub draw_race {
 
   # ---- 种族专属叠加 ----
   if ($cfg->{mouth} eq 'tusks') {
-    set_px($g2,13,23,'w'); set_px($g2,18,23,'w');
+    set_px($g2,12,22,'w'); set_px($g2,12,23,'w');                        # 左獠牙（2px 高，嘴角上挑）
+    set_px($g2,19,22,'w'); set_px($g2,19,23,'w');                        # 右獠牙
+    set_px($g2,12,24,'S'); set_px($g2,19,24,'S');                        # 獠牙基座阴影
   }
   if ($cfg->{blush}) {
     set_px($g2,10,17,'r'); set_px($g2,21,17,'r');
