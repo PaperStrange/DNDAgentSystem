@@ -144,32 +144,34 @@ sub draw_human_male_v11 {
   # ---- 描边 ----
   my $g2 = auto_outline($g);
 
-  # ---- 眉（y9，带眉弓阴影压形）----
+  # ---- 眉（y9；眉眼分离由 y10 上睑深框线承担，不再另设眉弓阴影行）----
   span_fill($g2,9,13,9,'d'); span_fill($g2,18,22,9,'d');
-  set_px($g2,10,10,'S'); set_px($g2,11,10,'S'); set_px($g2,12,10,'S');
-  set_px($g2,19,10,'S'); set_px($g2,20,10,'S'); set_px($g2,21,10,'S');
 
-  # ---- 眼（y11-12：眼白+虹膜+瞳孔+高光；y12 下缘眼睑阴影）----
-  for my $s ([10,12],[19,21]) {
+  # ---- 眼（v1.2 可读性重构：4px 宽 × 3 行高；上睑深框线 + 外眼角框 + 虹膜/瞳孔分离；
+  #      内眼角留眼白不做闭合框，避免「眼镜」误读）----
+  # 左眼 x10-13 / 右眼 x18-21；y10 上睑深框线，y11-12 睁眼，y13 下睑阴影带
+  span_fill($g2,10,13,10,'o'); span_fill($g2,18,21,10,'o');
+  for my $s ([10],[18]) {
     my ($lx) = $s->[0];
-    set_px($g2,$lx,11,'e'); set_px($g2,$lx+1,11,'i'); set_px($g2,$lx+2,11,'e');
-    set_px($g2,$lx,12,'i'); set_px($g2,$lx+1,12,'p'); set_px($g2,$lx+2,12,'i');
+    set_px($g2,$lx,11,'e');   set_px($g2,$lx+1,11,'e'); set_px($g2,$lx+2,11,'e'); set_px($g2,$lx+3,11,'o');
+    set_px($g2,$lx,12,'i');   set_px($g2,$lx+1,12,'i'); set_px($g2,$lx+2,12,'p'); set_px($g2,$lx+3,12,'o');
     set_px($g2,$lx+1,11,'k');
   }
-  span_fill($g2,10,12,13,'S'); span_fill($g2,19,21,13,'S');   # 眼下阴影
+  span_fill($g2,10,13,13,'S'); span_fill($g2,18,21,13,'S');   # 下睑阴影带
 
-  # ---- 鼻（鼻根 y14 / 鼻梁 y15-16 / 鼻翼 y17 / 鼻底阴影 y18）----
-  set_px($g2,15,14,'n');
+  # ---- 鼻（鼻根 y14 / 鼻梁 y15-16 / 鼻翼 y17 / 鼻底阴影 y18；鼻根锚点+深鼻孔分离）----
+  set_px($g2,15,14,'n'); set_px($g2,14,14,'S'); set_px($g2,17,14,'S');   # 鼻根+两侧锚点（与颊部分离）
   set_px($g2,15,15,'T'); set_px($g2,16,15,'n');
   set_px($g2,15,16,'T'); set_px($g2,16,16,'n');
   span_fill($g2,14,17,17,'n');
-  set_px($g2,14,18,'S'); set_px($g2,17,18,'S'); span_fill($g2,15,16,18,'S');
+  set_px($g2,14,18,'D'); set_px($g2,17,18,'D');                          # 鼻翼外角深影
+  set_px($g2,15,18,'S'); set_px($g2,16,18,'S');                          # 鼻底阴影
 
   # ---- 嘴（y20-22：上唇深 / 下唇亮 / 唇峰与唇角 / 唇下阴影）----
   set_px($g2,12,20,'M'); span_fill($g2,13,18,20,'m'); set_px($g2,19,20,'M');
   set_px($g2,12,21,'M'); span_fill($g2,13,18,21,'L'); set_px($g2,19,21,'M');
   span_fill($g2,13,18,22,'S');                                 # 唇下阴影
-  span_fill($g2,14,17,23,'S');                                 # 唇颏沟
+  span_fill($g2,14,17,23,'D');                                 # 唇颏沟（深影，与下颏高光拉开层次）
 
   # ---- 下颏高光 ----
   span_fill($g2,15,16,25,'T');
@@ -193,7 +195,7 @@ sub symmetry_check {
 my ($grid, $pal) = draw_human_male_v11();
 my $asym = symmetry_check($grid);
 my ($svg, $count) = grid_to_svg($grid, $pal);
-my $file = "$OUT/portrait-human-male-v1.1.svg";
+my $file = "$OUT/portrait-human-male-v1.2.svg";
 open my $fh, '>', $file or die "无法写入 $file: $!";
 print $fh $svg;
 close $fh;

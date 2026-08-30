@@ -48,7 +48,7 @@ my %RACE_PAL = (
   },
   'dragonborn' => {
     o=>'#1a2418', s=>'#708878', S=>'#506858', D=>'#405444', T=>'#98b8a0',
-    h=>'#587868', H=>'#88a898', d=>'#405848', c=>'#3e584a', C=>'#9cc0a8',
+    h=>'#587868', H=>'#88a898', d=>'#405848', c=>'#3e584a', C=>'#86a890',
     e=>'#e0e0c8', i=>'#c88820', p=>'#201008', k=>'#ffffff',
     n=>'#506050', m=>'#4a4238', M=>'#28221a', L=>'#7a6e58',
     E=>'#607860', t=>'#485848', u=>'#3a4840', U=>'#586858', B=>'#242e28',
@@ -144,8 +144,9 @@ sub render_hair {
     # 冠顶参差碎发（左亮右暗高低发尖，破坏帽状平滑轮廓）
     set_px($g,12,0,'h'); set_px($g,15,0,'H'); set_px($g,19,0,'d');
     set_px($g,10,1,'H'); set_px($g,21,1,'d'); set_px($g,17,1,'h');
-    # 左右连续发缝线（连贯纵线读作分缝发缕，散点会误读为帽面格纹）
-    for my $y (2..7) { set_px($g,13,$y,'d'); set_px($g,18,$y,'d'); }
+    # 明暗断续发缕（左受光亮缕 / 右背光暗缕，避免连续深纵线被读作头盔纵脊）
+    set_px($g,13,2,'H'); set_px($g,13,4,'h'); set_px($g,13,5,'H'); set_px($g,13,7,'h');
+    set_px($g,18,3,'d'); set_px($g,18,4,'h'); set_px($g,18,6,'d'); set_px($g,18,7,'h');
     # 贴面发丝移至 render_hair_front（面部填色之后），避免被擦除
   } elsif ($t eq 'medium') {
     span_fill($g,11,20,1,'h'); span_fill($g,10,21,2,'h');
@@ -192,8 +193,9 @@ sub render_hair {
   } elsif ($t eq 'bald') {
     span_fill($g,13,18,1,'s'); span_fill($g,11,20,2,'s');
     for my $y (3..5) { span_fill($g,10,21,$y,'s'); }
-    span_fill($g,12,16,3,'T');                                            # 秃顶高光
-    set_px($g,18,4,'S'); set_px($g,19,5,'S');                             # 顶右侧阴影
+    # 秃顶油光：散点高光（非整块亮带，避免「帽子」误读）+ 顶部轮廓加深读作头皮
+    set_px($g,13,3,'T'); set_px($g,16,2,'T'); set_px($g,12,4,'T');
+    set_px($g,14,2,'S'); set_px($g,18,3,'S'); set_px($g,17,4,'S'); set_px($g,15,4,'S');
     for my $y (5..13) { set_px($g,8,$y,'h'); set_px($g,9,$y,'h'); set_px($g,22,$y,'h'); set_px($g,23,$y,'h'); }  # 两侧发
     set_px($g,8,6,'H'); set_px($g,9,6,'H'); set_px($g,22,8,'d'); set_px($g,23,9,'d');
   } elsif ($t eq 'none') {
@@ -201,13 +203,18 @@ sub render_hair {
     span_fill($g,10,21,3,'s'); span_fill($g,9,22,4,'s');
     for my $y (5..7) { span_fill($g,8,23,$y,'s'); }
     span_fill($g,12,16,2,'T');                                            # 颅顶高光
-    # 头鳞：全覆盖明暗交错棋盘（弱点3：强化鳞片对比），每行错位半格
-    for my $y (3..6) {
-      my ($sx0, $sx1) = ($y == 3) ? (10, 21) : (9, 22);
-      for my $x ($sx0..$sx1) {
-        set_px($g, $x, $y, (($x + $y) % 2 == 0) ? 'C' : 'c');
-      }
-    }
+    # 头鳞：不规则错落鳞簇（占位镜像对称，疏密不均/边缘参差/局部留肤色基底，
+    # 明暗交错不连成网格线，消除「格子帽/织物」误读；受光侧偏亮、背光侧偏暗）
+    set_px($g,12,3,'C'); set_px($g,13,3,'c'); set_px($g,15,3,'C');        # 顶鳞簇（跨行簇，中部留空）
+    set_px($g,18,3,'c'); set_px($g,19,3,'c');
+    set_px($g,10,4,'C'); set_px($g,11,4,'C');                             # 左鳞簇（亮）
+    span_fill($g,14,17,4,'c'); set_px($g,15,4,'C');                       # 中鳞簇（亮暗混）
+    set_px($g,20,4,'c'); set_px($g,21,4,'c');                             # 右鳞簇（暗）
+    set_px($g,9,5,'C');  set_px($g,13,5,'C'); set_px($g,14,5,'c');        # 左中疏排
+    set_px($g,17,5,'C'); set_px($g,18,5,'c'); set_px($g,22,5,'c');        # 右中（中央留肤色基底）
+    set_px($g,9,6,'c');  set_px($g,10,6,'C'); set_px($g,12,6,'C');        # 底层左鳞
+    set_px($g,15,6,'c'); set_px($g,16,6,'C');                             # 底层中鳞（错位）
+    set_px($g,19,6,'c'); set_px($g,21,6,'c'); set_px($g,22,6,'c');        # 底层右鳞
   }
 }
 
@@ -323,65 +330,68 @@ sub draw_race {
                                      set_px($g2,10,10,'S'); set_px($g2,11,10,'S'); set_px($g2,12,10,'S');
                                      set_px($g2,19,10,'S'); set_px($g2,20,10,'S'); set_px($g2,21,10,'S'); }
 
-  # ---- 眼 ----
-  if ($cfg->{eyes} eq 'big') {
+  # ---- 眼（v1.2 可读性重构：4px 宽 × 3 行高；上睑深框线 + 外眼角框 + 虹膜/瞳孔分离；
+  #      内眼角留眼白不做闭合框，避免「眼镜」误读）----
+  # 左眼 x10-13 / 右眼 x18-21；上睑深框线 ey-1，睁眼 ey~ey+1，下睑阴影带 ey+2
+  my $ey = $cfg->{eyes} eq 'low' ? 12 : 11;
+  span_fill($g2,10,13,$ey-1,'o'); span_fill($g2,18,21,$ey-1,'o');          # 上睑深框线（与眉 ≥2 级分离）
+  for my $s ([10],[18]) {
+    my $lx = $s->[0];
+    set_px($g2,$lx,$ey,'e');     set_px($g2,$lx+1,$ey,'e');   set_px($g2,$lx+2,$ey,'e');   set_px($g2,$lx+3,$ey,'o');
+    set_px($g2,$lx,$ey+1,'i');   set_px($g2,$lx+1,$ey+1,'i'); set_px($g2,$lx+2,$ey+1,'p'); set_px($g2,$lx+3,$ey+1,'o');
+    set_px($g2,$lx+1,$ey,'k');                                             # 高光（瞳孔上方，眼白行内）
+  }
+  if ($cfg->{eyes} eq 'low' && $race eq 'half-orc') {                      # 半兽人红瞳：全红虹膜面
     for my $s ([10],[18]) {
       my $lx = $s->[0];
-      set_px($g2,$lx,11,'e'); set_px($g2,$lx+1,11,'k'); set_px($g2,$lx+2,11,'e'); set_px($g2,$lx+3,11,'e');
-      set_px($g2,$lx,12,'i'); set_px($g2,$lx+1,12,'p'); set_px($g2,$lx+2,12,'i'); set_px($g2,$lx+3,12,'i');
-    }
-    span_fill($g2,10,13,13,'S'); span_fill($g2,18,21,13,'S');
-  } else {
-    my $ey = $cfg->{eyes} eq 'low' ? 12 : 11;
-    for my $s ([10],[19]) {
-      my $lx = $s->[0];
-      set_px($g2,$lx,$ey,'e');   set_px($g2,$lx+1,$ey,'i');   set_px($g2,$lx+2,$ey,'e');
-      set_px($g2,$lx,$ey+1,'i'); set_px($g2,$lx+1,$ey+1,'p'); set_px($g2,$lx+2,$ey+1,'i');
-      set_px($g2,$lx+1,$ey,'k');
-    }
-    if ($cfg->{eyes} eq 'low' && $race eq 'half-orc') {                  # 半兽人红瞳修复：矮人低位眼已过审不动
-      for my $s ([10],[19]) {
-        my $lx = $s->[0];
-        set_px($g2,$lx,$ey,'i'); set_px($g2,$lx+2,$ey,'i');
-      }
-      span_fill($g2,10,12,$ey+2,'S'); span_fill($g2,19,21,$ey+2,'S');    # 眼下阴影下移，不吃虹膜行
-    } else {
-      span_fill($g2,10,12,13,'S'); span_fill($g2,19,21,13,'S');
+      set_px($g2,$lx,$ey,'i');
     }
   }
+  span_fill($g2,10,13,$ey+2,'S'); span_fill($g2,18,21,$ey+2,'S');          # 下睑阴影带
 
   # ---- 鼻 ----
   if ($cfg->{nose} eq 'broad') {
-    set_px($g2,15,14,'n');
+    set_px($g2,15,14,'n'); set_px($g2,14,14,'S'); set_px($g2,17,14,'S');  # 鼻根+两侧锚点
     set_px($g2,15,15,'T'); set_px($g2,16,15,'n');
     set_px($g2,15,16,'T'); set_px($g2,16,16,'n');
     span_fill($g2,14,17,17,'n');
-    set_px($g2,14,18,'n'); set_px($g2,17,18,'n');
+    set_px($g2,14,18,'D'); set_px($g2,17,18,'D');                          # 鼻翼外角深影
     set_px($g2,15,18,'S'); set_px($g2,16,18,'S');
   } elsif ($cfg->{nose} eq 'snout') {
     span_fill($g2,15,16,14,'n');                                          # 鼻根
-    set_px($g2,14,15,'S'); set_px($g2,14,16,'S'); set_px($g2,14,17,'S');  # 左鼻侧影
-    set_px($g2,17,15,'S'); set_px($g2,17,16,'S'); set_px($g2,17,17,'S');  # 右鼻侧影
-    set_px($g2,15,15,'T'); set_px($g2,15,16,'T'); set_px($g2,15,17,'n');  # 鼻梁受光
-    set_px($g2,16,15,'n'); set_px($g2,16,16,'n'); set_px($g2,16,17,'n');
+    set_px($g2,14,15,'S'); set_px($g2,14,16,'S'); set_px($g2,14,17,'S');  # 左侧转折（受光侧较浅）
+    set_px($g2,17,15,'D'); set_px($g2,17,16,'D'); set_px($g2,17,17,'D');  # 右侧转折深影（圆柱背光侧）
+    set_px($g2,15,15,'T'); set_px($g2,16,15,'T');                         # 吻顶受光
+    set_px($g2,15,16,'T'); set_px($g2,16,16,'n');                         # 鼻梁中央亮脊（左亮右收）
+    set_px($g2,15,17,'n'); set_px($g2,16,17,'n');
     span_fill($g2,13,18,18,'n');                                          # 鼻翼外扩
+    set_px($g2,13,18,'S'); set_px($g2,18,18,'S');                         # 翼缘侧收（左浅右深随光源）
     set_px($g2,14,18,'D'); set_px($g2,17,18,'D');                         # 深鼻孔
+    set_px($g2,15,18,'n'); set_px($g2,16,18,'n');                         # 鼻尖（柱面受光，与鼻孔拉开）
     span_fill($g2,13,18,19,'n');
-    span_fill($g2,13,18,20,'S');                                          # 翼底阴影
+    set_px($g2,13,19,'S'); set_px($g2,15,19,'n'); set_px($g2,16,19,'n'); set_px($g2,18,19,'S');
+    set_px($g2,14,19,'D'); set_px($g2,17,19,'D');                         # 鼻孔深影下延
+    set_px($g2,13,20,'S'); set_px($g2,18,20,'D');                         # 翼底阴影左浅右深（层次拉开）
+    span_fill($g2,14,17,20,'S');                                          # 翼底过渡
   } else {
-    set_px($g2,15,14,'n');
+    set_px($g2,15,14,'n'); set_px($g2,14,14,'S'); set_px($g2,17,14,'S');  # 鼻根+两侧锚点
     set_px($g2,15,15,'T'); set_px($g2,16,15,'n');
     set_px($g2,15,16,'T'); set_px($g2,16,16,'n');
     span_fill($g2,14,17,17,'n');
-    set_px($g2,14,18,'S'); set_px($g2,17,18,'S'); span_fill($g2,15,16,18,'S');
+    set_px($g2,14,18,'D'); set_px($g2,17,18,'D');                          # 鼻翼外角深影
+    span_fill($g2,15,16,18,'S');
   }
 
   # ---- 嘴 ----
   if ($cfg->{mouth} eq 'snout') {
-    set_px($g2,12,21,'M'); span_fill($g2,13,18,21,'m'); set_px($g2,19,21,'M');   # 上唇
-    set_px($g2,11,22,'M'); span_fill($g2,12,19,22,'M'); set_px($g2,20,22,'M');   # 深口缝线（宽于唇，嘴角下压）
-    span_fill($g2,13,18,23,'L');                                                  # 下唇亮带
-    span_fill($g2,14,17,24,'S');                                                  # 唇下阴影
+    span_fill($g2,13,18,21,'m');                                          # 上唇受光面（中央亮）
+    set_px($g2,15,21,'L'); set_px($g2,16,21,'L');                         # 上唇中央亮脊（柱面正对光源）
+    set_px($g2,12,21,'M'); set_px($g2,19,21,'M');                         # 唇角深收
+    set_px($g2,11,22,'D'); span_fill($g2,12,19,22,'M'); set_px($g2,20,22,'D');  # 口缝线两端深压（吻面转折）
+    span_fill($g2,13,18,23,'L');                                          # 下唇亮带（下翻受光）
+    set_px($g2,12,23,'M'); set_px($g2,19,23,'M');                         # 下唇两侧收暗
+    set_px($g2,13,24,'S'); set_px($g2,18,24,'D');                         # 唇下阴影左浅右深（随光源）
+    span_fill($g2,14,17,24,'D');                                          # 唇下深影（与亮下唇拉开层次）
   } elsif ($cfg->{mouth} eq 'tusks') {
     set_px($g2,12,20,'M'); span_fill($g2,13,18,20,'m'); set_px($g2,19,20,'M');
     set_px($g2,12,21,'M'); span_fill($g2,13,18,21,'L'); set_px($g2,19,21,'M');
@@ -390,7 +400,7 @@ sub draw_race {
     set_px($g2,12,20,'M'); span_fill($g2,13,18,20,'m'); set_px($g2,19,20,'M');
     set_px($g2,12,21,'M'); span_fill($g2,13,18,21,'L'); set_px($g2,19,21,'M');
     span_fill($g2,13,18,22,'S');
-    span_fill($g2,14,17,23,'S');
+    span_fill($g2,14,17,23,'D');                                           # 唇颏沟深影
   }
   span_fill($g2,15,16,25,'T') unless $race eq 'dragonborn';
 
@@ -404,10 +414,10 @@ sub draw_race {
     set_px($g2,10,17,'r'); set_px($g2,21,17,'r');
   }
   if ($race eq 'dragonborn') {
-    set_px($g2,11,16,'c'); set_px($g2,20,16,'c');
-    set_px($g2,12,20,'C'); set_px($g2,19,20,'C');
+    set_px($g2,11,17,'c'); set_px($g2,20,17,'c');
+    set_px($g2,12,20,'c'); set_px($g2,19,20,'c');
     set_px($g2,13,25,'c'); set_px($g2,18,25,'c');
-    set_px($g2,14,12,'C'); set_px($g2,17,12,'C');
+    set_px($g2,13,12,'C'); set_px($g2,18,12,'C');
   }
   if ($race eq 'dwarf') {
     for my $y (20..23) { span_fill($g2,9,22,$y,'f'); }                     # 络腮胡
