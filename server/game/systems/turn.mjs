@@ -20,6 +20,12 @@ const FEATURES = {
 };
 
 export function installTurn(game) {
+  game.beginPlay = function () {
+    this.state = 'playing';
+    this._startWander(); // F-31：冒险状态下怪物随机游荡（战斗时自动停止）
+    this._startFirstTurn();
+  }
+
   game._startFirstTurn = function () {
     const pid = this.seatOrder.find(id => this.players.get(id) && !this.players.get(id).dead);
     if (pid === undefined) return this._endGame('defeat', '没有可行动的玩家');

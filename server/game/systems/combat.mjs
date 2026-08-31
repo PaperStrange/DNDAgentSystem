@@ -1,7 +1,7 @@
 // 战斗系统（S2-5 架构迁移）：先攻轮序/小队警戒/怪物行动/攻击结算/伤害与击杀/事件树记录，自 game.mjs 原样迁出，行为零变更
 
 import { MONSTERS } from '../dungeon.mjs';
-import { roll, d20, findPath, losClear, manhattan } from '../../util.mjs';
+import { roll, d20, clamp, findPath, losClear, manhattan } from '../../util.mjs';
 
 export function installCombat(game) {
   game.actorEvent = function (actorE, text, targetE = null) {
@@ -32,6 +32,7 @@ export function installCombat(game) {
     return e.dex ?? MONSTERS[e.defKey]?.dex ?? 10;
   }
 
+  // F-25：阵营敏捷比较——先攻顺序构建。同一阵营敏捷高者先动；玩家先动时团队打头，否则敏捷高的一方先动（平局团队先动）
   game._buildCombatOrder = function (playerEs, monsterEs, playersFirst) {
     const byDex = (list) => list.slice().sort((a, b) => (this._dexOf(b) - this._dexOf(a)) || a.eid.localeCompare(b.eid));
     const ps = byDex(playerEs), ms = byDex(monsterEs);
