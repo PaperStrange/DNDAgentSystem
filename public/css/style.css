@@ -153,6 +153,13 @@ input, select, textarea { font-family: var(--font); }
 .face-zoom-wrap { margin-top: 8px; text-align: center; }
 .face-zoom-label { color: var(--dim); font-size: 10px; margin-bottom: 4px; }
 .face-zoom-wrap canvas { image-rendering: pixelated; width: 96px; height: 96px; display: block; margin: 0 auto; border-radius: 6px; background: #1a1828; border: 1px solid var(--line); }
+/* S2-1：种族立绘展示层（定稿精修像素图，pixelated 保证任意缩放下边缘锐利不模糊） */
+.cg-portrait-wrap { margin-top: 8px; text-align: center; }
+.cg-portrait-label { color: var(--dim); font-size: 10px; margin-bottom: 4px; }
+.cg-portrait { image-rendering: pixelated; width: 192px; height: 192px; object-fit: cover; display: block; margin: 0 auto; border-radius: 8px; background: #12101e; border: 2px solid var(--line); }
+.cg-portrait-empty { width: 192px; height: 108px; margin: 0 auto; display: flex; align-items: center; justify-content: center; border-radius: 8px; border: 1px dashed var(--line); color: var(--dim); font-size: 11px; }
+.member-card .mc-portrait { width: 40px; height: 40px; object-fit: cover; border-radius: 6px; border: 1px solid var(--line); }
+.roster-thumb { image-rendering: pixelated; width: 44px; height: 44px; object-fit: cover; border-radius: 6px; border: 1px solid var(--line); float: left; margin-right: 8px; }
 .derived-list { font-size: 12px; color: var(--dim); line-height: 1.7; }
 .derived-list b { color: var(--txt); }
 

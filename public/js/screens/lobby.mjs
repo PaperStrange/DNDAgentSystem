@@ -1,6 +1,7 @@
 // 大厅：昵称 / 房间列表 / 创建房间（选副本+12位AI DM人设） / 加入房间 / 冒险者名册
 import { store, el, loadErrLog, clearErrLog, loadCards, deleteCard } from '../app.mjs';
 import { loadRoster } from '../roster.mjs';
+import { portraitUrl } from '../portraits.mjs';
 import { RACES, CLASSES } from '../../shared/char-defs.mjs';
 
 export function mountLobby(root, view) {
@@ -223,6 +224,15 @@ export function mountLobby(root, view) {
     }
     for (const e of list) {
       const item = el('div', 'story-item' + (e.status === 'dead' ? ' dead' : ''));
+      // S2-1：名册展示层接入种族定稿立绘缩略图（加载失败自动移除，不阻塞名册）
+      const purl = portraitUrl(e.raceId);
+      if (purl) {
+        const thumb = el('img', 'roster-thumb');
+        thumb.alt = '';
+        thumb.onerror = () => thumb.remove();
+        thumb.src = purl;
+        item.appendChild(thumb);
+      }
       const head = el('div', 'spread');
       const rn = RACES.find(r => r.id === e.raceId)?.name || e.raceId;
       const cn = CLASSES.find(c => c.id === e.classId)?.name || e.classId;
