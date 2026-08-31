@@ -10,7 +10,7 @@ export function installProgress(game) {
     const e = this.entities.get(p.eid);
     if (e) { e.hp = s.maxHp; e.maxHp = s.maxHp; e.level = level; }
     const newFeats = s.features.filter(f => f.lv > 1 && f.lv <= level).map(f => f.name);
-    this.narrate('levelUp', { actor: s.name, n: level });
+    this.narrate('levelUp', { actor: s.name, n: level }, { imp: 'key' });
     if (newFeats.length) this.logMsg('system', '✨ ' + s.name + ' 获得新特性：' + newFeats.join('、'));
   };
 

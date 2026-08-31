@@ -247,14 +247,11 @@ export function mountChargen(root, view, net) {
     fctx.fillStyle = '#1a1828';
     fctx.fillRect(0, 0, faceZoomCanvas.width, faceZoomCanvas.height);
     const headH = 8;
-    const srcCanvas = document.createElement('canvas');
-    srcCanvas.width = 16; srcCanvas.height = 18;
-    const sctx = srcCanvas.getContext('2d');
-    sctx.imageSmoothingEnabled = false;
     const pal2 = spritePalette('player', 'human', colors);
     pal2.e = colors.eye; pal2.U = colors.accent; pal2.o = '#0a0814';
     const headSprite = spriteToCanvas('player', 'human', pal2, selClass, selRace, look);
-    fctx.drawImage(headSprite, 0, 0, 16, headH, 0, 0, faceZoomCanvas.width, faceZoomCanvas.height);
+    // S2-2：面部放大窗改等比——居中裁切 8×8 头部源区，整数 12 倍放大（原 16×8 拉成 96×96 导致纵向变形）
+    fctx.drawImage(headSprite, 4, 0, 8, headH, 0, 0, faceZoomCanvas.width, faceZoomCanvas.height);
   };
 
   // R-11: 读取已保存的在世角色（已阵亡角色不列出 → 禁止出战）

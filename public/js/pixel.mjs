@@ -243,13 +243,13 @@ const HUMANOID = [
   '..osssssso..',
   '..ohhhHHho..',
   '..ohhhhhho..',
-  '..osepoesho..',
+  '.oeeeppeeeo.',
   '...ososo....',
   '....oooo....',
   '..ouuuuuuo..',
-  '.oUuuuuuuo..',
-  '.oUuuuuuuo..',
-  '.oUuuuuuuo..',
+  '.oUuuuuuUo..',
+  '.oUuuuuuUo..',
+  '.oUuuuuuUo..',
   '.oUduwwduo..',
   '..ouuuuuuo..',
   '..oouooouo..',
@@ -264,13 +264,13 @@ const RACE_GRIDS = {
     '..osssssso..',
     '.oohhhHHhoo.',
     '.oohhhhhhoo.',
-    '..osepoesho..',
+    '.oeeeppeeeo.',
     '...osssso...',
     '....oooo....',
     '..ouuuuuuo..',
-    '.oUuuuuuuo..',
-    '.oUuuuuuuo..',
-    '.oUuuuuuuo..',
+    '.oUuuuuuUo..',
+    '.oUuuuuuUo..',
+    '.oUuuuuuUo..',
     '.oUduuuduo..',
     '..ouuuuuuo..',
     '..oouooouo..',
@@ -282,13 +282,13 @@ const RACE_GRIDS = {
     '..osssssso..',
     '..ohhhHHho..',
     '..ohhhhhho..',
-    '..osepoesho..',
+    '.oeeeppeeeo.',
     '..ohhhhhho..',
     '..ohhhhhho..',
     '.oouuuuuuo..',
-    '.oUuuuuuuo..',
-    '.oUuuuuuuo..',
-    '.oUuuuuuuo..',
+    '.oUuuuuuUo..',
+    '.oUuuuuuUo..',
+    '.oUuuuuuUo..',
     '.oUduuuduo..',
     '..ouuuuuuo..',
     '..oddoooddo.',
@@ -300,13 +300,13 @@ const RACE_GRIDS = {
     '..osssssso..',
     '..ohhhhhho..',
     '..ohHHhhho..',
-    '..osepoesho..',
+    '.oeeeppeeeo.',
     '...osssso...',
     '....oooo....',
     '..ouuuuuuo..',
-    '.oUuuuuuuo..',
-    '.oUuuuuuuo..',
-    '.oUuuuuuuo..',
+    '.oUuuuuuUo..',
+    '.oUuuuuuUo..',
+    '.oUuuuuuUo..',
     '.oUduuuduo..',
     '..ouuuuuuo..',
     '..oddoooddo.',
@@ -318,13 +318,13 @@ const RACE_GRIDS = {
     '..osssssso..',
     '..ohhhhhho..',
     '..ohhhHHho..',
-    '..osepoesho..',
+    '.oeeeppeeeo.',
     '..oswsswso..',
     '....oooo....',
     '..ouuuuuuo..',
-    '.oUuuuuuuo..',
-    '.oUuuuuuuo..',
-    '.oUuuuuuuo..',
+    '.oUuuuuuUo..',
+    '.oUuuuuuUo..',
+    '.oUuuuuuUo..',
     '.oUduuuduo..',
     '..ouuuuuuo..',
     '..oouooouo..',
@@ -336,13 +336,13 @@ const RACE_GRIDS = {
     '..osssssso..',
     '..osssssso..',
     '..osssssso..',
-    '..osepoesho..',
+    '.oeeeppeeeo.',
     '..osssssso..',
     '....oooo....',
     '..ouuuuuuo..',
-    '.oUuuuuuuo..',
-    '.oUuuuuuuo..',
-    '.oUuuuuuuo..',
+    '.oUuuuuuUo..',
+    '.oUuuuuuUo..',
+    '.oUuuuuuUo..',
     '.oUduuuduo..',
     '..ouuuuuuo..',
     '..oouooouo..',
@@ -354,13 +354,13 @@ const RACE_GRIDS = {
     '...ohhhho...',
     '..ohhhhhho..',
     '..ohhhHHho..',
-    '..osepoesho..',
+    '.oeeeppeeeo.',
     '...osssso...',
     '....oooo....',
     '..ouuuuuuo..',
-    '.oUuuuuuuo..',
-    '.oUuuuuuuo..',
-    '.oUuuuuuuo..',
+    '.oUuuuuuUo..',
+    '.oUuuuuuUo..',
+    '.oUuuuuuUo..',
     '.oUduuuduo..',
     '..ouuuuuuo..',
     '..oddoooddo.',
@@ -372,13 +372,13 @@ const RACE_GRIDS = {
     '..osssssso..',
     '..ohhhHHho..',
     '.oohhhhhhoo.',
-    '..osepoesho..',
+    '.oeeeppeeeo.',
     '...osssso...',
     '....oooo....',
     '..ouuuuuuo..',
-    '.oUuuuuuuo..',
-    '.oUuuuuuuo..',
-    '.oUuuuuuuo..',
+    '.oUuuuuuUo..',
+    '.oUuuuuuUo..',
+    '.oUuuuuuUo..',
     '.oUduuuduo..',
     '..ouuuuuuo..',
     '..oouooouo..',
@@ -433,10 +433,11 @@ const SKELETON = [
 const CLASS_TWEAK = {
   // F-21：职业头饰不再遮住发色行（保留第4~5行头发），头盔饰条用饰色U展示，颜色区分更明显
   fighter: (g) => [g[0], g[1], '..oUUUUUo..', '..owwwwwo..', g[4], g[5], g[6], g[7], '.owuuuuuwo.', g[9], g[10], g[11], g[12], g[13], g[14], g[15]],
-  wizard: (g) => ['....ouuo....', '...ouUUuo...', '..ouuuuuuo..', '..ouuuuuuo..', g[4], g[5], g[6], g[7], '..ouuuuuuo..', '.ouduuuuduo.', '.ouuuuuuuuo.', '.ouuuuuuuuo.', '.ouduuuduo..', '..ouuuuuuo..', '..oouooouo..', '..oouooouo..'],
-  rogue: (g) => [g[0], g[1], '..ohhhhhho..', '..ohhhHHho..', '..ohhhhhho..', g[5], g[6], g[7], '..ouuuuuuo..', '.ouuuuuuuuo.', '.ouuuuuuuuo.', '.ouuuuuuuuo.', '.ouduuuduo..', '..ouuuuuuo..', '..oouooouo..', '..oouooouo..'],
+  // S2-2：兜帽/风帽改服装色，下缘保留 ≥1 行发色刘海，发色通道可见
+  wizard: (g) => ['....ouuo....', '...ouUUuo...', '..ouuuuuuo..', '..ohhhhhho..', g[4], g[5], g[6], g[7], '..ouuuuuuo..', '.ouduuuuduo.', '.ouuuuuuuuo.', '.ouuuuuuuuo.', '.ouduuuduo..', '..ouuuuuuo..', '..oouooouo..', '..oouooouo..'],
+  rogue: (g) => [g[0], g[1], '..ouuuuuuo..', '..oduuuudo..', '..ohhhhhho..', g[5], g[6], g[7], '..ouuuuuuo..', '.ouuuuuuuuo.', '.ouuuuuuuuo.', '.ouuuuuuuuo.', '.ouduuuduo..', '..ouuuuuuo..', '..oouooouo..', '..oouooouo..'],
   cleric: (g) => [g[0], g[1], '..oddddddo..', '..oddddddo..', g[4], g[5], g[6], g[7], '..ouuuuuuo..', '.oduuuuuudo.', '.ouuuuuuuuo.', '.ouuuuuuuuo.', '.oduuuudo..', '..ouuuuuuo..', '..oouooouo..', '..oouooouo..'],
-  ranger: (g) => [g[0], g[1], '..ohhhhhho..', '..ohhhHHho..', '..ohhhhhho..', g[5], g[6], g[7], '..ouuuuuuo..', '.ouuuuuuuuo.', '.ouuuuuuuuo.', '.ouuuuuuuuo.', '.ouduuuduo..', '..ouuuuuuo..', '..oouooouo..', '..oouooouo..'],
+  ranger: (g) => [g[0], g[1], '..ouuuuuuo..', '..oduuuudo..', '..ohhhhhho..', g[5], g[6], g[7], '..ouuuuuuo..', '.ouuuuuuuuo.', '.ouuuuuuuuo.', '.ouuuuuuuuo.', '.ouduuuduo..', '..ouuuuuuo..', '..oouooouo..', '..oouooouo..'],
 };
 
 // S1-3：色板全面升级——相邻色明度差≥12%，1px像素尺度肉眼可辨
@@ -558,8 +559,11 @@ export function applyLook(grid, palette, look) {
     } else if (hairStyle === 2) { // 发髻：额前盘发
       const r = first - 1;
       if (r >= 0) for (let c = center - 1; c <= center + 1; c++) if (rows[r][c] !== undefined && rows[r][c] !== 'o') rows[r][c] = 'h';
-    } else if (hairStyle === 3) { // 短发：头发换肤色
-      for (let i = 0; i < rows.length; i++) for (let c = 0; c < rows[i].length; c++) if (rows[i][c] === 'h' || rows[i][c] === 'H') rows[i][c] = 's';
+    } else if (hairStyle === 3) { // S2-2：短寸——保留发色通道：仅留最上2行头发并压平高光，其余发区换肤色（原实现全换肤色导致发色失效）
+      const keep = new Set(hairRows.slice(0, 2));
+      for (let i = 0; i < rows.length; i++) for (let c = 0; c < rows[i].length; c++) {
+        if (rows[i][c] === 'h' || rows[i][c] === 'H') rows[i][c] = keep.has(i) ? 'h' : 's';
+      }
     } else if (hairStyle === 4) { // 马尾：右侧竖线 row last+1 到 last+4
       for (let k = 1; k <= 4; k++) {
         const r = last + k;
@@ -680,8 +684,11 @@ export function drawSprite(ctx, kind, defKey, palette, dx, dy, { dir = 'down', f
     const base = (race && RACE_GRIDS[race]) ? RACE_GRIDS[race] : HUMANOID;
     grid = cls && CLASS_TWEAK[cls] ? CLASS_TWEAK[cls](base) : base;
     offsetX = 2;
-    // 小体型种族微缩（半身人/侏儒）
-    if (race === 'halfling' || race === 'gnome') scale = scale * 0.92;
+    // S2-2：小体型种族微缩改网格行删减（半身人/侏儒）——去掉 ctx.scale(0.92) 小数坐标抗锯齿，像素对齐
+    if ((race === 'halfling' || race === 'gnome') && grid.length >= 16) {
+      grid = [...grid.slice(0, 13), ...grid.slice(14)];
+      offsetY = 1; // 躯干缩短一行，整体下沉 1px 保持双脚落地
+    }
   } else {
     grid = MONSTER_GRID[defKey] || HUMANOID;
     if (defKey === 'wolf') offsetX = 0;
@@ -705,7 +712,7 @@ export function drawSprite(ctx, kind, defKey, palette, dx, dy, { dir = 'down', f
   if (scale !== 1) ctx.scale(scale, scale);
   if (flip) { ctx.translate(16, 0); ctx.scale(-1, 1); }
   const bo = bob ? (frame % 2) : 0;
-  ctx.translate(offsetX, -bo);
+  ctx.translate(offsetX, offsetY - bo);
   // F-21: 轮廓只描在剪影外侧——从画布边缘洪泛空格子，只给「与实心相邻的外部空格」描边；
   // 内部间隙（如手臂与躯干之间）保持透明，轮廓干净不糊成一团
   const filled = new Set();
