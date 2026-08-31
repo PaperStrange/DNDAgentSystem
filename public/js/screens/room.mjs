@@ -3,6 +3,7 @@ import { store, el, toast } from '../app.mjs';
 import { RACES, CLASSES, MAX_STAT, MIN_STAT, POINT_POOL } from '../../shared/char-defs.mjs';
 import { SKIN_TONES, HAIR_TONES, OUTFIT_TONES, EYE_TONES, ACCENT_TONES, spriteToCanvas, spritePalette } from '../pixel.mjs';
 import { aliveEntries, upsertEntry, loadRoster } from '../roster.mjs';
+import { portraitUrl } from '../portraits.mjs';
 
 export function mountRoom(root, view) {
   const net = store.net;
@@ -10,6 +11,19 @@ export function mountRoom(root, view) {
   const host = view.room.hostId;
   const room = view.room;
   let lastView = view; // 供确认框读取最新成员数
+
+  // S2-1：成员卡头像接入种族定稿立绘（展示层；加载失败回退原 emoji，不阻塞房间功能）
+  const memberIcon = (m) => {
+    const url = m.sheet ? portraitUrl(m.sheet.race) : null;
+    if (url) {
+      const img = el('img', 'mc-icon mc-portrait');
+      img.alt = m.sheet.raceName || '';
+      img.onerror = () => { img.replaceWith(el('div', 'mc-icon', m.sheet.raceName === '人类' ? '🧑' : '🧝')); };
+      img.src = url;
+      return img;
+    }
+    return el('div', 'mc-icon', m.sheet ? (m.sheet.raceName === '人类' ? '🧑' : '🧝') : '❔');
+  };
 
   const box = el('div', 'screen-room');
   const head = el('div', 'room-head');
@@ -32,7 +46,7 @@ export function mountRoom(root, view) {
   const memberList = el('div', 'member-grid');
   for (const m of view.members) {
     const card = el('div', 'panel member-card');
-    card.appendChild(el('div', 'mc-icon', m.sheet ? (m.sheet.raceName === '人类' ? '🧑' : '🧝') : '❔'));
+    card.appendChild(memberIcon(m));
     const info2 = el('div', 'mc-info');
     info2.appendChild(el('div', 'mc-name', (m.isHost ? '👑 ' : '') + m.name + (m.isMe ? '（你）' : '') + (m.online ? '' : ' ⚠离线')));
     if (m.sheet) {
@@ -134,7 +148,7 @@ export function mountRoom(root, view) {
     memberList.innerHTML = '';
     for (const m of v.members) {
       const card = el('div', 'panel member-card');
-      card.appendChild(el('div', 'mc-icon', m.sheet ? (m.sheet.raceName === '人类' ? '🧑' : '🧝') : '❔'));
+      card.appendChild(memberIcon(m));
       const info2 = el('div', 'mc-info');
       info2.appendChild(el('div', 'mc-name', (m.isHost ? '👑 ' : '') + m.name + (m.isMe ? '（你）' : '') + (m.online ? '' : ' ⚠离线')));
       if (m.sheet) {
@@ -216,6 +230,16 @@ export function mountChargen(root, view, net) {
   faceZoomWrap.appendChild(el('div', 'face-zoom-label', '面部细节'));
   faceZoomWrap.appendChild(faceZoomCanvas);
   previewWrap.appendChild(faceZoomWrap);
+  // S2-1：种族立绘展示层——老板终选 wan 档定稿，随所选种族切换；冒险/战斗内小人仍走程序化像素 sprite
+  const portraitWrap = el('div', 'cg-portrait-wrap');
+  portraitWrap.appendChild(el('div', 'cg-portrait-label', '种族立绘'));
+  const portraitEmpty = el('div', 'cg-portrait-empty', '选择种族后展示立绘');
+  const portraitImg = el('img', 'cg-portrait');
+  portraitImg.alt = '';
+  portraitImg.style.display = 'none';
+  portraitImg.onerror = () => { portraitImg.style.display = 'none'; portraitEmpty.style.display = ''; };
+  portraitWrap.append(portraitImg, portraitEmpty);
+  previewWrap.appendChild(portraitWrap);
 
   const cg = el('div', 'cg-layout');
   const mainCol = el('div', 'cg-main');
@@ -252,6 +276,21 @@ export function mountChargen(root, view, net) {
     const headSprite = spriteToCanvas('player', 'human', pal2, selClass, selRace, look);
     // S2-2：面部放大窗改等比——居中裁切 8×8 头部源区，整数 12 倍放大（原 16×8 拉成 96×96 导致纵向变形）
     fctx.drawImage(headSprite, 4, 0, 8, headH, 0, 0, faceZoomCanvas.width, faceZoomCanvas.height);
+  };
+
+  // S2-1：立绘随种族切换（展示层；无选中或资源缺失时回落占位提示）
+  const renderPortrait = () => {
+    const url = selRace ? portraitUrl(selRace) : null;
+    if (url) {
+      portraitEmpty.style.display = 'none';
+      portraitImg.alt = (race() ? race().name : '') + '立绘';
+      portraitImg.style.display = '';
+      if (portraitImg.getAttribute('src') !== url) portraitImg.src = url;
+    } else {
+      portraitImg.removeAttribute('src');
+      portraitImg.style.display = 'none';
+      portraitEmpty.style.display = '';
+    }
   };
 
   // R-11: 读取已保存的在世角色（已阵亡角色不列出 → 禁止出战）
@@ -441,6 +480,7 @@ export function mountChargen(root, view, net) {
     renderStatRows();
     renderLook();
     renderPreview();
+    renderPortrait();
     renderDerived();
     saveBtn.disabled = !selRace || !selClass || !name;
   }
