@@ -129,9 +129,9 @@ export class Game {
     this.events.push({ seq: SEQ, t, ts: Date.now(), ...data });
     if (this.events.length > 300) this.events.splice(0, this.events.length - 300);
   }
-  narrate(key, ctx = {}) {
+  narrate(key, ctx = {}, extra = {}) {
     const text = this.director.narrate(this, key, ctx);
-    this.logMsg('narr', text, { dm: true });
+    this.logMsg('narr', text, { dm: true, ...extra });
     return text;
   }
   later(ms, fn) {
