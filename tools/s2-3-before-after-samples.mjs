@@ -50,7 +50,7 @@ function sample(arr, ctx, idx) {
 }
 
 function charLen(s) {
-  return s.replace(/\{[^}]+\}/g, 'XX').length;
+  return fill(s, ctx).length;
 }
 
 const ctx = { actor: '索尔（战士）', target: '地精首领', n: 3, dmg: 18 };
