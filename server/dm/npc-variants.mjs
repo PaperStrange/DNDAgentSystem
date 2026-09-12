@@ -106,8 +106,9 @@ export function randomNpcVariants(rndFn) {
       options[oid] = useAlt && arr?.length ? arr[0] : null;
     }
     const results = {};
-    for (const [oid, arr] of Object.entries(v.results || {})) {
-      results[oid] = useAlt && arr?.length ? arr[0] : null;
+    // R1-2：results 的值是完整字符串（不是数组），必须整体保留，取 [0] 会只剩第一个字
+    for (const [oid, s] of Object.entries(v.results || {})) {
+      results[oid] = useAlt && typeof s === 'string' ? s : null;
     }
     out[npcId] = {
       greet: useAlt && v.greet?.length ? v.greet[0] : null,
