@@ -119,7 +119,10 @@ export function installStealth(game) {
 
   game._resolveBossFlee = function () {
     const pb = this.pendingBoss;
-    const boss = this.entities.get(pb?.bossEid);
+    // R1-1：先把 bossEid 取出来再清空 pendingBoss——否则失败分支调 _startBossCombat() 时
+    // 上下文已丢失，BOSS 遭遇永远不会开战
+    const bossEid = pb?.bossEid;
+    const boss = this.entities.get(bossEid);
     this.pendingBoss = null;
     const r = d20();
     if (r.total >= 11) { // 50%概率逃跑成功
@@ -129,13 +132,15 @@ export function installStealth(game) {
       return { ok: true, fled: true };
     }
     this.logMsg('dice', '🏃 逃跑掷骰：d20=' + r.total + '（需≥11）——失败！' + (boss?.name || 'BOSS') + ' 拦住了去路！', { imp: 'key' });
-    this._startBossCombat();
+    this._startBossCombat(bossEid);
     return { ok: true, fled: false };
   };
 
-  game._startBossCombat = function () {
+  game._startBossCombat = function (bossEid) {
     const pb = this.pendingBoss;
-    const boss = this.entities.get(pb?.bossEid);
+    // R1-1：优先使用显式传入的 bossEid（逃跑失败时 pendingBoss 已被清空）
+    const eid = (bossEid !== undefined && bossEid !== null) ? bossEid : pb?.bossEid;
+    const boss = this.entities.get(eid);
     this.pendingBoss = null;
     this.bossRevealCd = Date.now() + 20000;
     if (!boss || boss.dead) return;

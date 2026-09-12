@@ -3,15 +3,46 @@ import { attrMod, ATTRS, SKILLS } from '../rules/rulesdb.mjs';
 import { RACES, CLASSES, MAX_STAT, MIN_STAT, POINT_POOL } from '../../public/shared/char-defs.mjs';
 export { RACES, CLASSES, MAX_STAT, MIN_STAT, POINT_POOL };
 
+export const MAX_LEVEL = 4;
+const STAT_KEYS = ATTRS;
+
+// R1-1：车卡入参合法性校验。非法输入一律拒绝（抛出明确错误），绝不让非法数值进入 sheet。
+// 这只是当前阶段的输入防线，不是最终角色权威（角色权威/版本存储属于 R2-1）。
+function assertValidSheetInput({ name, raceId, classId, stats, flex, level }) {
+  if (typeof name !== 'string' || name.length < 1 || name.length > 20) throw new Error('名字非法（1~20个字符）');
+  if (!RACES.some(r => r.id === raceId)) throw new Error('非法种族：' + raceId);
+  if (!CLASSES.some(c => c.id === classId)) throw new Error('非法职业：' + classId);
+  if (!stats || typeof stats !== 'object' || Array.isArray(stats)) throw new Error('属性点非法');
+  const keys = Object.keys(stats);
+  if (keys.length !== STAT_KEYS.length || keys.some(k => !STAT_KEYS.includes(k))) throw new Error('属性必须且只能包含 ' + STAT_KEYS.join('/'));
+  let spent = 0;
+  for (const k of STAT_KEYS) {
+    const v = stats[k];
+    if (!Number.isInteger(v) || v < MIN_STAT || v > MAX_STAT) throw new Error('属性 ' + k + ' 非法（需为 ' + MIN_STAT + '~' + MAX_STAT + ' 的整数）');
+    spent += v - MIN_STAT;
+  }
+  if (spent > POINT_POOL) throw new Error('属性购点超出上限（' + spent + '>' + POINT_POOL + '）');
+  const race = RACES.find(r => r.id === raceId);
+  const flexKeys = Object.keys(flex || {});
+  if (flexKeys.some(k => !STAT_KEYS.includes(k))) throw new Error('自由属性只能加在 ' + STAT_KEYS.join('/'));
+  for (const k of flexKeys) {
+    const v = flex[k];
+    if (!Number.isInteger(v) || v < 0) throw new Error('自由属性 ' + k + ' 非法（需为非负整数）');
+  }
+  if (flexKeys.length > (race.flex || 0)) throw new Error('自由属性数量超出种族上限（' + race.name + '最多' + (race.flex || 0) + '项）');
+  if (!Number.isInteger(level) || level < 1 || level > MAX_LEVEL) throw new Error('等级非法（需为 1~' + MAX_LEVEL + ' 的整数）');
+}
+
 export function buildSheet({ name, raceId, classId, stats, flex = {}, colors = {}, background = '', look = {}, level = 1, xp = 0 }) {
-  const race = RACES.find(r => r.id === raceId) || RACES[0];
-  const cls = CLASSES.find(c => c.id === classId) || CLASSES[0];
+  assertValidSheetInput({ name, raceId, classId, stats, flex, level });
+  const race = RACES.find(r => r.id === raceId);
+  const cls = CLASSES.find(c => c.id === classId);
   const final = { ...stats };
   for (const [k, v] of Object.entries(race.stats)) final[k] = (final[k] || 10) + v;
   for (const [k, v] of Object.entries(flex || {})) final[k] = (final[k] || 10) + (Number(v) || 0);
   for (const a of ATTRS) if (!final[a]) final[a] = 10;
   const mods = Object.fromEntries(ATTRS.map(a => [a, attrMod(final[a])]));
-  const lv = Math.max(1, Number(level) || 1); // 跨冒险继承等级（5E：经验与成长随角色保留）
+  const lv = level; // 跨冒险继承等级（5E：经验与成长随角色保留；已校验为 1~MAX_LEVEL 的整数）
   const hp = cls.hitDie + mods.CON + (race.id === 'dwarf' ? 1 : 0) + (lv - 1) * (cls.hpPerLv + mods.CON + (race.id === 'dwarf' ? 1 : 0));
   const ac = cls.id === 'fighter' ? cls.ac : cls.ac + Math.min(mods.DEX, 2);
   const prof = 2;
