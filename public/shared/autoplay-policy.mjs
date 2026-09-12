@@ -8,6 +8,13 @@ export function createPolicy(throttleMs = 200) {
   };
 }
 
+// 能力 id 带前缀（如 'f:dragonbreath'），而服务端 charges 以裸 id（'dragonbreath'）为键，查询前需去前缀
+export function chargeKey(id) { return String(id ?? '').replace(/^f:/, ''); }
+export function chargeOf(me, id) {
+  const n = me?.charges?.[chargeKey(id)];
+  return typeof n === 'number' && Number.isFinite(n) ? n : 0;
+}
+
 function manhattan(a, b) { return Math.abs(a.x - b.x) + Math.abs(a.y - b.y); }
 function sign(n) { return n > 0 ? 1 : n < 0 ? -1 : 0; }
 
@@ -176,7 +183,7 @@ function combatDecide(gv, me, ent, target, foes, mem, now) {
     const wp = weaponFor(gv, me, ent, target);
     if (wp) return done({ type: 'attack', targetEid: target.eid });
     const aoeSpell = (me.attacks || []).find(a => a.kind === 'aoe' && a.cost !== 'slot');
-    if (aoeSpell && me.charges[aoeSpell.id] > 0) {
+    if (aoeSpell && chargeOf(me, aoeSpell.id) > 0) {
       const cluster = foes.filter(f => manhattan(f, target) <= 3);
       if (cluster.length >= 2 && d <= aoeSpell.range) return done({ type: 'cast', spellId: aoeSpell.id, x: target.x, y: target.y });
     }
