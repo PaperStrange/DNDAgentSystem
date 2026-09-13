@@ -96,12 +96,14 @@ export function installDialogue(game) {
     if (!opt) return { ok: false, msg: '选项无效' };
     if (opt.need && !p.keys.includes(opt.need) && !this.keys.has(opt.need)) return { ok: false, msg: opt.missingText || '缺少道具' };
     if (opt.once && this.flags.has('dlg:' + npcE.npcId + ':' + opt.id)) return { ok: false, msg: '已经做过了' };
+    const onceKey = 'dlg:' + npcE.npcId + ':' + opt.id;
+    const firstTime = !this.flags.has(onceKey); // R1-2：治疗/强化只允许首次生效
     if (opt.cost) {
       if (opt.cost.gold && p.gold < opt.cost.gold) return { ok: false, msg: '金币不足' };
       p.gold -= opt.cost.gold || 0;
       if (opt.cost.item) p.items[opt.cost.item]++; // 购买类：花费金币，获得道具
     }
-    this.flags.add('dlg:' + npcE.npcId + ':' + opt.id);
+    this.flags.add(onceKey);
     this.dialogues.delete(pid);
     if (opt.tag) {
       p.stats.talkTags.push(opt.tag);
@@ -111,8 +113,12 @@ export function installDialogue(game) {
     if (res.flag) { this.flags.add(res.flag); if (res.flag === 'rescue_sildar' && !p.stats.rescues.includes('sildar')) p.stats.rescues.push('sildar'); if (res.flag === 'rescue_gundren' && !p.stats.rescues.includes('gundren')) p.stats.rescues.push('gundren'); if (res.flag === 'rescue_villager' && !p.stats.rescues.includes('villager')) p.stats.rescues.push('villager'); }
     if (res.clue) this.addClue(res.clue); // 对话获得的情报进入队伍共享线索
     if (res.gold) { p.gold += res.gold; p.stats.goldEarned += res.gold; }
-    if (res.heal) { const pe = this.entities.get(p.eid); if (pe) this._heal(pe, res.heal, pe); }
-    if (res.upgrade === 'weapon') { p.sheet.upgradeWeapon = true; }
+    // R1-2：治疗/强化定义在 option 上（dungeon.mjs：toblen.heal=5、galaelle.heal=10、linene.cost.upgrade='weapon'），
+    // 不在 option.result 下，因此必须从 opt 本身读取，否则扣了钱/显示了成功却没有实际效果。
+    const healAmt = typeof opt.heal === 'number' ? opt.heal : 0;
+    const upg = opt.cost?.upgrade;
+    if (firstTime && healAmt > 0) { const pe = this.entities.get(p.eid); if (pe) this._heal(pe, healAmt, pe); }
+    if (firstTime && upg === 'weapon') { p.sheet.upgradeWeapon = true; }
     const reply = this.npcTextOf(npcDef.id, 'result', opt.id, res.log || '……'); // F-32：对话变体
     this.logMsg('narr', '💬 ' + p.name + ' → ' + npcDef.name + '：「' + opt.text.replace(/^\[[^\]]+\]\s*/, '') + '」');
     this.logMsg('narr', '💬 ' + npcDef.name + '：' + reply, { dm: true });
