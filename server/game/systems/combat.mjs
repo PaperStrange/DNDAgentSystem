@@ -90,7 +90,10 @@ export function installCombat(game) {
       this.onChange();
       return;
     }
+    // R1-1：自动模式下先攻首位必须真的先动。_endTurn 会先 idx++，
+    // 因此这里从 -1 起算，idx++ 后为 0 → order[0] 正常先手（此前 order[0] 被跳过）。
     this.turn = null;
+    this.combat.idx = -1;
     this._endTurn();
   }
 
@@ -163,10 +166,11 @@ export function installCombat(game) {
     let steps = 0;
     for (const step of path) {
       if (steps >= e.speed) break;
-      const d = manhattan(step, target);
-      if (melee && d <= melee.range) break;
-      if (!melee && ranged && d <= ranged.range && losClear(pm, { x: step.x, y: step.y }, target)) break;
+      // R1-1：先真正走上这一步，再判断是否已进入攻击距离——
+      // 否则 range1 怪物在距离2时会「既不移动也不攻击」（在赋值前 break）
       e.x = step.x; e.y = step.y; steps++;
+      if (melee && manhattan(e, target) <= melee.range) break;
+      if (!melee && ranged && manhattan(e, target) <= ranged.range && losClear(pm, e, target)) break;
     }
     if (melee && manhattan(e, target) <= melee.range) { this._performAttack(e, target, melee); }
     else if (ranged && manhattan(e, target) <= ranged.range && losClear(pm, e, target)) { this._performAttack(e, target, ranged); }

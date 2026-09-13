@@ -200,17 +200,22 @@ export function installTurn(game) {
     const path = findPath(this.pathMap(), e, to, t.moveLeft, { passEntities: false, ignoreEntityId: e.eid });
     if (!path.length && manhattan(e, to) > 0) this.logMsg('system', '⚠ ' + e.name + '@(' + e.x + ',' + e.y + ')[' + (this.map.tiles[e.y] && this.map.tiles[e.y][e.x] ? this.map.tiles[e.y][e.x].type : '?') + '] 无法到达 (' + to.x + ',' + to.y + ')');
     if (process.env.DND_DEBUG) console.log('[move]', pid.slice(-4), 'from(' + e.x + ',' + e.y + ') to(' + to.x + ',' + to.y + ') path=' + path.length + ' budget=' + t.moveLeft);
-    let cost = 0;
+    // R1-1：移动预算只按「真正走过的格子」扣除。困难地形单步消耗2，
+    // 预算不足以支付下一步时停在原地，返回的 path 只包含实际走过的格。
+    let spent = 0;
+    const walked = [];
     for (const step of path) {
       const tile = this.map.tiles[step.y][step.x];
-      cost += tile.difficult ? 2 : 1;
-      if (cost > t.moveLeft) break;
+      const stepCost = tile.difficult ? 2 : 1;
+      if (spent + stepCost > t.moveLeft) break;
+      spent += stepCost;
       e.x = step.x; e.y = step.y;
-      t.moveLeft -= (tile.difficult ? 2 : 1);
+      walked.push(step);
     }
-    if (path.length) this.actorEvent(e, '移动到(' + e.x + ',' + e.y + ')'); // F-24：事件树
+    t.moveLeft -= spent;
+    if (walked.length) this.actorEvent(e, '移动到(' + e.x + ',' + e.y + ')'); // F-24：事件树
     this._visionCheck(); // F-29：移动后视野检测（暴露→立即进入战斗）
-    return { ok: true, path };
+    return { ok: true, path: walked };
   }
 
   game.actAttack = function (pid, { targetEid }) {
@@ -231,8 +236,7 @@ export function installTurn(game) {
     }
     // F-25：未被怪物发现（小队全体calm）时先手攻击=突袭，战斗首回合团队先动
     const squadCalm = !this.combat.active ? this._aliveEnemies().filter(x => x.squad === target.squad).every(x => x.alert === 'calm') : false;
-    t.actionUsed = true;
-    if (!this.combat.active || !this.combat.squads.has(target.squad)) this._alertSquad(target, { surprise: squadCalm });
+    // R1-1：射程/视线校验必须在消耗动作与开战之前——否则「够不着」也会白白吃掉一个动作并触发遭遇
     const atts = this.playerAttacks(p).filter(a => a.kind === 'weapon');
     const melee = atts.find(a => a.melee);
     const ranged = atts.find(a => !a.melee);
@@ -241,6 +245,8 @@ export function installTurn(game) {
     if (melee && d <= melee.range) used = melee;
     else if (ranged && d <= ranged.range && losClear(this.pathMap(), e, target)) used = ranged;
     if (!used) return { ok: false, msg: '目标不在任何武器的射程内（或视线被阻挡）', undo: true };
+    t.actionUsed = true;
+    if (!this.combat.active || !this.combat.squads.has(target.squad)) this._alertSquad(target, { surprise: squadCalm });
     const rollDmg = () => {
       const dr = roll(used.dice);
       let dmg = dr.total + (p.sheet.mods[used.mod] || 0);
@@ -323,26 +329,68 @@ export function installTurn(game) {
     const campG = this._campGuard(pid); if (campG) return campG; // F-30：营地休整中
     const e = this.entities.get(p.eid);
     if (!e || e.dead) return { ok: false, msg: '你无法行动' };
-    const id = spellId.startsWith('s:') ? spellId.slice(2) : spellId.slice(2);
+    // R1-1：能力白名单——必须是该角色实际拥有的法术/特性（id 形如 's:firebolt' / 'f:dragonbreath'）
+    const owned = new Set([...this.playerAttacks(p), ...this.bonusAttacks(p)].map(a => a.id));
+    if (!spellId || !owned.has(spellId)) return { ok: false, msg: '未拥有的能力', undo: true };
     const isSpell = spellId.startsWith('s:');
+    const id = spellId.slice(2);
     const def = isSpell ? SPELLS[id] : FEATURES[id];
     if (!def) return { ok: false, msg: '未知技能' };
     if (def.bonusAction) {
       if (t.bonusUsed) return { ok: false, msg: '本回合已使用附赠动作' };
-      t.bonusUsed = true;
     } else {
       if (t.actionUsed) return { ok: false, msg: '本回合已使用动作' };
-      t.actionUsed = true;
     }
-    // 消耗
-    if (isSpell) {
-      if (def.cost === 'slot') {
-        if ((p.slots?.[1] || 0) <= 0) return { ok: false, msg: '没有可用法术位' };
-        p.slots[1]--;
+    // R1-1：所有合法性校验（目标/射程/视线/区域命中/BOSS表决）先做，通过后才扣资源——非法施法零业务副作用
+    const target = targetEid ? this.entities.get(targetEid) : null;
+    const AIMED = ['spellAttack', 'saveAttack', 'autoHit'];
+    if (AIMED.includes(def.kind) || def.kind === 'mark') {
+      if (!target || target.dead || target.kind !== 'monster') return { ok: false, msg: '目标无效', undo: true };
+    }
+    if (def.kind === 'heal') {
+      const ht = target || e;
+      if (!ht || ht.dead || ht.kind !== 'player') return { ok: false, msg: '目标无效', undo: true };
+    }
+    if (AIMED.includes(def.kind)) {
+      if (manhattan(e, target) > def.range) return { ok: false, msg: '目标超出射程', undo: true };
+      if (!losClear(this.pathMap(false), e, target)) return { ok: false, msg: '视线被阻挡', undo: true };
+    }
+    // BOSS：命中未进入当前战斗小队的 BOSS 一律先走全队表决，不得直接造成伤害
+    const bossGate = (ent) => {
+      if (!ent || !ent.boss) return true;
+      if (this.combat.active && this.combat.squads.has(ent.squad)) return true;
+      if (this.pendingBoss) return 'BOSS遭遇需要全队表决：开始战斗或逃跑';
+      this._openBossVote(ent, e);
+      return '发现BOSS！全队需要表决';
+    };
+    if (AIMED.includes(def.kind) || def.kind === 'mark') {
+      const bg = bossGate(target);
+      if (bg !== true) return { ok: false, msg: bg, undo: true };
+    }
+    let aoe = null;
+    if (def.kind === 'aoe') {
+      const cx = typeof x === 'number' ? x : (targetEid ? this.entities.get(targetEid)?.x : undefined);
+      const cy = typeof y === 'number' ? y : (targetEid ? this.entities.get(targetEid)?.y : undefined);
+      if (typeof cx !== 'number' || typeof cy !== 'number') return { ok: false, msg: '请选择目标区域', undo: true };
+      const hits = [];
+      for (const ent of this.entities.values()) {
+        if (ent.dead || ent.kind !== 'monster') continue;
+        if (Math.abs(ent.x - cx) <= 1 && Math.abs(ent.y - cy) <= 1) hits.push(ent);
       }
+      if (!hits.length) return { ok: false, msg: '区域内没有敌人', undo: true };
+      const bossInArea = bossGate(hits.find(h => h.boss));
+      if (bossInArea !== true) return { ok: false, msg: bossInArea, undo: true };
+      aoe = { cx, cy, hits };
+    }
+    // 资源可用性（同样先检查再扣）
+    if (isSpell && def.cost === 'slot' && (p.slots?.[1] || 0) <= 0) return { ok: false, msg: '没有可用法术位', undo: true };
+    if (!isSpell && def.cost === 'chapter' && (p.charges[id] || 0) <= 0) return { ok: false, msg: '本章已使用过该能力', undo: true };
+    // ---- 校验全部通过：扣资源 ----
+    if (def.bonusAction) t.bonusUsed = true; else t.actionUsed = true;
+    if (isSpell) {
+      if (def.cost === 'slot') p.slots[1]--;
       p.stats.spellsCast++;
     } else if (def.cost === 'chapter') {
-      if ((p.charges[id] || 0) <= 0) return { ok: false, msg: '本章已使用过该能力' };
       p.charges[id] = 0;
       p.stats.spellsCast++;
     }
@@ -398,15 +446,7 @@ export function installTurn(game) {
         break;
       }
       case 'aoe': {
-        const cx = x !== undefined ? x : (targetEid ? this.entities.get(targetEid)?.x : null);
-        const cy = y !== undefined ? y : (targetEid ? this.entities.get(targetEid)?.y : null);
-        if (cx === undefined || cy === undefined) return { ok: false, msg: '请选择目标区域' };
-        const hits = [];
-        for (const ent of this.entities.values()) {
-          if (ent.dead || ent.kind !== 'monster') continue;
-          if (Math.abs(ent.x - cx) <= 1 && Math.abs(ent.y - cy) <= 1) hits.push(ent);
-        }
-        if (!hits.length) return { ok: false, msg: '区域内没有敌人', undo: true };
+        const { cx, cy, hits } = aoe; // R1-1：坐标与命中已在扣资源前校验完毕
         this.logMsg('dice', '💥 ' + e.name + ' 施放' + def.name + '！');
         for (const ent of hits) {
           const r = d20();
@@ -467,7 +507,7 @@ export function installTurn(game) {
     if (p) p.stats.maxMultiHit = Math.max(p.stats.maxMultiHit, n);
   }
 
-  game.actUseItem = function (pid, { itemId, targetEid }) {
+  game.actUseItem = function (pid, { itemId, targetEid, x, y }) {
     const p = this.players.get(pid);
     const t = this.turn;
     if (!p || !t || t.playerId !== pid) return { ok: false, msg: '不是你的回合' };
@@ -477,40 +517,43 @@ export function installTurn(game) {
     const item = ITEMS[itemId];
     if (!item || (p.items[itemId] || 0) <= 0) return { ok: false, msg: '没有这个道具' };
     if (itemId === 'potion') {
+      const target = targetEid ? this.entities.get(targetEid) : e;
+      // R1-1：目标有效性先校验，通过后才消耗附赠动作与药水
+      if (!target || target.dead || target.kind !== 'player') return { ok: false, msg: '目标无效', undo: true };
       if (t.bonusUsed) return { ok: false, msg: '本回合已使用附赠动作' };
       t.bonusUsed = true;
-      const target = targetEid ? this.entities.get(targetEid) : e;
-      if (!target || target.dead || target.kind !== 'player') return { ok: false, msg: '目标无效' };
       const d = roll(item.heal);
       p.items.potion--;
       this._heal(target, d.total, e);
       this.actorEvent(e, '🧪 对' + target.name + '使用治疗药水（+' + d.total + '）', target);
     } else if (itemId === 'flask') {
       if (t.actionUsed) return { ok: false, msg: '本回合已使用动作' };
-      t.actionUsed = true;
-      const cx = targetEid ? this.entities.get(targetEid)?.x : undefined;
-      const cy = targetEid ? this.entities.get(targetEid)?.y : undefined;
-      if (cx === undefined) return { ok: false, msg: '请选择目标区域' };
+      // R1-1：优先使用客户端传入的落点 x,y（rooms.mjs 已透传），没有才回退到 targetEid 坐标
+      const cx = (typeof x === 'number' && typeof y === 'number') ? x : (targetEid ? this.entities.get(targetEid)?.x : undefined);
+      const cy = (typeof x === 'number' && typeof y === 'number') ? y : (targetEid ? this.entities.get(targetEid)?.y : undefined);
+      if (typeof cx !== 'number' || typeof cy !== 'number') return { ok: false, msg: '请选择目标区域', undo: true };
       if (manhattan(e, { x: cx, y: cy }) > 8) return { ok: false, msg: '太远了（8格内）', undo: true };
+      // 先算出命中列表，确认真的打到东西再扣动作与道具
+      const hits = [];
+      for (const ent of this.entities.values()) {
+        if (ent.dead || ent.kind !== 'monster') continue;
+        if (Math.abs(ent.x - cx) <= 1 && Math.abs(ent.y - cy) <= 1) hits.push(ent);
+      }
+      if (!hits.length) return { ok: false, msg: '区域内没有敌人', undo: true };
+      t.actionUsed = true;
       p.items.flask--;
       const dc = item.aoe.dc;
       this.logMsg('dice', '🧨 ' + e.name + ' 投掷炼金火焰瓶！');
-      let hitAny = false;
-      for (const ent of this.entities.values()) {
-        if (ent.dead || ent.kind !== 'monster') continue;
-        if (Math.abs(ent.x - cx) <= 1 && Math.abs(ent.y - cy) <= 1) {
-          hitAny = true;
-          const r = d20();
-          const mod = this._monsterSaveMod(ent, 'DEX');
-          const ok = r.total + mod >= dc;
-          const d = roll(item.aoe.dmg);
-          const dmg = ok ? Math.floor(d.total / 2) : d.total;
-          this.logMsg('dice', '  → ' + ent.name + ' 敏捷豁免 ' + (ok ? '成功 ' : '失败 ') + dmg + '点火焰伤害');
-          this._applyDamage(ent, dmg, e, { type: '火焰' });
-        }
+      for (const ent of hits) {
+        const r = d20();
+        const mod = this._monsterSaveMod(ent, 'DEX');
+        const ok = r.total + mod >= dc;
+        const d = roll(item.aoe.dmg);
+        const dmg = ok ? Math.floor(d.total / 2) : d.total;
+        this.logMsg('dice', '  → ' + ent.name + ' 敏捷豁免 ' + (ok ? '成功 ' : '失败 ') + dmg + '点火焰伤害');
+        this._applyDamage(ent, dmg, e, { type: '火焰' });
       }
-      if (!hitAny) return { ok: false, msg: '区域内没有敌人', undo: true };
-      this._multiHitCheck(e, 3);
+      this._multiHitCheck(e, hits.length);
       this.actorEvent(e, '🧨 投掷炼金火焰瓶');
     }
     return { ok: true };
