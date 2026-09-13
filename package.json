@@ -4,19 +4,37 @@
   "private": true,
   "description": "AI主导的DND像素风WEB联机跑团游戏：5名玩家+12位AI DM人设，凡杜尔失落矿坑副本",
   "type": "module",
+  "main": "release/desktop/main.mjs",
   "scripts": {
     "start": "node server/index.mjs",
     "extract:pdf": "node tools/extract-pdf.mjs",
     "sim": "node simulate/bots.mjs",
     "e2e": "node simulate/e2e.mjs",
     "auth": "node tools/auth-test.mjs",
-    "layout": "node tools/layout-probe.mjs"
+    "layout": "node tools/layout-probe.mjs",
+    "icons": "node tools/gen-app-icons.mjs",
+    "desktop": "electron .",
+    "desktop:smoke": "electron . --smoke",
+    "desktop:build": "electron-builder --win --config release/electron-builder.json",
+    "cap:sync": "cd release && cap sync",
+    "cap:android": "cd release && cap sync android",
+    "cap:ios": "cd release && cap sync ios",
+    "android:apk": "node tools/build-android.mjs"
   },
   "dependencies": {
     "pdfjs-dist": "^4.10.38",
     "ws": "^8.18.0"
   },
   "devDependencies": {
+    "@capacitor/android": "^6.2.2",
+    "@capacitor/cli": "^6.2.2",
+    "@capacitor/core": "^6.2.2",
+    "@capacitor/ios": "^6.2.2",
+    "electron": "^33.4.11",
+    "electron-builder": "^25.1.8",
     "playwright": "^1.49.1"
+  },
+  "allowScripts": {
+    "electron@33.4.11": true
   }
 }

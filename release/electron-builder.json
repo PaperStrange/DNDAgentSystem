@@ -1,0 +1,36 @@
+{
+  "appId": "com.dndagent.dicecamp",
+  "productName": "骰与篝火",
+  "copyright": "DNDAgentSystem",
+  "directories": {
+    "output": "release",
+    "buildResources": "release/build"
+  },
+  "files": [
+    "release/desktop/**/*",
+    "server/**/*",
+    "public/**/*",
+    "config.example.json",
+    "package.json",
+    "!**/*.map",
+    "!**/node_modules/**/{test,__tests__,docs,example,examples}/**"
+  ],
+  "asar": true,
+  "compression": "normal",
+  "win": {
+    "icon": "release/build/icon.png",
+    "target": [
+      { "target": "portable", "arch": ["x64"] },
+      { "target": "zip", "arch": ["x64"] }
+    ],
+    "artifactName": "DiceAndCampfire-${version}-win-${arch}.${ext}"
+  },
+  "portable": {
+    "artifactName": "DiceAndCampfire-${version}-portable.exe",
+    "unpackDirName": "dice-and-campfire"
+  },
+  "nsis": {
+    "oneClick": false,
+    "allowToChangeInstallationDirectory": true
+  }
+}

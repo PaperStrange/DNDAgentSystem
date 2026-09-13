@@ -1,5 +1,5 @@
 // 应用入口：路由 + 全局状态
-import { Net } from './net.mjs';
+import { Net, resolveServer, saveServer, isNativeShell } from './net.mjs';
 import { mountLobby } from './screens/lobby.mjs';
 import { mountRoom } from './screens/room.mjs';
 import { mountGame } from './screens/game.mjs';
@@ -89,6 +89,8 @@ window.addEventListener('unhandledrejection', (e) => captureErr('异步错误', 
 
 const net = new Net();
 S.net = net;
+// 客户端打包适配（S3-1）：暴露给原生壳/诊断
+window.__DND = { native: isNativeShell(), server: net.server };
 net.onState = (view) => {
   S.view = view;
   S.snapshot = view;
@@ -122,5 +124,40 @@ function route(view) {
   }
 }
 
-net.connect();
+// 客户端打包适配（S3-1）：未配置服务器（原生壳首次启动）→ 连接引导页；否则正常连接
+function mountConnect(root) {
+  root.innerHTML = '';
+  const box = el('div', 'connect-screen');
+  const card = el('div', 'connect-card');
+  card.appendChild(el('h2', '', '🎲 骰与篝火'));
+  card.appendChild(el('div', 'muted', '联机跑团需要连接到一台运行游戏服务器的电脑（房主电脑）。'));
+  card.appendChild(el('div', 'muted mt8', '手机与电脑请连接同一个 Wi-Fi，然后在电脑上执行 npm start 并填写电脑的局域网地址。'));
+  const input = el('input', 'auth-input');
+  input.placeholder = '例如 192.168.1.5:3000';
+  input.value = (() => { try { return localStorage.getItem('dnd_server') || ''; } catch (e) { return ''; } })();
+  input.onkeydown = (e) => { if (e.key === 'Enter') submit.click(); };
+  card.appendChild(input);
+  const err = el('div', 'auth-err', '');
+  card.appendChild(err);
+  const submit = el('button', 'btn gold big', '🔌 连接服务器');
+  submit.style.width = '100%';
+  submit.onclick = () => {
+    const v = String(input.value || '').trim();
+    if (!v) { err.textContent = '⚠️ 请填写服务器地址（电脑的 IP:端口）'; return; }
+    err.textContent = '';
+    saveServer(v);
+    location.reload();
+  };
+  card.appendChild(submit);
+  card.appendChild(el('div', 'muted mt8', '提示：浏览器直接访问 http://电脑IP:3000 也可以游玩；iOS/Android 壳应用与 PWA 均可指向同一地址。'));
+  box.appendChild(card);
+  root.appendChild(box);
+}
+
+if (!net.server) {
+  // 原生壳未配置服务器：显示连接引导页（不启动路由）
+  mountConnect(document.getElementById('screen-root'));
+} else {
+  net.connect();
+}
 setInterval(() => net.send('ping'), 25000);

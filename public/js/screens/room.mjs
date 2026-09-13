@@ -230,16 +230,6 @@ export function mountChargen(root, view, net) {
   faceZoomWrap.appendChild(el('div', 'face-zoom-label', '面部细节'));
   faceZoomWrap.appendChild(faceZoomCanvas);
   previewWrap.appendChild(faceZoomWrap);
-  // S2-1：种族立绘展示层——老板终选 wan 档定稿，随所选种族切换；冒险/战斗内小人仍走程序化像素 sprite
-  const portraitWrap = el('div', 'cg-portrait-wrap');
-  portraitWrap.appendChild(el('div', 'cg-portrait-label', '种族立绘'));
-  const portraitEmpty = el('div', 'cg-portrait-empty', '选择种族后展示立绘');
-  const portraitImg = el('img', 'cg-portrait');
-  portraitImg.alt = '';
-  portraitImg.style.display = 'none';
-  portraitImg.onerror = () => { portraitImg.style.display = 'none'; portraitEmpty.style.display = ''; };
-  portraitWrap.append(portraitImg, portraitEmpty);
-  previewWrap.appendChild(portraitWrap);
 
   const cg = el('div', 'cg-layout');
   const mainCol = el('div', 'cg-main');
@@ -276,21 +266,6 @@ export function mountChargen(root, view, net) {
     const headSprite = spriteToCanvas('player', 'human', pal2, selClass, selRace, look);
     // S2-2：面部放大窗改等比——居中裁切 8×8 头部源区，整数 12 倍放大（原 16×8 拉成 96×96 导致纵向变形）
     fctx.drawImage(headSprite, 4, 0, 8, headH, 0, 0, faceZoomCanvas.width, faceZoomCanvas.height);
-  };
-
-  // S2-1：立绘随种族切换（展示层；无选中或资源缺失时回落占位提示）
-  const renderPortrait = () => {
-    const url = selRace ? portraitUrl(selRace) : null;
-    if (url) {
-      portraitEmpty.style.display = 'none';
-      portraitImg.alt = (race() ? race().name : '') + '立绘';
-      portraitImg.style.display = '';
-      if (portraitImg.getAttribute('src') !== url) portraitImg.src = url;
-    } else {
-      portraitImg.removeAttribute('src');
-      portraitImg.style.display = 'none';
-      portraitEmpty.style.display = '';
-    }
   };
 
   // R-11: 读取已保存的在世角色（已阵亡角色不列出 → 禁止出战）
@@ -348,7 +323,7 @@ export function mountChargen(root, view, net) {
   nameInput.style.cssText = 'width:100%;background:var(--panel2);border:2px solid var(--line);color:var(--txt);border-radius:6px;padding:8px 10px;';
   nameInput.placeholder = '为你的角色起个名字';
   nameInput.value = name;
-  nameInput.oninput = () => { name = nameInput.value.trim(); };
+  nameInput.oninput = () => { name = nameInput.value.trim(); updateSaveState(); };
   secName.appendChild(nameInput);
   mainCol.appendChild(secName);
 
@@ -428,7 +403,10 @@ export function mountChargen(root, view, net) {
   // 保存
   const saveBtn = el('button', 'btn primary big', '💾 保存车卡');
   saveBtn.style.width = '100%';
-  saveBtn.disabled = !selRace || !selClass;
+  // 保存按钮可用性只取决于「名字 + 种族 + 职业」，任何一项变化都要立刻重算
+  // （曾出现：先选种族职业、最后才填名字时按钮一直禁用 → 玩家以为车卡保存不了、开不了局）
+  const updateSaveState = () => { saveBtn.disabled = !name || !selRace || !selClass; };
+  updateSaveState();
   // F-20：载入已保存角色与点击保存车卡都应视为可开始游戏——
   // 统一走pushSheet把车卡同步到房间（服务端才有room.sheets，准备/开局校验依赖它）
   const buildPayload = () => {
@@ -480,9 +458,8 @@ export function mountChargen(root, view, net) {
     renderStatRows();
     renderLook();
     renderPreview();
-    renderPortrait();
     renderDerived();
-    saveBtn.disabled = !selRace || !selClass || !name;
+    updateSaveState();
   }
 
   function flexBonusOf(a) { return flexList.filter(x => x === a).length; }
@@ -550,11 +527,12 @@ export function mountChargen(root, view, net) {
     lookBox.innerHTML = '';
     // S1-1：Tab 分区 UI
     const tabBar = el('div', 'look-tabs');
+    // 外观只保留「颜色/发型/面部」三档自由调整——已移除「预设」页签：
+    // 预设外观按种族给整套配色，会让所选外观与角色种族不符（老板判定不合理）
     const TABS = [
       { id: 'color', label: '颜色' },
       { id: 'hair', label: '发型' },
       { id: 'face', label: '面部' },
-      { id: 'preset', label: '预设' },
     ];
     for (const t of TABS) {
       const tb = el('button', 'look-tab' + (activeTab === t.id ? ' active' : ''), t.label);
@@ -642,34 +620,6 @@ export function mountChargen(root, view, net) {
       });
       markSec.appendChild(markGrid);
       content.appendChild(markSec);
-    } else if (activeTab === 'preset') {
-      const PRESETS = {
-        human: [{ name: '骑士', skin: 1, hair: 0, outfit: 5, eye: 0, accent: 1, hairS: 3, beardS: 1 }, { name: '游侠', skin: 1, hair: 3, outfit: 8, eye: 1, accent: 5, hairS: 4, beardS: 0 }, { name: '法师', skin: 1, hair: 8, outfit: 10, eye: 3, accent: 6, hairS: 7, beardS: 0 }],
-        elf: [{ name: '月精灵', skin: 0, hair: 8, outfit: 6, eye: 0, accent: 1, hairS: 1, beardS: 0 }, { name: '木精灵', skin: 2, hair: 2, outfit: 8, eye: 1, accent: 5, hairS: 5, beardS: 0 }],
-        dwarf: [{ name: '山地矮人', skin: 3, hair: 5, outfit: 5, eye: 7, accent: 2, hairS: 0, beardS: 2 }],
-        halfling: [{ name: '轻足', skin: 1, hair: 2, outfit: 5, eye: 7, accent: 2, hairS: 6, beardS: 0 }],
-        halforc: [{ name: '战士', skin: 4, hair: 0, outfit: 5, eye: 6, accent: 7, hairS: 3, beardS: 3 }],
-        dragonborn: [{ name: '龙骑士', skin: 3, hair: 9, outfit: 0, eye: 4, accent: 0, hairS: 7, beardS: 0 }],
-        gnome: [{ name: '发明家', skin: 1, hair: 5, outfit: 2, eye: 1, accent: 2, hairS: 6, beardS: 1 }],
-        halfelf: [{ name: '游吟诗人', skin: 1, hair: 3, outfit: 6, eye: 0, accent: 1, hairS: 1, beardS: 0 }],
-      };
-      const presets = PRESETS[selRace] || PRESETS.human;
-      const presetSec = el('div', 'look-subsection');
-      presetSec.appendChild(el('div', 'look-sublabel', '推荐外观'));
-      const presetGrid = el('div', 'preset-grid');
-      for (const p of presets) {
-        const card = el('div', 'preset-card');
-        card.appendChild(el('div', 'preset-name', p.name));
-        card.onclick = () => {
-          colors.skin = SKIN_TONES[p.skin]; colors.hair = HAIR_TONES[p.hair]; colors.outfit = OUTFIT_TONES[p.outfit];
-          colors.eye = EYE_TONES[p.eye]; colors.accent = ACCENT_TONES[p.accent];
-          look.hair = p.hairS; look.beard = p.beardS; look.brow = 0; look.mouth = 0; look.marking = 0;
-          renderLook(); renderPreview();
-        };
-        presetGrid.appendChild(card);
-      }
-      presetSec.appendChild(presetGrid);
-      content.appendChild(presetSec);
     }
     lookBox.appendChild(content);
     // 底部操作按钮

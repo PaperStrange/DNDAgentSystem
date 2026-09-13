@@ -1,0 +1,24 @@
+{
+  "appId": "com.dndagent.dicecamp",
+  "appName": "骰与篝火",
+  "webDir": "../public",
+  "server": {
+    "androidScheme": "http",
+    "cleartext": true
+  },
+  "android": {
+    "allowMixedContent": true,
+    "webContentsDebuggingEnabled": true
+  },
+  "ios": {
+    "contentInset": "always",
+    "limitsNavigationsToAppBoundDomains": false
+  },
+  "plugins": {
+    "SplashScreen": {
+      "launchShowDuration": 600,
+      "backgroundColor": "#14121a",
+      "showSpinner": false
+    }
+  }
+}

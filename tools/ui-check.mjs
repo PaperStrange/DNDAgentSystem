@@ -82,13 +82,36 @@ async function main() {
   await page.screenshot({ path: 'e2e-shots/ui-chargen.png' });
   const labelVisible = await page.locator('.preview-label').isVisible();
   check('B-5 预览标签可见', labelVisible);
-  // F-35：预览1:1清晰渲染——画布160×180（10倍）与CSS尺寸一致，亮色画室背景让深色轮廓/发色可辨
-  const pvSize = await page.locator('.cg-preview canvas').evaluate(c => {
-    const d = c.getContext('2d').getImageData(0, 0, 1, 1).data;
-    return { w: c.width, h: c.height, corner: d[0] + ',' + d[1] + ',' + d[2] };
+  // F-35（对齐 S1-2/S2-1 现行设计）：主预览与面部放大画布内部尺寸===CSS尺寸（1:1，杜绝非整数缩放模糊）
+  const pvSize = await page.locator('.cg-preview canvas').first().evaluate(c => {
+    const r = c.getBoundingClientRect();
+    return { w: c.width, h: c.height, cssW: Math.round(r.width), cssH: Math.round(r.height) };
   });
-  check('F-35 预览画布160×180（10倍1:1渲染，杜绝非整数缩放模糊）', pvSize.w === 160 && pvSize.h === 180, pvSize.w + 'x' + pvSize.h);
-  check('F-35 预览亮色画室背景（角像素亮度>60，深色轮廓对比清晰）', parseInt(pvSize.corner.split(',')[0], 10) > 60, 'corner=' + pvSize.corner);
+  check('F-35 主预览画布1:1（内部' + pvSize.w + '×' + pvSize.h + ' = CSS ' + pvSize.cssW + '×' + pvSize.cssH + '）',
+    Math.abs(pvSize.w - pvSize.cssW) <= 1 && Math.abs(pvSize.h - pvSize.cssH) <= 1);
+  const fz = await page.locator('.face-zoom-wrap canvas').evaluate(c => {
+    const r = c.getBoundingClientRect();
+    return { w: c.width, h: c.height, cssW: Math.round(r.width), cssH: Math.round(r.height) };
+  });
+  check('F-35 面部细节放大窗口存在且1:1（' + fz.w + '×' + fz.h + '）', fz.w === fz.cssW && fz.h === fz.cssH && fz.w >= 64);
+  // 老板反馈：车卡界面去掉「种族立绘」参考图、去掉会给出跨种族外观的「预设」页签
+  check('车卡界面已移除种族立绘展示位', (await page.locator('.cg-portrait-wrap, .cg-portrait, .cg-portrait-label').count()) === 0);
+  const lookTabs = (await page.locator('.look-tabs button').allTextContents()).map(s => s.trim());
+  check('外观页签为 颜色/发型/面部（无「预设」）', lookTabs.join('/') === '颜色/发型/面部', '实际=' + lookTabs.join('/'));
+  // 新用户按「先选种族职业 → 最后填名字」的顺序也必须能保存（老板 PC 端遇到的卡死点）
+  {
+    const nameBox = page.locator('input[placeholder="为你的角色起个名字"]');
+    const keep = await nameBox.inputValue();
+    await nameBox.fill('');            // 清空名字：按钮应立刻禁用
+    await page.waitForTimeout(150);
+    const emptyDisabled = await page.locator('button:has-text("保存车卡")').isDisabled();
+    await nameBox.fill('顺序校验');    // 最后才填名字：按钮应立刻解禁
+    await page.waitForTimeout(150);
+    const typedEnabled = !(await page.locator('button:has-text("保存车卡")').isDisabled());
+    check('保存按钮随名字增删即时切换', emptyDisabled && typedEnabled, '空名字禁用=' + emptyDisabled + ' 填名后可用=' + typedEnabled);
+    await nameBox.fill(keep);          // 还原，后续断言依赖原名字
+    await page.waitForTimeout(150);
+  }
   // B-6: 保存车卡反馈
   await page.click('button:has-text("保存车卡")');
   await page.waitForTimeout(1200);

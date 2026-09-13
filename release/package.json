@@ -1,0 +1,9 @@
+{
+  "name": "dice-and-campfire-native",
+  "version": "1.0.0",
+  "private": true,
+  "description": "本目录是《骰与篝火》的打包工作区：原生工程(android/ios)、Electron 壳(desktop/)、打包配置与最终产物。此 package.json 仅用于让 Capacitor CLI 认可 `release/` 为应用根目录（cap sync 需要）。",
+  "scripts": {
+    "sync": "cap sync"
+  }
+}

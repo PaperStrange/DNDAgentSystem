@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">骰与篝火</string>
+    <string name="title_activity_main">骰与篝火</string>
+    <string name="package_name">com.dndagent.dicecamp</string>
+    <string name="custom_url_scheme">com.dndagent.dicecamp</string>
+</resources>

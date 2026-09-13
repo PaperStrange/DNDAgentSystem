@@ -1,5 +1,5 @@
 // 大厅：昵称 / 房间列表 / 创建房间（选副本+12位AI DM人设） / 加入房间 / 冒险者名册
-import { store, el, loadErrLog, clearErrLog, loadCards, deleteCard } from '../app.mjs';
+import { store, el, toast, loadErrLog, clearErrLog, loadCards, deleteCard } from '../app.mjs';
 import { loadRoster } from '../roster.mjs';
 import { portraitUrl } from '../portraits.mjs';
 import { RACES, CLASSES } from '../../shared/char-defs.mjs';
@@ -17,6 +17,21 @@ export function mountLobby(root, view) {
   const acctBox = el('div', 'account-box');
   const renderAccount = () => {
     acctBox.innerHTML = '';
+    // S3-1：服务器地址入口（PWA/原生壳可切换指向的房主电脑）
+    try {
+      const srv = localStorage.getItem('dnd_server') || (net.server || '');
+      if (srv) {
+        const host = srv.replace(/^https?:\/\//, '');
+        const sb = el('button', 'btn small', '🔌 ' + host);
+        sb.title = '当前连接的服务器（点击可切换，需与房主电脑同一局域网）';
+        sb.onclick = () => {
+          const v = prompt('输入游戏服务器地址（房主电脑的 IP:端口）', host);
+          if (v === null) return;
+          if (net.setServer(v)) { toast('🔌 正在连接 ' + v + ' …'); setTimeout(() => location.reload(), 900); }
+        };
+        acctBox.appendChild(sb);
+      }
+    } catch (e) { /* ignore */ }
     if (store.account) {
       acctBox.appendChild(el('span', 'acct-name', '👤 ' + store.account));
       const out = el('button', 'btn small', '退出登录');

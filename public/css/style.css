@@ -141,11 +141,6 @@ input, select, textarea { font-family: var(--font); }
 .style-btn:hover { border-color: var(--gold); color: var(--gold); }
 .style-btn.sel { border-color: var(--gold); background: rgba(232,193,90,.1); color: var(--gold); font-weight: 600; }
 .look-actions { display: flex; gap: 6px; margin-top: 10px; padding-top: 8px; border-top: 1px dashed var(--line); }
-/* S1-1：预设卡片 */
-.preset-grid { display: flex; flex-wrap: wrap; gap: 6px; }
-.preset-card { border: 2px solid var(--line); border-radius: 8px; padding: 8px 14px; cursor: pointer; background: var(--panel); transition: all .12s; min-width: 80px; text-align: center; }
-.preset-card:hover { border-color: var(--gold); background: #2c2540; }
-.preset-name { font-size: 12px; font-weight: 600; color: var(--txt); }
 /* S1-2：预览画布升级 + 面部放大 */
 .cg-side { position: sticky; top: 16px; align-self: start; }
 .cg-preview .preview-label { color: var(--dim); font-size: 12px; margin-bottom: 6px; text-align: center; }
@@ -153,11 +148,7 @@ input, select, textarea { font-family: var(--font); }
 .face-zoom-wrap { margin-top: 8px; text-align: center; }
 .face-zoom-label { color: var(--dim); font-size: 10px; margin-bottom: 4px; }
 .face-zoom-wrap canvas { image-rendering: pixelated; width: 96px; height: 96px; display: block; margin: 0 auto; border-radius: 6px; background: #1a1828; border: 1px solid var(--line); }
-/* S2-1：种族立绘展示层（定稿精修像素图，pixelated 保证任意缩放下边缘锐利不模糊） */
-.cg-portrait-wrap { margin-top: 8px; text-align: center; }
-.cg-portrait-label { color: var(--dim); font-size: 10px; margin-bottom: 4px; }
-.cg-portrait { image-rendering: pixelated; width: 192px; height: 192px; object-fit: cover; display: block; margin: 0 auto; border-radius: 8px; background: #12101e; border: 2px solid var(--line); }
-.cg-portrait-empty { width: 192px; height: 108px; margin: 0 auto; display: flex; align-items: center; justify-content: center; border-radius: 8px; border: 1px dashed var(--line); color: var(--dim); font-size: 11px; }
+/* S2-1：车卡界面的「种族立绘」展示层已按老板要求移除（外观预览只保留像素小人 + 面部放大） */
 .member-card .mc-portrait { width: 40px; height: 40px; object-fit: cover; border-radius: 6px; border: 1px solid var(--line); }
 .roster-thumb { image-rendering: pixelated; width: 44px; height: 44px; object-fit: cover; border-radius: 6px; border: 1px solid var(--line); float: left; margin-right: 8px; }
 .derived-list { font-size: 12px; color: var(--dim); line-height: 1.7; }
@@ -333,4 +324,46 @@ input, select, textarea { font-family: var(--font); }
   .lobby-grid, .cg-layout { grid-template-columns: 1fr; }
   .persona-grid { grid-template-columns: repeat(2, 1fr); }
   .cg-side { order: -1; position: static; } /* 窄屏：预览置顶、取消吸顶 */
+}
+
+/* ===== S3-1 移动端（手机/平板）：连接引导页 + 触摸布局 ===== */
+.connect-screen { min-height: 100%; display: flex; align-items: center; justify-content: center; padding: 24px; }
+.connect-card { width: 100%; max-width: 420px; background: var(--panel); border: 2px solid var(--line); border-radius: 12px; padding: 22px; display: flex; flex-direction: column; gap: 8px; }
+.connect-card h2 { color: var(--gold); text-align: center; margin-bottom: 6px; letter-spacing: 2px; }
+
+@media (max-width: 820px), (pointer: coarse) and (max-height: 900px) {
+  html, body { height: 100%; overflow: hidden; }
+  #app, #screen-root { height: 100%; }
+  /* 游戏：画布在上、竖状区横排、侧栏在下（可滚动） */
+  .screen-game { height: 100%; }
+  .game-body { flex-direction: column; }
+  .game-canvas-wrap { flex: 1 1 46%; min-height: 38vh; order: 2; }
+  .turn-strip {
+    order: 1; flex-direction: row; width: 100%; min-width: 0; height: 66px; padding: 4px 6px;
+    gap: 6px; overflow-x: auto; overflow-y: hidden; border-right: none; border-bottom: 2px solid var(--line);
+    align-items: center;
+  }
+  .strip-round { flex: 0 0 auto; min-width: 52px; font-size: 11px; }
+  .strip-chip { flex: 0 0 auto; width: 52px; }
+  .game-side { order: 3; width: 100%; max-height: 42vh; overflow-y: auto; }
+  .game-hint { display: none; } /* 触屏无键盘快捷键提示 */
+  .game-top { gap: 6px; padding: 6px 8px; font-size: 12px; flex-wrap: wrap; }
+  .game-top .gt-obj { min-width: 120px; font-size: 11px; }
+  canvas#game-canvas { touch-action: none; } /* 触摸拖动不触发页面滚动/缩放 */
+  /* 大厅/房间/车卡：单列 + 更大的点按目标 */
+  .lobby-head { flex-wrap: wrap; gap: 8px; }
+  .lobby-grid { grid-template-columns: 1fr; }
+  .persona-grid { grid-template-columns: repeat(2, 1fr); }
+  .cg-layout { grid-template-columns: 1fr; }
+  .cg-side { position: static; order: -1; }
+  .btn { min-height: 34px; }
+  .btn.small { min-height: 30px; padding: 5px 9px; }
+  .opt-card { min-height: 54px; }
+  .log-box { height: 150px; }
+  .dialog-box { width: 94vw; max-height: 88vh; overflow-y: auto; }
+  .overlay-card { width: 94vw; max-height: 90vh; overflow-y: auto; }
+  .camp-screen { flex-direction: column; overflow-y: auto; }
+  .camp-scene canvas { max-width: 92vw; }
+  .camp-panel { width: 92vw; }
+  body { padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left); }
 }

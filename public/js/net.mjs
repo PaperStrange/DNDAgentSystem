@@ -1,11 +1,51 @@
 // WebSocket 网络层：自动重连（token）+ 账户登录/注册/单点登录
+// S3-1 打包适配：服务器地址可配置（PWA/局域网/原生壳 Capacitor 均可指向电脑端服务器）
 const LS_TOKEN = 'dnd_token';
 const LS_ACCOUNT = 'dnd_account';
+const LS_SERVER = 'dnd_server';
+
+// 是否运行在原生壳（Capacitor/WebView）中——此时 location 不是游戏服务器，必须显式配置地址
+export function isNativeShell() {
+  try {
+    if (location.protocol === 'capacitor:' || location.protocol === 'file:') return true;
+    const cap = window.Capacitor;
+    if (cap && typeof cap.isNativePlatform === 'function' && cap.isNativePlatform()) return true;
+    if (cap && cap.getPlatform && cap.getPlatform() !== 'web') return true;
+  } catch (e) { /* ignore */ }
+  return false;
+}
+
+export function normalizeServer(v) {
+  let s = String(v || '').trim();
+  if (!s) return '';
+  if (!/^https?:\/\//i.test(s)) s = 'http://' + s;
+  return s.replace(/\/+$/, '');
+}
+
+// 服务器地址解析：URL参数 ?server= → 本地存储 → 同源（浏览器直接访问服务器时）；原生壳未配置则返回 null
+export function resolveServer() {
+  try {
+    const q = new URLSearchParams(location.search).get('server');
+    if (q) { const v = normalizeServer(q); if (v) { try { localStorage.setItem(LS_SERVER, v); } catch (e) {} return v; } }
+  } catch (e) { /* ignore */ }
+  let saved = '';
+  try { saved = localStorage.getItem(LS_SERVER) || ''; } catch (e) {}
+  if (saved) return normalizeServer(saved);
+  if (!isNativeShell() && /^https?:$/.test(location.protocol)) return location.origin;
+  return null;
+}
+
+export function saveServer(addr) {
+  const v = normalizeServer(addr);
+  try { if (v) localStorage.setItem(LS_SERVER, v); else localStorage.removeItem(LS_SERVER); } catch (e) {}
+  return v;
+}
 
 export class Net {
-  constructor() {
+  constructor(server = undefined) {
     this.ws = null;
     this.pid = null;
+    this.server = server === undefined ? resolveServer() : normalizeServer(server); // S3-1：目标服务器基址（null=未配置）
     this.token = localStorage.getItem(LS_TOKEN) || null;
     this.account = localStorage.getItem(LS_ACCOUNT) || null;
     this.name = localStorage.getItem('dnd_name') || '';
@@ -13,10 +53,22 @@ export class Net {
     this.onAuthOk = null; this.onAuthError = null; this.onLogExport = null;
     this._reconnectTimer = null;
   }
+  // 原生壳首启/切换服务器：保存地址后重连
+  setServer(addr) {
+    const v = saveServer(addr);
+    if (!v) return false;
+    this.server = v;
+    try { if (this.ws) { this.ws.onclose = null; this.ws.close(); } } catch (e) {}
+    this.ws = null;
+    if (this._reconnectTimer) { clearTimeout(this._reconnectTimer); this._reconnectTimer = null; }
+    this.connect();
+    return true;
+  }
   connect() {
-    if (this.ws && this.ws.readyState === 1) return;
-    const proto = location.protocol === 'https:' ? 'wss' : 'ws';
-    const ws = new WebSocket(proto + '://' + location.host + '/ws');
+    if (!this.server) return false; // 未配置服务器（原生壳首启）：由连接引导页引导填写
+    if (this.ws && this.ws.readyState === 1) return true;
+    const wsUrl = this.server.replace(/^http/i, 'ws').replace(/\/+$/, '') + '/ws';
+    const ws = new WebSocket(wsUrl);
     this.ws = ws;
     ws.onopen = () => {
       if (this.token) ws.send(JSON.stringify({ t: 'hello', name: this.name || '冒险者', token: this.token, rename: true }));

@@ -46,20 +46,26 @@ tools/security-test.mjs
 tools/llm-test.mjs
 master_tests/
 docs/*
-!docs/design
-docs/design/*
-!docs/design/portrait-baseline
-docs/design/portrait-baseline/*.png
-docs/design/portrait-baseline/*.svg
-docs/design/portrait-baseline/portrait-spec-v1.0.md
-docs/design/portrait-baseline/output/*
-!docs/design/portrait-baseline/output/
-!docs/design/portrait-baseline/output/*-baseline-final.png
-!docs/design/portrait-baseline/output/*-baseline-final.svg
 
 # large documentation extensions
 *.zip
 *.pdf
+
+# S3-1 打包相关：release/ 下的原生工程与配置入库，工具链与构建中间产物不入库
+.toolchain/
+dist/
+release/*.exe
+release/win-unpacked/
+release/builder-debug.yml
+release/.icon-ico/
+release/android/.gradle/
+release/android/local.properties
+release/android/app/build/
+release/android/app/src/main/assets/public/
+release/ios/App/Pods/
+release/ios/App/build/
+release/ios/App/App/public/
+*.apk
 
 # Qoder
 .qoder
@@ -69,3 +75,9 @@ docs/design/portrait-baseline/output/*
 
 # S2-6/SOP mermaid 校验复验件（一次性工具产物，不入库）
 tools/mermaid-validate/
+
+# workbuddy
+.workbuddy-ai
+
+# for release use
+.toolchain

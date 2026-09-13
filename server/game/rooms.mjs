@@ -1,7 +1,7 @@
 // 房间管理：大厅/准备/游戏中/结算 状态机 + 消息分发
 import { writeFileSync, existsSync, mkdirSync } from 'node:fs';
-import { join, dirname } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { join } from 'node:path';
+import { dataRoot } from '../paths.mjs'; // S3-1：打包后日志写入可写目录
 import { roomCode, uid } from '../util.mjs';
 import { Game } from './game.mjs';
 import { Director } from '../dm/director.mjs';
@@ -91,9 +91,7 @@ export class Rooms {
   setSheet(player, rawSheet) {
     const room = this.roomOf(player);
     if (!room || room.phase !== 'prepare') return { err: '游戏已开始，不能修改车卡' };
-    let sheet;
-    try { sheet = buildSheet(rawSheet); }
-    catch (e) { return { err: '车卡数据不合法：' + (e && e.message ? e.message : String(e)) }; }
+    const sheet = buildSheet(rawSheet);
     room.sheets.set(player.pid, sheet);
     room.ready.delete(player.pid);
     room.lastTouched = Date.now();
@@ -237,7 +235,7 @@ export class Rooms {
     if (t === 'game:move') return g.actMove(player.pid, { x: msg.x, y: msg.y });
     if (t === 'game:attack') return g.actAttack(player.pid, { targetEid: msg.targetEid });
     if (t === 'game:cast') return g.actCast(player.pid, { spellId: msg.spellId, targetEid: msg.targetEid, x: msg.x, y: msg.y });
-    if (t === 'game:item') return g.actUseItem(player.pid, { itemId: msg.itemId, targetEid: msg.targetEid, x: msg.x, y: msg.y });
+    if (t === 'game:item') return g.actUseItem(player.pid, { itemId: msg.itemId, targetEid: msg.targetEid });
     if (t === 'game:dash') return g.actDash(player.pid);
     if (t === 'game:hide') return g.actHide(player.pid);
     if (t === 'game:search') return g.actSearch(player.pid);
@@ -262,12 +260,12 @@ export class Rooms {
   }
 
   // R-23: 冒险结束把完整日志写到房主本地 data/logs/（含私密条目标注），便于报错自查
+  // S3-1：打包（Electron/原生壳）时写到 DND_DATA_DIR 指定的可写目录
   _writeLogFile(room) {
     try {
       const g = room.game;
       if (!g) return;
-      const root = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
-      const dir = join(root, 'data', 'logs');
+      const dir = join(dataRoot, 'logs');
       if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
       const ts = new Date().toISOString().replace(/[:T]/g, '-').slice(0, 19);
       const file = join(dir, room.code + '-' + ts + '.log');

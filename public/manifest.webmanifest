@@ -1,0 +1,19 @@
+{
+  "name": "骰与篝火 · AI DM 像素跑团",
+  "short_name": "骰与篝火",
+  "description": "AI DM 主导的 DND 5E 像素风联机跑团游戏（凡杜尔失落矿坑）",
+  "lang": "zh-CN",
+  "start_url": "./index.html",
+  "scope": "./",
+  "display": "fullscreen",
+  "display_override": ["fullscreen", "standalone"],
+  "orientation": "any",
+  "background_color": "#14121a",
+  "theme_color": "#14121a",
+  "categories": ["games", "entertainment"],
+  "icons": [
+    { "src": "./icons/icon-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "./icons/icon-512.png", "sizes": "512x512", "type": "image/png" },
+    { "src": "./icons/icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}

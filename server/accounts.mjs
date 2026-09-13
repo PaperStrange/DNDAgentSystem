@@ -1,12 +1,11 @@
 // 账户系统：注册/登录（scrypt哈希存储）+ 单点登录会话（同一账号新登录挤掉旧会话）
 // 数据落盘 data/accounts.json（已 gitignore，密码只存盐+哈希，绝不存明文）
 import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'node:fs';
-import { join, dirname } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { join } from 'node:path';
 import { scryptSync, randomBytes, timingSafeEqual } from 'node:crypto';
+import { dataRoot } from './paths.mjs'; // S3-1：打包后数据目录可写（Electron/原生壳）
 
-const root = join(dirname(fileURLToPath(import.meta.url)), '..');
-const DATA_DIR = join(root, 'data');
+const DATA_DIR = dataRoot;
 const FILE = join(DATA_DIR, 'accounts.json');
 
 export const USERNAME_RULE = '用户名需2~20位，可用字母/数字/中文/下划线/连字符';

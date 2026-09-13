@@ -1,11 +1,12 @@
 // 配置加载：config.json > 环境变量 > 默认值
+// S3-1 打包适配：运行时的用户配置写在 DND_DATA_DIR（可写目录），应用目录只读
 import { readFileSync, existsSync, writeFileSync } from 'node:fs';
-import { join, dirname } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { join } from 'node:path';
+import { appRoot, dataRoot } from './paths.mjs';
 
-const root = join(dirname(fileURLToPath(import.meta.url)), '..');
-const cfgPath = join(root, 'config.json');
-const examplePath = join(root, 'config.example.json');
+const cfgPath = join(appRoot, 'config.json');
+const dataCfgPath = join(dataRoot, 'config.json');
+const examplePath = join(appRoot, 'config.example.json');
 
 function deepMerge(a, b) {
   const out = { ...a };
@@ -17,11 +18,14 @@ function deepMerge(a, b) {
 }
 
 let cfg = {};
-try { cfg = JSON.parse(readFileSync(cfgPath, 'utf8')); }
+try { cfg = JSON.parse(readFileSync(dataCfgPath, 'utf8')); } // 打包运行时的用户配置优先
 catch {
-  if (existsSync(examplePath)) {
-    try { cfg = JSON.parse(readFileSync(examplePath, 'utf8')); } catch {}
-    try { writeFileSync(cfgPath, JSON.stringify(cfg, null, 2)); } catch {}
+  try { cfg = JSON.parse(readFileSync(cfgPath, 'utf8')); }
+  catch {
+    if (existsSync(examplePath)) {
+      try { cfg = JSON.parse(readFileSync(examplePath, 'utf8')); } catch {}
+      try { writeFileSync(dataRoot === appRoot ? cfgPath : dataCfgPath, JSON.stringify(cfg, null, 2)); } catch {}
+    }
   }
 }
 
