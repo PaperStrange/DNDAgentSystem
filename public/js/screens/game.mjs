@@ -1,7 +1,7 @@
 // 游戏主界面：像素画布 + 回合交互 + 战斗 + 对话 + 结算
 import { store, el, toast, saveCard } from '../app.mjs';
 import { TILE, drawTile, drawSprite, spritePalette, spriteToCanvas } from '../pixel.mjs';
-import { createPolicy } from '../../shared/autoplay-policy.mjs';
+import { createPolicy, chargeOf } from '../../shared/autoplay-policy.mjs';
 import { markDeathByName, updateProgression } from '../roster.mjs';
 
 let SCALE = 4;
@@ -104,10 +104,21 @@ export function mountGame(root, view) {
   wrap = canvasWrap;
 
   // ---------- 侧栏渲染 ----------
+  // 快照刷新会整块重建侧栏：先记下聊天草稿/焦点与日志滚动位置，重建后写回，避免正在输入的内容被冲掉
+  function captureSideState() {
+    const input = side.querySelector('.chat-input-row input');
+    const box = side.querySelector('.log-box');
+    return {
+      tab: g.panelTab,
+      chat: input ? { value: input.value, start: input.selectionStart, end: input.selectionEnd, focused: document.activeElement === input } : null,
+      scroll: box ? { top: box.scrollTop, atBottom: box.scrollHeight - box.scrollTop - box.clientHeight < 40 } : null,
+    };
+  }
   function renderSide() {
     const v = g.view;
     if (!v || !v.game) return;
     const gv = v.game;
+    const keep = captureSideState();
     renderStrip(); // F-24：竖状区域与侧栏同步刷新
     side.innerHTML = '';
     // 手动模式敌方回合：严格回合制——玩家确认推进
@@ -226,7 +237,8 @@ export function mountGame(root, view) {
         const label = a.icon + ' ' + a.name + (a.range ? ' ·' + a.range + '格' : '');
         const btn = el('button', 'btn small', label);
         const needTarget = a.kind === 'weapon' || ['spellAttack', 'saveAttack', 'autoHit', 'mark'].includes(a.kind);
-        const noResource = (a.cost === 'slot' && (!me.slots || !me.slots['1'])) || (a.cost === 'chapter' && !(me.charges[a.id] > 0));
+        // charges 键是裸 id（'dragonbreath'），能力 id 带 'f:' 前缀，需去前缀后查询
+        const noResource = (a.cost === 'slot' && (!me.slots || !me.slots['1'])) || (a.cost === 'chapter' && chargeOf(me, a.id) <= 0);
         const outOfRange = needTarget && !anyInRange(a);
         btn.disabled = gv.turn.actionUsed || noResource || outOfRange;
         btn.title = (a.desc || '') + '｜' + (rangeHint(a) || '无需目标') + (noResource ? '｜资源不足' : outOfRange ? '｜射程内没有敌人' : '');
@@ -365,6 +377,10 @@ export function mountGame(root, view) {
       };
       chatRow.appendChild(chatInput);
       logPanel.appendChild(chatRow);
+      if (keep.chat && keep.tab === 'chat') {
+        chatInput.value = keep.chat.value;
+        chatInput.setSelectionRange(keep.chat.start, keep.chat.end);
+      }
     } else {
       const filterRow = el('div', 'row');
       filterRow.style.marginBottom = '6px';
@@ -407,6 +423,13 @@ export function mountGame(root, view) {
       logBox.scrollTop = logBox.scrollHeight; // 先挂载再滚动：自动定位到最新一条
     }
     side.appendChild(logPanel);
+    // 面板挂载后才能真正聚焦/滚动：未挂载时 focus() 无效、scrollHeight 为 0
+    if (keep.chat?.focused && keep.tab === 'chat' && g.panelTab === 'chat') {
+      const input = side.querySelector('.chat-input-row input');
+      if (input) { input.focus(); input.setSelectionRange(keep.chat.start, keep.chat.end); }
+    }
+    const box = side.querySelector('.log-box');
+    if (box && keep.scroll && keep.tab === g.panelTab) box.scrollTop = keep.scroll.atBottom ? box.scrollHeight : keep.scroll.top;
   }
 
   // ---------- F-24：竖状区域（回合数+全员头像；战斗中追加怪物；点击查看事件树） ----------
@@ -729,7 +752,8 @@ export function mountGame(root, view) {
     const gv = g.view?.game;
     if (!gv || gv.win || gv.state !== 'playing') return;
     const tile = toTile(ev);
-    const entAt = gv.entities.find(e => e.x === tile.x && e.y === tile.y && !e.dead && e.hp > 0);
+    // 倒地（hp=0 但未死）的队友也要能选中，否则无法对他治疗/灌药水；怪物仍需 hp>0
+    const entAt = gv.entities.find(e => e.x === tile.x && e.y === tile.y && !e.dead && (e.kind === 'player' || e.hp > 0));
     const myEnt = gv.entities.find(e => e.eid === gv.me?.eid);
     const isMyTurn = gv.turn && gv.turn.playerId === store.pid;
 
@@ -790,7 +814,8 @@ export function mountGame(root, view) {
     net.send('game:move', { x: tile.x, y: tile.y });
   });
   // R-15: 快捷键——空格=暂停/继续（房主）、小键盘←/→=减速/加速（房主）；非房主空格=结束回合（手动模式）
-  document.addEventListener('keydown', (ev) => {
+  // R1-2：保存引用，unmount 时移除，避免反复进出游戏界面叠加监听（一次按键触发多次行动）
+  function onKeyDown(ev) {
     if (ev.key === 'Escape') { clearPending(); return; }
     const tag = ev.target?.tagName;
     if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return; // 输入框内不拦截
@@ -823,7 +848,8 @@ export function mountGame(root, view) {
       restartTicker();
       toast('⚡ 战斗速度 ' + ns + 'x');
     }
-  });
+  }
+  document.addEventListener('keydown', onKeyDown);
 
   function manhattan(a, b) { return Math.abs(a.x - b.x) + Math.abs(a.y - b.y); }
   function losClear(gv, a, b) {
@@ -1291,6 +1317,6 @@ export function mountGame(root, view) {
       saveAdventureCard(e);
       renderOverlays(g.view);
     },
-    unmount() { cancelAnimationFrame(raf); clearInterval(autoTicker); clearInterval(clockTimer); clearInterval(campTicker); window.removeEventListener('resize', resize); if (resizeObserver) resizeObserver.disconnect(); window.__e2e = null; },
+    unmount() { cancelAnimationFrame(raf); clearInterval(autoTicker); clearInterval(clockTimer); clearInterval(campTicker); document.removeEventListener('keydown', onKeyDown); window.removeEventListener('resize', resize); if (resizeObserver) resizeObserver.disconnect(); window.__e2e = null; },
   };
 }
