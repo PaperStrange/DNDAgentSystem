@@ -1,7 +1,7 @@
 // 游戏主界面：像素画布 + 回合交互 + 战斗 + 对话 + 结算
 import { store, el, toast, saveCard } from '../app.mjs';
 import { TILE, drawTile, drawSprite, spritePalette, spriteToCanvas } from '../pixel.mjs';
-import { createPolicy } from '../../shared/autoplay-policy.mjs';
+import { createPolicy, chargeOf } from '../../shared/autoplay-policy.mjs';
 import { markDeathByName, updateProgression } from '../roster.mjs';
 
 let SCALE = 4;
@@ -226,7 +226,9 @@ export function mountGame(root, view) {
         const label = a.icon + ' ' + a.name + (a.range ? ' ·' + a.range + '格' : '');
         const btn = el('button', 'btn small', label);
         const needTarget = a.kind === 'weapon' || ['spellAttack', 'saveAttack', 'autoHit', 'mark'].includes(a.kind);
-        const noResource = (a.cost === 'slot' && (!me.slots || !me.slots['1'])) || (a.cost === 'chapter' && !(me.charges[a.id] > 0));
+        // R1-5（还原 R1-2 修复）：能力 id 带 'f:' 前缀，服务端 charges 键为裸 id，
+        // 必须经 chargeOf 去前缀后再查，直接查 me.charges[a.id] 会恒为 0 导致按钮被误置灰
+        const noResource = (a.cost === 'slot' && (!me.slots || !me.slots['1'])) || (a.cost === 'chapter' && chargeOf(me, a.id) <= 0);
         const outOfRange = needTarget && !anyInRange(a);
         btn.disabled = gv.turn.actionUsed || noResource || outOfRange;
         btn.title = (a.desc || '') + '｜' + (rangeHint(a) || '无需目标') + (noResource ? '｜资源不足' : outOfRange ? '｜射程内没有敌人' : '');
