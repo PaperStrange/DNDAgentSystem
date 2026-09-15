@@ -1,0 +1,50 @@
+# CI 骨架（R1-7）
+#
+# 定位：只做**能自动判定**的门禁前置，不替代人工评审，也不声称"跑绿即验收"。
+# 依 SOP 第十二节：Sprint 2 起 CI（S2-5）自动检查探针状态，作为合并门禁的**前置条件**。
+# 本文件是第一版骨架，仅覆盖单元测试与红线合规自检；
+# sim / e2e 等 8 项验证基线仍需在隔离环境人工执行（见 tools/README.md 与 docs/qa/restart-sprint1/run-baseline.mjs）。
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # compliance-check 需要完整历史做提交/删除审计
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      # 只装运行时依赖 + 门禁所需；不装 electron 等重型可选依赖
+      - name: Install dependencies
+        run: npm install --omit=optional --no-audit --no-fund
+
+      - name: Unit tests
+        run: npm test
+
+  compliance:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Red-line compliance gate
+        run: node tools/ci-gate/compliance-check.mjs
+        continue-on-error: false
