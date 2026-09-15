@@ -46,5 +46,7 @@ jobs:
           node-version: '22'
 
       - name: Red-line compliance gate
-        run: node tools/ci-gate/compliance-check.mjs
+        run: |
+          node tools/ci-gate/compliance-check.mjs
+          node tools/ci-gate/compliance-check.mjs no-persisted-exemptions
         continue-on-error: false

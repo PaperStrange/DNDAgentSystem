@@ -1,0 +1,43 @@
+{
+  "_schema": "每个条目对应主线上的一个 merge 提交；expertCR=true 表示已完成代码审计（CR）",
+  "_authority": "RD-054（用户：合并前代码审计不因角色豁免，含 Bob 的 merge 提交）",
+  "_auditorDefault": "CR=SeniorDeveloper（RD-029）",
+  "entries": [
+    {
+      "merge": "9093e31",
+      "subject": "chore(R1-5): merge 后端已审核产出（道具落点 x,y 透传还原）",
+      "author": "Bob",
+      "expertCR": true,
+      "evidence": "R1-5 卡片经 Kelly 二轮复验通过 + Bob CR 通过（正确性/回归/质量/安全/规范/测试六项）",
+      "date": "2026-09-15"
+    },
+    {
+      "merge": "1e33e7f",
+      "subject": "chore(R1-5): merge 前端已审核产出（能力次数键 abilityNoResource 重构）",
+      "author": "Bob",
+      "expertCR": true,
+      "evidence": "同上；CR 另指出 L1 注释失真并已修正（7522e03）",
+      "date": "2026-09-15"
+    }
+  ],
+  "pending": [
+    {
+      "merge": "6d94700",
+      "subject": "chore(R1-7): merge tools 分类索引产出",
+      "author": "Bob",
+      "reason": "本轮未执行 CR（仅文档改动）"
+    },
+    {
+      "merge": "77e7135",
+      "subject": "chore(R1-8): merge 测试聚合入口与 CI 骨架",
+      "author": "Bob",
+      "reason": "本轮未执行 CR（仅跑了 npm test）"
+    },
+    {
+      "merge": "6b274aa",
+      "subject": "chore(R1-8): merge 撤销豁免持久化",
+      "author": "Bob",
+      "reason": "本轮未执行 CR（回滚提交）"
+    }
+  ]
+}

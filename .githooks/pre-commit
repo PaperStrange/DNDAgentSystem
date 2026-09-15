@@ -1,0 +1,41 @@
+#!/bin/sh
+# 提交前钩子：禁止「持久化豁免」类文件被创建或修改
+# 依据：RD-036（豁免不得落地为长期规则）、RD-054（审计/门禁不因角色豁免）
+# 安装：git config core.hooksPath .githooks
+#
+# 被禁止的路径（一旦出现在暂存区即拒绝提交）：
+#   - tools/ci-gate/known-exceptions.json
+#   - 任何 *known-exceptions*.json / *exemptions*.json
+# 需要放行历史直提时，请用一次性命令行参数：
+#   node tools/ci-gate/compliance-check.mjs --baseline <ref>
+# 该方式不落文件、不形成先例。
+
+set -e
+
+BAD=$(git diff --cached --name-only --diff-filter=ACMR | \
+      grep -Ei 'known-exceptions\.json$|exemptions\.json$' || true)
+
+if [ -n "$BAD" ]; then
+  echo "❌ 提交被拒绝：检测到被禁止的「持久化豁免」文件" >&2
+  echo "$BAD" | sed 's/^/   /' >&2
+  echo "" >&2
+  echo "依 RD-036：豁免一律为一次性，不得落地为文件或长期规则。" >&2
+  echo "历史直提确需放行，请用一次性参数：" >&2
+  echo "  node tools/ci-gate/compliance-check.mjs --baseline <ref>" >&2
+  echo "（此方式不写文件、不形成先例）" >&2
+  exit 1
+fi
+
+# 卡片混入过程记录的拦截（事故03 / 工件职责边界）
+CARDS=$(git diff --cached --name-only --diff-filter=ACMR | grep -E '^docs/pm/cards/.*\.md$' || true)
+if [ -n "$CARDS" ]; then
+  for f in $CARDS; do
+    if grep -qE '^## (排查进展|处置方案|处置（已执行）|起因（事实）|验收（Kelly|当前缓解措施|测量结果|为什么仍未关闭)' "$f"; then
+      echo "❌ 提交被拒绝：需求卡片混入开发过程记录 -> $f" >&2
+      echo "   过程内容应放 docs/pm/reports/ 或 docs/qa/<run>/（见事故03）" >&2
+      exit 1
+    fi
+  done
+fi
+
+exit 0
