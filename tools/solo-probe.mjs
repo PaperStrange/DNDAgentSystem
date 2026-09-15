@@ -13,7 +13,7 @@ const sleep = (ms) => new Promise(r => setTimeout(r, ms));
 
 const server = spawn(process.execPath, ['server/index.mjs'], {
   cwd: process.cwd(),
-  env: { ...process.env, DND_PORT: String(PORT), DND_SEED: '7', DND_OFFLINE: '1', DND_DEBUG: '1' },
+  env: { ...process.env, DND_PORT: String(PORT), DND_SEED: process.env.DND_SEED ?? '7', DND_OFFLINE: '1', DND_DEBUG: '1' },
   stdio: ['ignore', 'ignore', 'inherit'],
 });
 
@@ -58,6 +58,10 @@ async function main() {
       case 'interact': send('game:interact', { targetEid: act.targetEid, tx: act.tx, ty: act.ty }); break;
       case 'dialogue': send('game:dialogue', { optionId: act.optionId }); break;
       case 'endturn': send('game:endturn'); break;
+      // P0-1（R1-6a）：策略会返回 claim，本探针此前没有该分支且无 default，
+      // 动作被静默丢弃 → 每回合空转 → 活锁（seed42 用满 20 分钟仍停 ch1）。
+      // 注意：仅补此分支会把「卡住」变成「第 1 章就通关」，必须与 P0-2 一同生效。
+      case 'claim': send('game:claim'); break;
       case 'rest': send('game:rest'); break;
       case 'search': send('game:search'); break;
       case 'dash': send('game:dash'); break;
