@@ -37,6 +37,15 @@ test('game:item 未带坐标时 x,y 为 undefined，不伪造坐标', async () =
   assert.equal(calls[0].arg.y, undefined);
 });
 
+test('game:item 落点为 (0,0) 时必须原样透传，不能被当作空值吞掉', async () => {
+  // 边界：0 是合法坐标。若实现写成 msg.x || undefined 之类的假值判断，会把 (0,0) 吞成 undefined，
+  // 导致地图左上角无法作为落点。本用例守住该边界。
+  const { rooms, calls, player } = fakeRooms();
+  await rooms._gameMsg(player, { t: 'game:item', itemId: 'flask', x: 0, y: 0 });
+  assert.equal(calls[0].arg.x, 0, 'x=0 是合法坐标，必须透传');
+  assert.equal(calls[0].arg.y, 0, 'y=0 是合法坐标，必须透传');
+});
+
 test('game:cast 同样透传 x,y（防止同类回退）', async () => {
   const { rooms, calls, player } = fakeRooms();
   await rooms._gameMsg(player, { t: 'game:cast', spellId: 's:firebolt', x: 3, y: 4 });
