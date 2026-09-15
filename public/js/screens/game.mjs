@@ -1,7 +1,7 @@
 // 游戏主界面：像素画布 + 回合交互 + 战斗 + 对话 + 结算
 import { store, el, toast, saveCard } from '../app.mjs';
 import { TILE, drawTile, drawSprite, spritePalette, spriteToCanvas } from '../pixel.mjs';
-import { createPolicy } from '../../shared/autoplay-policy.mjs';
+import { createPolicy, abilityNoResource } from '../../shared/autoplay-policy.mjs';
 import { markDeathByName, updateProgression } from '../roster.mjs';
 
 let SCALE = 4;
@@ -226,7 +226,9 @@ export function mountGame(root, view) {
         const label = a.icon + ' ' + a.name + (a.range ? ' ·' + a.range + '格' : '');
         const btn = el('button', 'btn small', label);
         const needTarget = a.kind === 'weapon' || ['spellAttack', 'saveAttack', 'autoHit', 'mark'].includes(a.kind);
-        const noResource = (a.cost === 'slot' && (!me.slots || !me.slots['1'])) || (a.cost === 'chapter' && !(me.charges[a.id] > 0));
+        // R1-5：能力 id 带 'f:' 前缀、服务端 charges 键为裸 id，
+        // 判定统一走共享纯函数 abilityNoResource（去前缀 + 可在无 DOM 环境断言），不在此处内联直查 me.charges
+        const noResource = abilityNoResource(me, a);
         const outOfRange = needTarget && !anyInRange(a);
         btn.disabled = gv.turn.actionUsed || noResource || outOfRange;
         btn.title = (a.desc || '') + '｜' + (rangeHint(a) || '无需目标') + (noResource ? '｜资源不足' : outOfRange ? '｜射程内没有敌人' : '');
@@ -237,7 +239,7 @@ export function mountGame(root, view) {
         const label = a.icon + ' ' + a.name + '·附赠' + (a.range ? ' ·' + a.range + '格' : '');
         const btn = el('button', 'btn small', label);
         const needTarget = a.kind === 'mark'; // 治疗可对自己使用，不因无目标置灰
-        const noResource = a.cost === 'slot' && (!me.slots || !me.slots['1']);
+        const noResource = abilityNoResource(me, a);
         const outOfRange = needTarget && !anyInRange(a);
         btn.disabled = gv.turn.bonusUsed || noResource || outOfRange;
         btn.title = (a.desc || '') + '｜' + (rangeHint(a) || '无需目标') + (noResource ? '｜资源不足' : outOfRange ? '｜射程内没有敌人' : '');
