@@ -53,5 +53,5 @@ jobs:
       # CI 中该检查会输出「[不适用]」并显式声明，不会静默跳过
       - name: Red-line compliance gate
         run: |
-          node tools/ci-gate/compliance-check.mjs
+          node tools/ci-gate/compliance-check.mjs
         continue-on-error: false
