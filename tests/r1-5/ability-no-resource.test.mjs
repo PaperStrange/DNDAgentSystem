@@ -38,7 +38,7 @@ test('chapter 类：id 不带 f: 前缀同样命中裸键', () => {
 test('chapter 类：带 f: 前缀若直查 charges[a.id] 会恒为 0 —— 本用例即守住该回归点', () => {
   const me = { charges: { dragonbreath: 1 } };
   const a = chapter('f:dragonbreath');
-  // 直查的错误写法结果（用于说明，不参与断言）
+  // 先用断言钉住根因：直查带前缀的 id 拿不到值（这正是按钮被误置灰的原因）
   assert.equal(me.charges[a.id], undefined, '直查带前缀 id 拿不到值，这正是按钮被误置灰的根因');
   assert.equal(abilityNoResource(me, a), false, '正确实现必须判为可用');
 });
