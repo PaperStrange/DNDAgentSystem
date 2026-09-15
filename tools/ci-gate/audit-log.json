@@ -1,0 +1,55 @@
+{
+  "_schema": "每个条目对应主线上的一个 merge 提交；expertCR=true 表示已完成代码审计（CR）",
+  "_authority": "RD-054（合并前代码审计不因角色豁免，含 Bob 的 merge 提交）",
+  "_auditorDefault": "CR=SeniorDeveloper（RD-029）",
+  "entries": [
+    {
+      "merge": "9093e31",
+      "subject": "chore(R1-5): merge 后端已审核产出（道具落点 x,y 透传还原）",
+      "author": "Bob",
+      "expertCR": true,
+      "evidence": "R1-5 卡片经 Kelly 二轮复验通过 + Bob CR 通过（正确性/回归/质量/安全/规范/测试六项）",
+      "date": "2026-09-15"
+    },
+    {
+      "merge": "1e33e7f",
+      "subject": "chore(R1-5): merge 前端已审核产出（能力次数键 abilityNoResource 重构）",
+      "author": "Bob",
+      "expertCR": true,
+      "evidence": "同上；CR 另指出 L1 注释失真并已修正（7522e03）",
+      "date": "2026-09-15"
+    }
+  ],
+  "_note": "台账必须位于受版本控制的位置；docs/ 被 .gitignore 排除，放那里 CI 读不到。",
+  "_grandfather": {
+    "before": "6b274aa",
+    "reason": "RD-054 之前的历史 merge 既往不咎（用户裁定 A）",
+    "decidedBy": "用户 2026-09-16",
+    "note": "原值 1801520 为分支本地提交，不在 main 上，CI 可能不可达（审计 B2）"
+  },
+  "waived": [
+    {
+      "merge": "6d94700",
+      "subject": "chore(R1-7): merge tools 分类索引产出",
+      "author": "Bob",
+      "reason": "本轮未执行 CR（仅文档改动）",
+      "status": "waived",
+      "waivedBy": "RD-054 裁定 A（既往不咎起点 6b274aa）",
+      "crStatus": "never-performed",
+      "decidedBy": "用户 2026-09-16",
+      "note": "仅作留痕：已按 RD-054 裁定 A 豁免，crStatus=never-performed；门禁不读取本字段（无豁免效力）"
+    },
+    {
+      "merge": "77e7135",
+      "subject": "chore(R1-8): merge 测试聚合入口与 CI 骨架",
+      "author": "Bob",
+      "reason": "本轮未执行 CR（仅跑了 npm test）",
+      "status": "waived",
+      "waivedBy": "RD-054 裁定 A（既往不咎起点 6b274aa）",
+      "crStatus": "never-performed",
+      "decidedBy": "用户 2026-09-16",
+      "note": "仅作留痕：已按 RD-054 裁定 A 豁免，crStatus=never-performed；门禁不读取本字段（无豁免效力）"
+    }
+  ],
+  "_waivedNote": "waived 为纯留痕字段，门禁不读取，故无后门风险；勿使其生效，否则等同 RD-036 禁止的持久化豁免。"
+}
