@@ -70,16 +70,26 @@ function biasPool(classId) {
 import { pick, shuffle } from '../util.mjs';
 
 // 离线分配：职业偏好为主，随机挑选，避免重复
+// P0-2 / RD-055：单人模式下「全员达成」= 自己达成，一旦目标成立整场冒险立即结束
+// （systems/goals.mjs:22-23）。因此单人只保留**终局型**目标：
+//   - 带章节门控：pacifist / flawless / ascetic（估算含 chapter.id === 'cave'）
+//   - 终局事件：dragonslayer（bossLastHit）、rescuer（同时救出 sildar 与 gundren）
+// 早期可达成型（hunter kills>=4、vanguard initiativeWins>=2、lucky crits>=2、
+// explorer searches+chests>=6 等）会在**第 1 章就终结冒险**，属设计缺陷。
+const SOLO_ENDGAME_GOALS = new Set(['dragonslayer', 'rescuer', 'pacifist', 'flawless', 'ascetic']);
+
 export function assignOfflineGoals(players) {
   const used = new Set();
   const out = new Map();
+  const isSolo = players.size === 1;
+  const allow = (id) => !isSolo || SOLO_ENDGAME_GOALS.has(id);
   const pids = shuffle([...players.keys()]);
   for (const pid of pids) {
     const p = players.get(pid);
     const { biased, others } = biasPool(p.sheet.class);
-    const cands = shuffle([...biased.map(g => g.id), ...others.map(g => g.id)]).filter(id => !used.has(id));
-    const poolIds = cands.length ? cands : GOAL_TEMPLATES.map(g => g.id).filter(id => !used.has(id));
-    const id = poolIds[0] ?? pick(GOAL_TEMPLATES).id;
+    const cands = shuffle([...biased.map(g => g.id), ...others.map(g => g.id)]).filter(id => allow(id) && !used.has(id));
+    const poolIds = cands.length ? cands : GOAL_TEMPLATES.map(g => g.id).filter(id => allow(id) && !used.has(id));
+    const id = poolIds[0] ?? (isSolo ? 'dragonslayer' : pick(GOAL_TEMPLATES).id);
     used.add(id);
     const tpl = GOAL_TEMPLATES.find(g => g.id === id);
     out.set(pid, { id: tpl.id, name: tpl.name, text: tpl.text(p), status: 'pending', offline: true });
