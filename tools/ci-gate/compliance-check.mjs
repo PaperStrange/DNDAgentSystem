@@ -34,6 +34,9 @@ const AUDIT_LOG_PATH = join(dirname(fileURLToPath(import.meta.url)), 'audit-log.
 
 function checkDirectPush() {
   const baseline = baseIdx >= 0 ? args[baseIdx + 1] : DEFAULT_BASELINE;
+  // L3：与 merge-audit 的起点校验保持一致，避免传错基线时 git 直接 fatal
+  try { execFileSync("git", ["rev-parse", "--verify", baseline + "^{commit}"], { cwd: repo, stdio: "ignore" }); }
+  catch { console.log("❌ 基线不可解析：" + baseline); return 1; }
   const fmt = '--format=%H%x09%P%x09%an <%ae>%x09%s';
   // 只看 main 第一父链：经合并提交带入的卡片分支单亲提交属合规，
   // 出现在第一父链上的非合并提交才是直提

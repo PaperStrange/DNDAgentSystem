@@ -36,7 +36,8 @@
       "status": "waived",
       "waivedBy": "RD-054 裁定 A（既往不咎起点 6b274aa）",
       "crStatus": "never-performed",
-      "decidedBy": "用户 2026-09-16"
+      "decidedBy": "用户 2026-09-16",
+      "note": "仅作留痕：已按 RD-054 裁定 A 豁免，crStatus=never-performed；门禁不读取本字段（无豁免效力）"
     },
     {
       "merge": "77e7135",
@@ -46,17 +47,9 @@
       "status": "waived",
       "waivedBy": "RD-054 裁定 A（既往不咎起点 6b274aa）",
       "crStatus": "never-performed",
-      "decidedBy": "用户 2026-09-16"
-    },
-    {
-      "merge": "6b274aa",
-      "subject": "chore(R1-8): merge 撤销豁免持久化",
-      "author": "Bob",
-      "reason": "本轮未执行 CR（回滚提交）",
-      "status": "waived",
-      "waivedBy": "RD-054 裁定 A（既往不咎起点 6b274aa）",
-      "crStatus": "never-performed",
-      "decidedBy": "用户 2026-09-16"
+      "decidedBy": "用户 2026-09-16",
+      "note": "仅作留痕：已按 RD-054 裁定 A 豁免，crStatus=never-performed；门禁不读取本字段（无豁免效力）"
     }
-  ]
+  ],
+  "_waivedNote": "waived 为纯留痕字段，门禁不读取，故无后门风险；勿使其生效，否则等同 RD-036 禁止的持久化豁免。"
 }

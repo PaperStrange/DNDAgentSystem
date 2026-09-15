@@ -21,7 +21,8 @@
     "cap:android": "cd release && cap sync android",
     "cap:ios": "cd release && cap sync ios",
     "android:apk": "node tools/build-android.mjs",
-    "setup-hooks": "git config core.hooksPath .githooks && chmod +x .githooks/pre-commit"
+    "setup-hooks": "git config core.hooksPath .githooks && chmod +x .githooks/pre-commit",
+    "postinstall": "npm run setup-hooks"
   },
   "dependencies": {
     "pdfjs-dist": "^4.10.38",
