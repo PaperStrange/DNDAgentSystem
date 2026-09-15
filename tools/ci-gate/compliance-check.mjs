@@ -2,7 +2,7 @@
 // S2-6 CI 门禁：直提 main 检测 + 分支合规校验 + worktree 同级目录校验（红线-1/7）
 // 用法：node tools/ci-gate/compliance-check.mjs <all|direct-push|branch-names|worktrees|no-persisted-exemptions|cards-requirement-only|merge-audit>
 //       [--repo <路径>] [--baseline <ref>]
-// 退出码：0=全部合规，1=存在违规，2=存在未测项（依 DoD 不算 PASS）/参数错误
+// 退出码：0=全部合规，1=存在违规，2=存在未测项（依 DoD「缺失/未测不算 PASS」）/参数错误，2=存在未测项（依 DoD 不算 PASS）/参数错误
 import { execFileSync } from 'node:child_process';
 import { dirname, resolve, join } from 'node:path';
 import { existsSync, readFileSync, readdirSync } from 'node:fs';
@@ -194,18 +194,36 @@ function checkBranchNames() {
 function checkWorktrees() {
   const lines = gitLines('worktree', 'list', '--porcelain');
   const entries = [];
-  let cur = {};
+  let cur = null;
   for (const line of lines) {
-    if (line.startsWith('worktree ')) cur = { path: line.slice(9) };
-    else if (line.startsWith('branch ')) {
-      cur.branch = line.slice(7).replace('refs/heads/', '');
-      entries.push(cur);
-    }
+    if (line.startsWith('worktree ')) { if (cur) entries.push(cur); cur = { path: line.slice(9), branch: null }; }
+    else if (line.startsWith('branch ')) { if (cur) cur.branch = line.slice(7).replace('refs/heads/', ''); }
+    else if (line === 'detached') { if (cur) cur.branch = null; }
   }
+  if (cur) entries.push(cur); // detached 块也要入表，否则主检出会整个丢失
+
   const mainEntry = entries.find(e => e.branch === 'main');
   if (!mainEntry) {
-    console.log('[worktree校验] 未找到 main worktree，跳过');
-    return 0;
+    // 事故05 同类假绿：原实现「找不到 main worktree 就跳过并 return 0」。
+    // 但『找不到 main』不等同于违规，须区分三种情形（CR 复审指出）：
+    //   a) CI：actions/checkout 在 PR 下为 detached，无『主检出』概念 → 不适用
+    //   b) 本地 detached（bisect/rebase/checkout <sha>）→ 无判定依据 → 记未测
+    //   c) 主检出挂在非 main 分支 → 违反红线-1 → 判失败
+    if (process.env.CI) {
+      console.log('⚠ [不适用] worktrees 检查不在 CI 执行（单检出/detached，无「主检出」概念）');
+      console.log('   该约束由本地门禁与 pre-commit 承担；CI 不给出通过/失败结论。');
+      return 0;
+    }
+    const mainWt = entries[0];
+    if (!mainWt || mainWt.branch === null) {
+      console.log('⚠ 主检出处于 detached（或解析不到分支），无法判定是否违反红线-1，记为未测');
+      untestedCount++;
+      return 0;
+    }
+    console.log('❌ 主检出挂在非 main 分支 —— 违反红线-1（卡片开发须用同级 worktree）');
+    console.log('   当前分支：' + mainWt.branch + '；现有 worktree：' + entries.map(e => e.branch || '(detached)').join(', '));
+    console.log('   处置：git switch main，并用 git worktree add <同级目录> <分支> 开发。');
+    return 1;
   }
   const mainDir = dirname(resolve(mainEntry.path));
   const bad = entries.filter(e => e.branch !== 'main' && dirname(resolve(e.path)) !== mainDir);
