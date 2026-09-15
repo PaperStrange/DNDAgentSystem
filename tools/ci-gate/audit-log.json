@@ -1,6 +1,6 @@
 {
   "_schema": "每个条目对应主线上的一个 merge 提交；expertCR=true 表示已完成代码审计（CR）",
-  "_authority": "RD-054（用户：合并前代码审计不因角色豁免，含 Bob 的 merge 提交）",
+  "_authority": "RD-054（合并前代码审计不因角色豁免，含 Bob 的 merge 提交）",
   "_auditorDefault": "CR=SeniorDeveloper（RD-029）",
   "entries": [
     {
@@ -39,5 +39,11 @@
       "author": "Bob",
       "reason": "本轮未执行 CR（回滚提交）"
     }
-  ]
+  ],
+  "_note": "台账必须位于受版本控制的位置；docs/ 被 .gitignore 排除，放那里 CI 读不到。",
+  "_grandfather": {
+    "before": "1801520",
+    "reason": "RD-054 之前的历史 merge 既往不咎（用户裁定 A：只审计 RD-054 之后的 merge）",
+    "decidedBy": "用户 2026-09-16"
+  }
 }

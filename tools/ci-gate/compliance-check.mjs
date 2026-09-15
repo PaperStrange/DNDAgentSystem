@@ -75,7 +75,7 @@ function checkCardsRequirementOnly() {
   const bad = [];
   for (const f of readdirSync(dir)) {
     if (!f.endsWith(".md")) continue;
-    const txt = fs.readFileSync(join(dir, f), "utf8");
+    const txt = readFileSync(join(dir, f), "utf8");
     if (PROCESS_HEADINGS.test(txt)) bad.push(f);
   }
   if (bad.length) {
@@ -99,7 +99,9 @@ function checkMergeAudit() {
   const log = JSON.parse(readFileSync(AUDIT_LOG_PATH, "utf8"));
   const done = new Set((log.entries || []).filter(e => e.expertCR).map(e => String(e.merge).toLowerCase()));
   // 取主线第一父链上的 merge 提交
-  const rows = gitLines("log", "--first-parent", "--merges", "--format=%h%x09%s");
+  const gf = log._grandfather && log._grandfather.before ? log._grandfather.before : null;
+  if (gf) console.log("[合并审计] 既往不咎起点 " + gf + "（RD-054 之前的历史 merge 不追溯）");
+  const rows = gitLines("log", "--first-parent", "--merges", "--format=%h%x09%s", gf ? (gf + "..HEAD") : "HEAD");
   const missing = [];
   for (const r of rows) {
     const [h, subj] = r.split("\t");
