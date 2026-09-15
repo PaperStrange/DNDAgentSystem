@@ -158,9 +158,11 @@ function checkMergeAudit() {
     return missing.length;
   }
   if (pendingNewest) { console.log("🟡 有 1 个最新 merge 待补录，暂不阻断"); return 0; }
-  // M6：空集不得报绿 —— 检查区间内 0 个 merge 时无法佐证任何审计情况
+  // M6：空集不得报绿 —— 检查区间内 0 个 merge 时无法佐证任何审计情况。
+  // 计入「未测」而非「通过」；由汇总层给出未测语义（依 DoD：缺失/未测不算 PASS）。
   if (rows.length === 0) {
-    console.log("⚠ 检查区间内 0 个 merge 提交，无法佐证审计情况（不视为通过）");
+    console.log("⚠ 检查区间内 0 个 merge 提交，无法佐证审计情况（记为未测）");
+    untestedCount++;
     return 0;
   }
   console.log("✅ 全部 merge 提交均有代码审计（RD-054 合规）");
@@ -217,6 +219,7 @@ function checkWorktrees() {
 const ALL_TARGETS = ['direct-push', 'branch-names', 'worktrees', 'no-persisted-exemptions', 'cards-requirement-only', 'merge-audit'];
 const targets = cmd === 'all' ? ALL_TARGETS : [cmd];
 let total = 0;
+let untestedCount = 0;
 for (const t of targets) {
   if (t === 'direct-push') total += checkDirectPush();
   else if (t === 'branch-names') total += checkBranchNames();
@@ -229,5 +232,7 @@ for (const t of targets) {
     process.exit(2);
   }
 }
-console.log(total ? `⛔ 共 ${total} 项违规，门禁不通过` : '🟢 门禁通过，无违规');
-process.exit(total ? 1 : 0);
+if (total) { console.log(`⛔ 共 ${total} 项违规，门禁不通过`); process.exit(1); }
+if (untestedCount) { console.log(`⚠ 有 ${untestedCount} 项未测，依 DoD「缺失/未测不算 PASS」，不视为通过`); process.exit(2); }
+console.log("🟢 门禁通过，无违规");
+process.exit(0);
