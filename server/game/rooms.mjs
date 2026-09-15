@@ -235,7 +235,7 @@ export class Rooms {
     if (t === 'game:move') return g.actMove(player.pid, { x: msg.x, y: msg.y });
     if (t === 'game:attack') return g.actAttack(player.pid, { targetEid: msg.targetEid });
     if (t === 'game:cast') return g.actCast(player.pid, { spellId: msg.spellId, targetEid: msg.targetEid, x: msg.x, y: msg.y });
-    if (t === 'game:item') return g.actUseItem(player.pid, { itemId: msg.itemId, targetEid: msg.targetEid });
+    if (t === 'game:item') return g.actUseItem(player.pid, { itemId: msg.itemId, targetEid: msg.targetEid, x: msg.x, y: msg.y });
     if (t === 'game:dash') return g.actDash(player.pid);
     if (t === 'game:hide') return g.actHide(player.pid);
     if (t === 'game:search') return g.actSearch(player.pid);
