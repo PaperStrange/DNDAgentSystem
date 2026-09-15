@@ -18,6 +18,22 @@
       "expertCR": true,
       "evidence": "同上；CR 另指出 L1 注释失真并已修正（7522e03）",
       "date": "2026-09-15"
+    },
+    {
+      "merge": "6b27bb3",
+      "subject": "chore(R1-11): merge 决策遵循的机器约束（CR 第4轮有条件通过）",
+      "author": "Bob",
+      "expertCR": true,
+      "evidence": "CR 四轮审计：1/2/3 轮不通过，第4轮通过（建议允许合并）；放行条件 N1 已满足",
+      "date": "2026-09-16"
+    },
+    {
+      "merge": "142ceae",
+      "subject": "fix(R1-6a): merge 消除单人 ch1 活锁（CR 有条件通过）",
+      "author": "Bob",
+      "expertCR": true,
+      "evidence": "CR 实跑复核：seed7 完整通关 kind=public；seed42 活锁消除（20min→1min 出结局）；多人零回归；规则 77/77",
+      "date": "2026-09-16"
     }
   ],
   "_note": "台账必须位于受版本控制的位置；docs/ 被 .gitignore 排除，放那里 CI 读不到。",
