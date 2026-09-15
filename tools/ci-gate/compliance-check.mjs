@@ -204,8 +204,12 @@ function checkWorktrees() {
   }
   const mainEntry = entries.find(e => e.branch === 'main');
   if (!mainEntry) {
-    console.log('[worktree校验] 未找到 main worktree，跳过');
-    return 0;
+    // 事故05 同类假绿：原实现「找不到 main worktree 就跳过并 return 0」。
+    // 无 main 检出通常意味着主检出被切到了卡片分支 —— 正是红线-1 要禁止的行为。
+    console.log('❌ 未找到 main 检出 —— 主检出可能被切到了卡片分支，违反红线-1');
+    console.log('   现有 worktree：' + (entries.map(e => e.branch).join(', ') || '（无）'));
+    console.log('   处置：git switch main，并用 git worktree add <同级目录> <分支> 开发。');
+    return 1;
   }
   const mainDir = dirname(resolve(mainEntry.path));
   const bad = entries.filter(e => e.branch !== 'main' && dirname(resolve(e.path)) !== mainDir);
