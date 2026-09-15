@@ -15,6 +15,17 @@ export function chargeOf(me, id) {
   return typeof n === 'number' && Number.isFinite(n) ? n : 0;
 }
 
+// 能力可用性（纯函数，界面与测试共用）
+// R1-5：原逻辑内联在 screens/game.mjs 里直查 me.charges[a.id]（id 带 'f:' 前缀 → 恒为 0 → 按钮被误置灰），
+// 且无法在 node:test 中断言（UI 模块依赖 document/Canvas）。抽出后可在无 DOM 环境做行为层测试。
+// 规则：cost==='slot' 看 1 环法术位；cost==='chapter' 看次数（必须去 'f:' 前缀后查裸键）；其余不限。
+export function abilityNoResource(me, a) {
+  if (!a) return true;
+  if (a.cost === 'slot') return !me?.slots || !(me.slots['1'] > 0);
+  if (a.cost === 'chapter') return chargeOf(me, a.id) <= 0;
+  return false;
+}
+
 function manhattan(a, b) { return Math.abs(a.x - b.x) + Math.abs(a.y - b.y); }
 function sign(n) { return n > 0 ? 1 : n < 0 ? -1 : 0; }
 
