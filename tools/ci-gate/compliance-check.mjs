@@ -2,7 +2,7 @@
 // S2-6 CI 门禁：直提 main 检测 + 分支合规校验 + worktree 同级目录校验（红线-1/7）
 // 用法：node tools/ci-gate/compliance-check.mjs <all|direct-push|branch-names|worktrees|no-persisted-exemptions|cards-requirement-only|merge-audit>
 //       [--repo <路径>] [--baseline <ref>]
-// 退出码：0=全部合规，1=存在违规，2=存在未测项（依 DoD 不算 PASS）/参数错误
+// 退出码：0=全部合规，1=存在违规，2=存在未测项（依 DoD「缺失/未测不算 PASS」）/参数错误，2=存在未测项（依 DoD 不算 PASS）/参数错误
 import { execFileSync } from 'node:child_process';
 import { dirname, resolve, join } from 'node:path';
 import { existsSync, readFileSync, readdirSync } from 'node:fs';
