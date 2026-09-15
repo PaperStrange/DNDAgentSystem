@@ -45,6 +45,10 @@ jobs:
         with:
           node-version: '22'
 
+      # 依 RD-056：cards-requirement-only 不在 CI 执行
+      # 原因：docs/* 被 .gitignore 排除，CI/worktree 中不存在 docs/pm/cards，校验无从进行
+      # 该约束由 pre-commit 钩子承担（本地环境严格校验）
+      # CI 中该检查会输出「[不适用]」并显式声明，不会静默跳过
       - name: Red-line compliance gate
         run: |
           node tools/ci-gate/compliance-check.mjs

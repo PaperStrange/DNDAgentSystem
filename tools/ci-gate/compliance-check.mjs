@@ -75,12 +75,17 @@ function checkCardsRequirementOnly() {
     // 依 DoD「失败/超时/缺失/未测均不算 PASS」。
     // 注意：docs/* 被 .gitignore 排除（红线-3 不改 .gitignore），故本检查在 CI 上天然无目录。
     // 旧实现在此处「跳过并返回 0」＝假绿，等于事故03 的防线在 CI 完全失效。现改为失败并给出处置选项。
+    // RD-056（用户裁定选 2）：本检查移出 CI —— docs/* 被 .gitignore 排除，
+    // CI/worktree 中不存在 docs/pm/cards，校验无从进行。
+    // 在 CI 中**显式声明不适用并指明由谁承担**，绝不静默跳过（静默＝假绿，见事故03）。
+    if (process.env.CI) {
+      console.log("⚠ [不适用] cards-requirement-only 不在 CI 执行（docs/* 被 .gitignore 排除，目录不存在）");
+      console.log("   该约束改由 pre-commit 钩子承担（依 RD-056）；CI 对此不提供通过/失败结论。");
+      console.log("   本地（存在 docs/pm/cards 的环境）仍会严格校验。");
+      return 0;
+    }
     console.log("❌ 未找到 docs/pm/cards 目录，无法校验「卡片不得混入过程记录」（事故03）");
     console.log("   依 DoD：缺失/未测不算 PASS，故判定为失败，避免「跳过即成功」的假绿。");
-    console.log("   处置三选一：");
-    console.log("     1) 把 cards 纳入版本控制（但 docs/* 被 .gitignore 排除，需另选受控路径）");
-    console.log("     2) 本检查改为仅本地/PR 前执行，不进 CI，并在 CI 中显式声明该约束由 pre-commit 钩子承担");
-    console.log("     3) 明确废弃该 CI 检查并登记为已知缺口");
     return 1;
   }
   const bad = [];
