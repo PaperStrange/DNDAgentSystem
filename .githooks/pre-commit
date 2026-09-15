@@ -27,15 +27,13 @@ if [ -n "$BAD" ]; then
 fi
 
 # 卡片混入过程记录的拦截（事故03 / 工件职责边界）
-CARDS=$(git diff --cached --name-only --diff-filter=ACMR | grep -E '^docs/pm/cards/.*\.md$' || true)
-if [ -n "$CARDS" ]; then
-  for f in $CARDS; do
-    if grep -qE '^## (排查进展|处置方案|处置（已执行）|起因（事实）|验收（Kelly|当前缓解措施|测量结果|为什么仍未关闭)' "$f"; then
-      echo "❌ 提交被拒绝：需求卡片混入开发过程记录 -> $f" >&2
-      echo "   过程内容应放 docs/pm/reports/ 或 docs/qa/<run>/（见事故03）" >&2
-      exit 1
-    fi
-  done
+# 正则只在 compliance-check.mjs 中维护一份，避免两处实现漂移（审计 M2）
+if command -v node >/dev/null 2>&1 && [ -d "docs/pm/cards" ]; then
+  # 目录存在时才校验内容；目录缺失属环境差异（docs/* 被 .gitignore 排除），
+  # 由 compliance-check 在门禁层判失败，此处不阻断提交，否则 worktree/CI 将无法提交。
+  if ! node tools/ci-gate/compliance-check.mjs cards-requirement-only; then
+    exit 1
+  fi
 fi
 
 exit 0

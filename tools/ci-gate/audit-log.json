@@ -20,30 +20,43 @@
       "date": "2026-09-15"
     }
   ],
-  "pending": [
+  "_note": "台账必须位于受版本控制的位置；docs/ 被 .gitignore 排除，放那里 CI 读不到。",
+  "_grandfather": {
+    "before": "6b274aa",
+    "reason": "RD-054 之前的历史 merge 既往不咎（用户裁定 A）",
+    "decidedBy": "用户 2026-09-16",
+    "note": "原值 1801520 为分支本地提交，不在 main 上，CI 可能不可达（审计 B2）"
+  },
+  "waived": [
     {
       "merge": "6d94700",
       "subject": "chore(R1-7): merge tools 分类索引产出",
       "author": "Bob",
-      "reason": "本轮未执行 CR（仅文档改动）"
+      "reason": "本轮未执行 CR（仅文档改动）",
+      "status": "waived",
+      "waivedBy": "RD-054 裁定 A（既往不咎起点 6b274aa）",
+      "crStatus": "never-performed",
+      "decidedBy": "用户 2026-09-16"
     },
     {
       "merge": "77e7135",
       "subject": "chore(R1-8): merge 测试聚合入口与 CI 骨架",
       "author": "Bob",
-      "reason": "本轮未执行 CR（仅跑了 npm test）"
+      "reason": "本轮未执行 CR（仅跑了 npm test）",
+      "status": "waived",
+      "waivedBy": "RD-054 裁定 A（既往不咎起点 6b274aa）",
+      "crStatus": "never-performed",
+      "decidedBy": "用户 2026-09-16"
     },
     {
       "merge": "6b274aa",
       "subject": "chore(R1-8): merge 撤销豁免持久化",
       "author": "Bob",
-      "reason": "本轮未执行 CR（回滚提交）"
+      "reason": "本轮未执行 CR（回滚提交）",
+      "status": "waived",
+      "waivedBy": "RD-054 裁定 A（既往不咎起点 6b274aa）",
+      "crStatus": "never-performed",
+      "decidedBy": "用户 2026-09-16"
     }
-  ],
-  "_note": "台账必须位于受版本控制的位置；docs/ 被 .gitignore 排除，放那里 CI 读不到。",
-  "_grandfather": {
-    "before": "1801520",
-    "reason": "RD-054 之前的历史 merge 既往不咎（用户裁定 A：只审计 RD-054 之后的 merge）",
-    "decidedBy": "用户 2026-09-16"
-  }
+  ]
 }

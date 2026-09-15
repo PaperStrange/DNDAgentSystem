@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // S2-6 CI 门禁：直提 main 检测 + 分支合规校验 + worktree 同级目录校验（红线-1/7）
-// 用法：node tools/ci-gate/compliance-check.mjs <all|direct-push|branch-names|worktrees>
+// 用法：node tools/ci-gate/compliance-check.mjs <all|direct-push|branch-names|worktrees|no-persisted-exemptions|cards-requirement-only|merge-audit>
 //       [--repo <路径>] [--baseline <ref>]
 // 退出码：0=全部合规，1=存在违规
 import { execFileSync } from 'node:child_process';
@@ -104,26 +104,49 @@ function checkCardsRequirementOnly() {
 // 主线上的每个 merge 提交都必须在审计台账中有 expertCR=true 的条目，缺失即失败。
 function checkMergeAudit() {
   if (!existsSync(AUDIT_LOG_PATH)) {
-    console.log("❌ 缺少审计台账 docs/pm/audit-log.json（RD-054）");
+    console.log("❌ 缺少审计台账 " + AUDIT_LOG_PATH + "（RD-054）");
     return 1;
   }
-  const log = JSON.parse(readFileSync(AUDIT_LOG_PATH, "utf8"));
+  let log;
+  try { log = JSON.parse(readFileSync(AUDIT_LOG_PATH, "utf8")); }
+  catch (e) { console.log("❌ 审计台账解析失败：" + e.message); return 1; }
   const done = new Set((log.entries || []).filter(e => e.expertCR).map(e => String(e.merge).toLowerCase()));
-  // 取主线第一父链上的 merge 提交
+
+  // B2：起点必须是可解析的修订，不可解析直接判失败（旧实现会让 git fatal 崩溃）
   const gf = log._grandfather && log._grandfather.before ? log._grandfather.before : null;
-  if (gf) console.log("[合并审计] 既往不咎起点 " + gf + "（RD-054 之前的历史 merge 不追溯）");
-  const rows = gitLines("log", "--first-parent", "--merges", "--format=%h%x09%s", gf ? (gf + "..HEAD") : "HEAD");
+  if (gf) {
+    let ok = false;
+    try { execFileSync("git", ["rev-parse", "--verify", gf + "^{commit}"], { cwd: repo, stdio: "ignore" }); ok = true; } catch {}
+    if (!ok) { console.log("❌ 既往不咎起点不可解析：" + gf + "（须为 main 上可达的提交）"); return 1; }
+    console.log("[合并审计] 既往不咎起点 " + gf + "（此前 merge 不追溯，用户裁定 A）");
+  }
+
+  // M1：固定 7 位缩写，避免 core.abbrev 随仓库增长变化导致台账批量失配
+  const rows = gitLines("log", "--first-parent", "--merges", "--abbrev=7", "--format=%h%x09%s", gf ? (gf + "..HEAD") : "HEAD");
   const missing = [];
   for (const r of rows) {
     const [h, subj] = r.split("\t");
     if (!done.has(String(h).toLowerCase())) missing.push(h + "  " + subj);
   }
+
+  // B1 自指死锁：刚产生的 merge 其哈希在创建前不可知，允许「待补录」一次，
+  // 但仅限区间内最新一个，且下一笔仍不回填即失败；未审计数 >1 一律失败。
+  let pendingNewest = false;
+  if (missing.length === 1 && rows.length) {
+    const newest = rows[0].split("\t")[0];
+    if (missing[0].startsWith(newest)) {
+      pendingNewest = true;
+      console.log("⚠ 最新 merge 待补录审计（哈希创建前不可知）：" + missing[0]);
+      console.log("   请在下一笔提交回填至台账 entries（expertCR=true）；再下一笔仍不回填将判失败。");
+    }
+  }
   console.log("[合并审计] 主线 merge 提交 " + rows.length + " 个，已审计 " + (rows.length - missing.length) + " 个");
-  if (missing.length) {
+  if (missing.length && !pendingNewest) {
     console.log("❌ 以下 merge 提交缺少代码审计（RD-054：不因角色豁免，含 Bob）：");
     for (const m of missing) console.log("   " + m);
     return missing.length;
   }
+  if (pendingNewest) { console.log("🟡 有 1 个最新 merge 待补录，暂不阻断"); return 0; }
   console.log("✅ 全部 merge 提交均有代码审计（RD-054 合规）");
   return 0;
 }
