@@ -4,9 +4,7 @@
 //       [--repo <路径>] [--baseline <ref>]
 // 退出码：0=全部合规，1=存在违规
 import { execFileSync } from 'node:child_process';
-import { dirname, resolve, join } from 'node:path';
-import { existsSync, readFileSync } from 'node:fs';
-import { fileURLToPath } from 'node:url';
+import { dirname, resolve } from 'node:path';
 import process from 'node:process';
 
 const args = process.argv.slice(2);
@@ -28,64 +26,17 @@ const CARD_BRANCH = /^(main|[A-Z]+\d+-\d+-[a-z0-9]+)$/;
 // 合并门禁基线（S2-2 合并前终点），可被 --baseline 覆盖
 const DEFAULT_BASELINE = '7e1c9e3';
 
-// 一次性豁免清单（RD-035）：逐笔显式列举的历史遗留提交，刻意做成「数据 + 硬闸」而非规则：
-//   - 只认完整 40 位 SHA，任何通配/前缀/条件一律拒绝并让门禁失败
-//   - 条目数受 _guard.maxDirectPushExemptions 硬上限约束，超出即失败（防止无声膨胀）
-//   - 已不在历史的条目会被告警提示清理
-// 用户明确要求：这几次豁免都是一次性的，不能记录为规则并长期允许。
-const EXCEPTIONS_PATH = join(dirname(fileURLToPath(import.meta.url)), 'known-exceptions.json');
-const FULL_SHA = /^[0-9a-f]{40}$/i;
-
-function loadExceptions() {
-  if (!existsSync(EXCEPTIONS_PATH)) return { list: [], max: 0 };
-  const j = JSON.parse(readFileSync(EXCEPTIONS_PATH, 'utf8'));
-  return { list: Array.isArray(j.directPush) ? j.directPush : [], max: (j && j._guard && j._guard.maxDirectPushExemptions) || 0 };
-}
-
-function validateExceptions(list, max) {
-  const errors = [];
-  for (const e of list) {
-    if (!e || typeof e.sha !== 'string' || !FULL_SHA.test(e.sha)) errors.push("豁免条目 sha 非法或非完整 40 位 SHA（禁止通配/前缀）：" + JSON.stringify(e));
-    if (!e.reason || !e.authorizedBy) errors.push("豁免条目缺少 reason 或 authorizedBy：" + ((e && e.sha) || "?"));
-  }
-  if (list.length > max) errors.push("豁免条目数 " + list.length + " 超过硬上限 " + max + "；新增须重新取得用户授权并同时上调 _guard.maxDirectPushExemptions");
-  return errors;
-}
-
 function checkDirectPush() {
   const baseline = baseIdx >= 0 ? args[baseIdx + 1] : DEFAULT_BASELINE;
   const fmt = '--format=%H%x09%P%x09%an <%ae>%x09%s';
   // 只看 main 第一父链：经合并提交带入的卡片分支单亲提交属合规，
   // 出现在第一父链上的非合并提交才是直提
   const rows = gitLines('log', '--first-parent', fmt, `${baseline}..HEAD`);
-
-  const { list: exc, max } = loadExceptions();
-  const excErrors = validateExceptions(exc, max);
-  if (excErrors.length) {
-    console.log('❌ 一次性豁免清单本身不合规（门禁按失败处理）：');
-    for (const e of excErrors) console.log('   ' + e);
-    return excErrors.length;
-  }
-  const exempt = new Set(exc.map((e) => e.sha.toLowerCase()));
-  const seen = new Set();
-
   const violations = [];
   for (const r of rows) {
     const [hash, parents, who, subject] = r.split('\t');
-    seen.add(hash.toLowerCase());
     const parentCount = parents.trim() ? parents.trim().split(/\s+/).length : 0;
-    if (parentCount < 2) {
-      if (exempt.has(hash.toLowerCase())) continue; // 一次性豁免（下方显式列出）
-      violations.push({ hash: hash.slice(0, 7), who, subject });
-    }
-  }
-  // 豁免不静默生效：一律打印，保证长期可见
-  if (exc.length) {
-    console.log(`⚠ 本次使用 ${exc.length}/${max} 条一次性直提豁免（RD-035，非长期规则）：`);
-    for (const e of exc) {
-      const inRange = seen.has(e.sha.toLowerCase());
-      console.log(`   ${e.short || e.sha.slice(0, 7)}  ${inRange ? '命中' : '（不在本次范围，陈旧条目，建议清理）'}  ${e.subject}`);
-    }
+    if (parentCount < 2) violations.push({ hash: hash.slice(0, 7), who, subject });
   }
   console.log(`[直提检测] 基线=${baseline}，main 新增提交 ${rows.length} 笔`);
   if (violations.length) {
