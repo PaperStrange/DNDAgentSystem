@@ -80,7 +80,8 @@ function checkCardsRequirementOnly() {
     // 在 CI 中**显式声明不适用并指明由谁承担**，绝不静默跳过（静默＝假绿，见事故03）。
     if (process.env.CI) {
       console.log("⚠ [不适用] cards-requirement-only 不在 CI 执行（docs/* 被 .gitignore 排除，目录不存在）");
-      console.log("   该约束改由 pre-commit 钩子承担（依 RD-056）；CI 对此不提供通过/失败结论。");
+      console.log("   该约束在 CI 无执行点；本地主仓库（存在 docs/pm/cards 时）由 pre-commit 钩子与门禁校验。");
+      console.log("   依 RD-056 如实登记为「已知缺口」：红线-1 要求开发在 worktree 进行，而 worktree 无 docs/，该约束在开发路径上亦无执行点。");
       console.log("   本地（存在 docs/pm/cards 的环境）仍会严格校验。");
       return 0;
     }
@@ -127,7 +128,12 @@ function checkMergeAudit() {
   }
 
   // M1：固定 7 位缩写，避免 core.abbrev 随仓库增长变化导致台账批量失配
-  const rows = gitLines("log", "--first-parent", "--merges", "--abbrev=7", "--format=%h%x09%s", gf ? (gf + "..HEAD") : "HEAD");
+  const allRows = gitLines("log", "--first-parent", "--merges", "--abbrev=7", "--format=%h%x09%s", gf ? (gf + "..HEAD") : "HEAD");
+  // H3：GitHub PR 会 checkout 合成 merge（subject 形如 "Merge <sha> into <sha>"），
+  // 它恒定占据「最新一个」位置，会让 B1 的宽限格被永久占用 → PR 门禁上审计要求失效。
+  // 合成 merge 一律排除，使其不再占用宽限格。
+  const SYNTHETIC = /^Merge [0-9a-f]{7,40} into /i;
+  const rows = allRows.filter(r => !SYNTHETIC.test(r.split("\t")[1] || ""));
   const missing = [];
   for (const r of rows) {
     const [h, subj] = r.split("\t");
@@ -152,6 +158,11 @@ function checkMergeAudit() {
     return missing.length;
   }
   if (pendingNewest) { console.log("🟡 有 1 个最新 merge 待补录，暂不阻断"); return 0; }
+  // M6：空集不得报绿 —— 检查区间内 0 个 merge 时无法佐证任何审计情况
+  if (rows.length === 0) {
+    console.log("⚠ 检查区间内 0 个 merge 提交，无法佐证审计情况（不视为通过）");
+    return 0;
+  }
   console.log("✅ 全部 merge 提交均有代码审计（RD-054 合规）");
   return 0;
 }
