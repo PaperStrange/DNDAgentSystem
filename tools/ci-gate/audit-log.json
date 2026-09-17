@@ -66,6 +66,30 @@
       "expertCR": true,
       "evidence": "机械性台账回填，无产品代码改动",
       "date": "2026-09-16"
+    },
+    {
+      "merge": "fa439a8",
+      "subject": "chore(R1-11): merge 审计台账回填（0cc506c）",
+      "author": "Bob",
+      "expertCR": true,
+      "evidence": "机械性台账回填，无产品代码改动（R1-11 系列，与 d1999ab/0cc506c 同类）。**补录说明**：本条原为「最新一个 merge 待补录」，因后续 R1-13/R1-4 合并使其不再是「最新」，故一并回填以维持门禁一致",
+      "date": "2026-09-16"
+    },
+    {
+      "merge": "770f3e8",
+      "subject": "fix(R1-13): merge security-test.mjs 找回与入库",
+      "author": "路远行",
+      "expertCR": true,
+      "evidence": "经 team-lead 逐行安全核查（无真实凭据：`sk-`/`apiKey` 出现在否定断言中）+ 18/0 断言验证 + 入库 blob SHA-256 `ab1db05c…` 与验证版本逐字符一致；`.gitignore` 变更经用户 2026-09-17 明确批准（红线-3）",
+      "date": "2026-09-17"
+    },
+    {
+      "merge": "6abc8cc",
+      "subject": "chore(R1-4): merge 验收装置改造（去 junction + 快照递归化 + 并入 git status + 逐项 seed/端口/超时 + --self-test）",
+      "author": "路远行",
+      "expertCR": true,
+      "evidence": "经 `quality-lead-2` 独立复核（代码层 15/15 全过；CONCERNS 唯一阻断项 F1 为集成项，已由本次合并解决）；探针改动向后兼容（env 未设时行为逐字节不变），抽样已核",
+      "date": "2026-09-17"
     }
   ],
   "_note": "台账必须位于受版本控制的位置；docs/ 被 .gitignore 排除，放那里 CI 读不到。",
