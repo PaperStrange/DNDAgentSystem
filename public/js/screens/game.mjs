@@ -767,6 +767,15 @@ export function mountGame(root, view) {
     if (g._touchHandled) { g._touchHandled = false; return; }
     handleTap(ev.clientX, ev.clientY);
   });
+  // R1-18：目标格地形是否可通行。字符映射与服务端一致
+  // （server/game/systems/snapshot.mjs 的 code 表 + server/game/dungeon.mjs 的 blockMove），
+  // 且与 shared/autoplay-policy.mjs 的阻挡集完全一致：墙 # / 树 T / 关闭的门 D / 水 ~。
+  // 越界（地图外）视为不可通行。开门后服务端把该格改为 floor（序列化 '.'），故 'D' 恒为「关着的门」。
+  const BLOCKED_TILE_CHARS = '#TD~';
+  function isTileWalkable(map, x, y) {
+    const ch = map?.tiles?.[y]?.[x];
+    return ch !== undefined && !BLOCKED_TILE_CHARS.includes(ch);
+  }
   function handleTap(clientX, clientY) {
     const gv = g.view?.game;
     if (!gv || gv.win || gv.state !== 'playing') return;
@@ -827,6 +836,12 @@ export function mountGame(root, view) {
     }
     if (entAt && entAt.kind === 'npc' && manhattan(myEnt, entAt) <= 2) {
       net.send('game:interact', { targetEid: entAt.eid });
+      return;
+    }
+    // R1-18：客户端移动前置校验——目标格地形明确不可通行时不发请求，
+    // 避免「先渲染到非法格再弹回」。只判断地形层（不做路径搜索，不重复实现服务端 findPath）。
+    if (!isTileWalkable(gv.map, tile.x, tile.y)) {
+      g.floaters.push({ x: tile.x, y: tile.y, text: '那里过不去', color: '#ff8060', t0: performance.now() });
       return;
     }
     net.send('game:move', { x: tile.x, y: tile.y });
@@ -1245,6 +1260,9 @@ export function mountGame(root, view) {
       return a;
     },
     clearPending: () => clearPending(),
+    // R1-18：只读访问器。断言「点击不可通行格时是否给出可见反馈」需要直接读浮动文字队列
+    // （画布上的浮动文字无法从 Node 侧稳定取证）。纯只读、无副作用；与 animOf 同源。
+    floaters: () => g.floaters.map((f) => ({ x: f.x, y: f.y, text: f.text })),
   };
 
   // R-10: 生成高光时刻配图（程序化像素画：主角+最终BOSS同框）
