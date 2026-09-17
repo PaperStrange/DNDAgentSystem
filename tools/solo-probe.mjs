@@ -2,10 +2,12 @@
 // 1) 单人准备就绪后不应自动开局（B-10）
 // 2) 显式 room:start 后开局，序章怪物数量按1人队缩减、药水+3（B-11）
 // 3) 用真实自动游玩策略驱动单人角色，验证其能存活通过序章（修复"1分钟团灭"）
+// R1-14：连接层改用 tools/lib/ws-client-guard（解析守卫/发送守卫/自动重连/token 续身份），
+//   与 public/js/net.mjs 语义对齐；PORT=3897 不变（run-baseline.mjs 的 PORTS 依赖它）。
 import { spawn } from 'node:child_process';
-import { WebSocket } from 'ws';
 import { createPolicy } from '../public/shared/autoplay-policy.mjs';
 import { buildSheet } from '../server/game/charsheet.mjs';
+import { createGuardedSocket } from './ws-client-guard.mjs';
 
 const PORT = 3897;
 const log = (...a) => console.log('[solo]', ...a);
@@ -17,7 +19,7 @@ const server = spawn(process.execPath, ['server/index.mjs'], {
   stdio: ['ignore', 'ignore', 'inherit'],
 });
 
-let pid = null, view = null;
+let pid = null, view = null, token = null;
 const policy = createPolicy();
 let actionsSent = 0, lastChapter = null, failed = false;
 let firstSoloStats = null; // 首个playing快照采样（防止策略秒杀导致断言竞态）
@@ -38,22 +40,33 @@ function fail(msg) { failed = true; log('❌ ' + msg); }
 
 async function main() {
   await sleep(1300);
-  const ws = new WebSocket('ws://localhost:' + PORT + '/ws');
-  ws.on('message', (raw) => {
-    const m = JSON.parse(raw.toString());
-    if (m.t === 's:hello') pid = m.pid;
-    if (m.t === 's:state') {
-      view = m.view;
-      const ch = view.game?.chapter?.id;
-      if (ch && ch !== lastChapter) { lastChapter = ch; log('进入 ' + ch + '（存活敌人 ' + (view.game.entities.filter(e => e.kind === 'monster').length) + '） ' + meDump(view.game)); }
-      if (!firstSoloStats && view.game?.state === 'playing' && view.game.chapter?.id === 'prologue') {
-        const mons = view.game.entities.filter(e => e.kind === 'monster');
-        firstSoloStats = { count: mons.length, hps: mons.map(e => e.maxHp) };
+  const acct = '独行侠' + (Date.now() % 100000);
+
+  // R1-14：连接层走守卫客户端。首次 open 用账号注册；重连 open 用 token 续同一身份
+  //   （token 捕获 + 重发 hello 对齐 public/js/net.mjs:74-82 与 server/index.mjs:209-221）。
+  const sock = createGuardedSocket({
+    url: 'ws://localhost:' + PORT + '/ws',
+    log: (...a) => log(...a),
+    onMessage: (m) => {
+      if (m.t === 's:hello') { pid = m.pid; token = m.token || m.pid; }
+      if (m.t === 's:state') {
+        view = m.view;
+        const ch = view.game?.chapter?.id;
+        if (ch && ch !== lastChapter) { lastChapter = ch; log('进入 ' + ch + '（存活敌人 ' + (view.game.entities.filter(e => e.kind === 'monster').length) + '） ' + meDump(view.game)); }
+        if (!firstSoloStats && view.game?.state === 'playing' && view.game.chapter?.id === 'prologue') {
+          const mons = view.game.entities.filter(e => e.kind === 'monster');
+          firstSoloStats = { count: mons.length, hps: mons.map(e => e.maxHp) };
+        }
+        maybeAct();
       }
-      maybeAct();
-    }
+    },
+    onOpen: (s) => {
+      if (token) s.send('hello', { name: '独行侠', token, rename: true });
+      else s.send('hello', { action: 'register', account: acct, password: 'solo1234' });
+    },
   });
-  const send = (t, payload = {}) => { ws.send(JSON.stringify({ t, ...payload })); actionsSent++; };
+  // 游戏动作发送：沿用原语义（仅动作计入 actionsSent；setup 消息不计，保持动作数含义不变）
+  const send = (t, payload = {}) => { if (sock.send(t, payload)) actionsSent++; };
 
   function maybeAct() {
     try {
@@ -99,27 +112,25 @@ async function main() {
     } catch (e) { log('decide异常: ' + (e && e.message ? e.message : e)); } // R1-6b-D3 只读诊断：不再静默吞异常
   }
 
-  await new Promise(r => ws.on('open', r));
-  const acct = '独行侠' + (Date.now() % 100000);
-  ws.send(JSON.stringify({ t: 'hello', action: 'register', account: acct, password: 'solo1234' }));
-  await sleep(500);
+  // 等待首次注册完成（拿到 pid；对应原「await ws.on('open') + register + sleep(500)」）
+  for (let i = 0; i < 40 && !pid; i++) await sleep(100);
 
-  ws.send(JSON.stringify({ t: 'lobby:create', dungeonId: 'lmop', personaId: 'aldric' }));
+  sock.send('lobby:create', { dungeonId: 'lmop', personaId: 'aldric' });
   await sleep(500);
   log('建房完成，phase=' + view?.phase);
 
   const sheet = buildSheet({ name: '独行侠', raceId: 'human', classId: 'fighter', stats: { STR: 15, DEX: 13, CON: 14, INT: 10, WIS: 10, CHA: 8 }, flex: { CON: 1 }, colors: {}, background: '独行旅人' });
-  ws.send(JSON.stringify({ t: 'room:charsheet', sheet: { name: '独行侠', raceId: 'human', classId: 'fighter', stats: { STR: 15, DEX: 13, CON: 14, INT: 10, WIS: 10, CHA: 8 }, flex: { CON: 1 }, colors: sheet.colors, background: '独行旅人' } }));
+  sock.send('room:charsheet', { sheet: { name: '独行侠', raceId: 'human', classId: 'fighter', stats: { STR: 15, DEX: 13, CON: 14, INT: 10, WIS: 10, CHA: 8 }, flex: { CON: 1 }, colors: sheet.colors, background: '独行旅人' } });
   await sleep(500);
 
   // B-10 断言1：单人准备就绪后不应自动开局
-  ws.send(JSON.stringify({ t: 'room:ready', ready: true }));
+  sock.send('room:ready', { ready: true });
   await sleep(900);
   if (view?.phase === 'prepare' && !view?.game) log('B-10 ✓ 单人准备后未自动开局（phase=prepare，等待确认）');
   else fail('B-10 ✗ 单人准备后意外开局 phase=' + view?.phase);
 
   // B-10 断言2：显式 room:start 后开局
-  ws.send(JSON.stringify({ t: 'room:start' }));
+  sock.send('room:start', {});
   for (let i = 0; i < 20; i++) {
     await sleep(500);
     if (view?.phase === 'playing' || view?.phase === 'intro') break;
