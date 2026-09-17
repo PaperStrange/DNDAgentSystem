@@ -1,6 +1,7 @@
 // R-20 多分辨率布局探针：不同视口下大厅/房间/游戏三屏无横向溢出、关键元素可见
 import { spawn } from 'node:child_process';
 import { chromium } from 'playwright';
+import { join } from 'node:path';
 
 const PORT = 3898;
 const server = spawn(process.execPath, ['server/index.mjs'], {
@@ -44,7 +45,7 @@ async function main() {
     let o = await noOverflow(page);
     check(vp.w + 'x' + vp.h + ' 大厅无横向溢出', o.sw <= o.iw + 1, 'scrollW=' + o.sw + ' innerW=' + o.iw);
     check(vp.w + 'x' + vp.h + ' 大厅建房面板可见', await page.locator('.create-box').isVisible());
-    await page.screenshot({ path: 'e2e-shots/layout-' + vp.w + '-lobby.png' });
+    await page.screenshot({ path: join(process.env.DND_SHOTS_DIR || 'e2e-shots', 'layout-' + vp.w + '-lobby.png') });
     // 房间
     await page.click('.persona-grid .persona-card:nth-child(1)');
     await page.click('.create-box .btn.gold');
@@ -52,7 +53,7 @@ async function main() {
     o = await noOverflow(page);
     check(vp.w + 'x' + vp.h + ' 房间无横向溢出', o.sw <= o.iw + 1, 'scrollW=' + o.sw + ' innerW=' + o.iw);
     check(vp.w + 'x' + vp.h + ' 车卡保存按钮可见', await page.locator('button:has-text("保存车卡")').isVisible());
-    await page.screenshot({ path: 'e2e-shots/layout-' + vp.w + '-room.png' });
+    await page.screenshot({ path: join(process.env.DND_SHOTS_DIR || 'e2e-shots', 'layout-' + vp.w + '-room.png') });
     // 车卡+开局
     await page.fill('input[placeholder="为你的角色起个名字"]', '布局侠' + i);
     await page.locator('.opt-grid').nth(0).locator('.opt-card').first().click();
@@ -71,7 +72,7 @@ async function main() {
     const inView = canvasBox && canvasBox.x >= -1 && canvasBox.x + canvasBox.width <= vp.w + 1;
     check(vp.w + 'x' + vp.h + ' 画布完整在视口内', !!inView, canvasBox ? ('x=' + Math.round(canvasBox.x) + ' w=' + Math.round(canvasBox.width)) : '无画布');
     check(vp.w + 'x' + vp.h + ' 侧栏(日志面板)可见', await page.locator('.game-side').isVisible());
-    await page.screenshot({ path: 'e2e-shots/layout-' + vp.w + '-game.png' });
+    await page.screenshot({ path: join(process.env.DND_SHOTS_DIR || 'e2e-shots', 'layout-' + vp.w + '-game.png') });
     await ctx.close();
   }
   await browser.close();
