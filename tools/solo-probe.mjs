@@ -21,6 +21,18 @@ let pid = null, view = null;
 const policy = createPolicy();
 let actionsSent = 0, lastChapter = null, failed = false;
 let firstSoloStats = null; // 首个playing快照采样（防止策略秒杀导致断言竞态）
+let lastNullLogAt = 0;     // R1-6b-D3 只读诊断：持续 null 日志节流
+let nullSince = 0;         // R1-6b-D3 只读诊断：本次「无动作」起始时间（一旦发出动作即清零）
+
+// R1-6b-D3 只读诊断：输出玩家资源对位（level/hp/maxHp/potion/shortrest/slots）。
+// 仅 console.log，不触碰任何断言/判定/控制流。
+function meDump(gv) {
+  const p = gv?.players?.find(x => x.id === pid);
+  const e = gv?.entities?.find(x => x.eid === gv?.me?.eid);
+  return '[lv=' + (p?.level ?? '?') + ' hp=' + (e ? e.hp + '/' + e.maxHp : '?')
+    + ' potion=' + (p?.items?.potion ?? '?') + ' shortrest=' + (gv?.me?.charges?.shortrest ?? '?')
+    + ' slots=' + JSON.stringify(gv?.me?.slots ?? p?.slots ?? null) + ']';
+}
 
 function fail(msg) { failed = true; log('❌ ' + msg); }
 
@@ -33,7 +45,7 @@ async function main() {
     if (m.t === 's:state') {
       view = m.view;
       const ch = view.game?.chapter?.id;
-      if (ch && ch !== lastChapter) { lastChapter = ch; log('进入 ' + ch + '（存活敌人 ' + (view.game.entities.filter(e => e.kind === 'monster').length) + '）'); }
+      if (ch && ch !== lastChapter) { lastChapter = ch; log('进入 ' + ch + '（存活敌人 ' + (view.game.entities.filter(e => e.kind === 'monster').length) + '） ' + meDump(view.game)); }
       if (!firstSoloStats && view.game?.state === 'playing' && view.game.chapter?.id === 'prologue') {
         const mons = view.game.entities.filter(e => e.kind === 'monster');
         firstSoloStats = { count: mons.length, hps: mons.map(e => e.maxHp) };
@@ -49,7 +61,20 @@ async function main() {
       if (!gv || gv.state !== 'playing' || gv.win) return;
       const myTurnNow = gv.turn?.playerId === pid;
       const act = policy.decide(gv, pid);
-      if (!act) return;
+      if (!act) {
+        // R1-6b-D3 只读诊断：只记录「本回合持续无动作 ≥2s」的疑似空转。
+        // 200ms 节流造成的瞬时 null 不计（否则整局上百条噪声淹没信号）。仅日志，不改控制流。
+        if (myTurnNow) {
+          if (!nullSince) nullSince = Date.now();
+          const dur = Date.now() - nullSince;
+          if (dur >= 2000 && Date.now() - lastNullLogAt > 2000) {
+            lastNullLogAt = Date.now();
+            log('decide=null 持续' + (dur / 1000).toFixed(1) + 's（本回合无动作，疑似空转）turn=' + JSON.stringify(gv.turn) + ' state=' + gv.state + ' win=' + !!gv.win + ' me.pid=' + (gv.me?.pid) + ' pid=' + pid);
+          }
+        }
+        return;
+      }
+      nullSince = 0; // 有动作发出 → 清零持续计时
       switch (act.type) {
       case 'move': send('game:move', { x: act.x, y: act.y }); break;
       case 'attack': send('game:attack', { targetEid: act.targetEid }); break;
@@ -69,8 +94,9 @@ async function main() {
       case 'bossVote': send('game:boss-vote', { vote: act.vote }); break; // F-30：BOSS表决自动同意
       case 'campRest': send('game:camp-rest'); break;                    // F-30：营地恢复
       case 'campLeave': send('game:camp-leave'); break;                  // F-30：营地返回
+      default: log('未处理动作:' + (act && act.type)); break;             // R1-6b-D3 只读诊断：暴露被静默丢弃的动作
       }
-    } catch (e) { /* 快照竞态忽略 */ }
+    } catch (e) { log('decide异常: ' + (e && e.message ? e.message : e)); } // R1-6b-D3 只读诊断：不再静默吞异常
   }
 
   await new Promise(r => ws.on('open', r));
@@ -129,7 +155,7 @@ async function main() {
   }
   clearInterval(ticker);
   const win = view?.game?.win;
-  if (win) log('单人冒险结局：kind=' + win.kind + ' | ' + win.reason + '（总用时 ' + Math.round((Date.now() - t0) / 60000) + ' 分钟）');
+  if (win) log('单人冒险结局：kind=' + win.kind + ' | ' + win.reason + '（总用时 ' + Math.round((Date.now() - t0) / 60000) + ' 分钟） ' + meDump(view?.game));
   if (win && win.kind !== 'defeat') log('B-11 ✓ 单人完整通关（' + win.kind + '），动作数=' + actionsSent);
   else if (win?.kind === 'defeat') fail('B-11 ✗ 单人团灭：' + win?.reason);
   else fail('B-11 ✗ 超时未通关（最后章节=' + lastChapter + ' state=' + view?.game?.state + '）');
