@@ -23,8 +23,9 @@ function gitLines(...a) {
   return out ? out.split('\n') : [];
 }
 
-// 命名规范：main 或 <card-id>-<owner>，如 S2-6-bob / S3-1-hua
-const CARD_BRANCH = /^(main|[A-Z]+\d+-\d+-[a-z0-9]+)$/;
+// 命名规范：main 或 <card-id>-<owner>；卡号可含一个可选小写字母后缀（子卡，如 R1-6b）。
+// 如 S2-6-bob / R1-6b-wenceyuan。不接受大写后缀、多字母后缀，owner 段不得含连字符。
+const CARD_BRANCH = /^(main|[A-Z]+\d+-\d+[a-z]?-[a-z0-9]+)$/;
 // 合并门禁基线（S2-2 合并前终点），可被 --baseline 覆盖
 const DEFAULT_BASELINE = '7e1c9e3';
 // RD-036：本路径存在即视为「豁免被持久化」，门禁必须失败（不允许长期规则）
