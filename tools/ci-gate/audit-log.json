@@ -112,7 +112,7 @@
       "subject": "fix(R1-14): merge 单人探针连接层加固（解析/发送/重连/token 守卫，对齐浏览器）",
       "author": "路远行",
       "expertCR": true,
-      "evidence": "R1-14 单人探针连接层加固：解析 / 发送 / 重连 / token 守卫，对齐浏览器实现。独立复核 APPROVE（8/8 待验命题 PASS；**命门已确认**：服务端 `server/index.js:209-222` 命中 token 即认回同一 pid）。合并经 `--no-ff` 双亲核验（`47e8c8e` + `ca43dae`）。",
+      "evidence": "R1-14 单人探针连接层加固：解析 / 发送 / 重连 / token 守卫，对齐浏览器实现。独立复核 APPROVE（8 项均无 REJECT 级问题：5 PASS / 1 可接受 / 1 PASS / 1 建议项；**命门已确认**：服务端 `server/index.mjs:209-222` 命中 token 即认回同一 pid）。合并经 `--no-ff` 双亲核验（`47e8c8e` + `ca43dae`）。",
       "date": "2026-09-17"
     }
   ],
