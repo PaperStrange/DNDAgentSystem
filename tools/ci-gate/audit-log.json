@@ -114,6 +114,14 @@
       "expertCR": true,
       "evidence": "R1-14 单人探针连接层加固：解析 / 发送 / 重连 / token 守卫，对齐浏览器实现。独立复核 APPROVE（8 项均无 REJECT 级问题：5 PASS / 1 可接受 / 1 PASS / 1 建议项；**命门已确认**：服务端 `server/index.mjs:209-222` 命中 token 即认回同一 pid）。合并经 `--no-ff` 双亲核验（`47e8c8e` + `ca43dae`）。",
       "date": "2026-09-17"
+    },
+    {
+      "merge": "d2ff7f4",
+      "subject": "fix(R1-17): merge 结算视图补 dungeonName（修数据源）",
+      "author": "路远行",
+      "expertCR": true,
+      "evidence": "R1-17 结算视图字段补全：`server/game/rooms.mjs:320`（`phase === 'ended'` 结算分支）的 `room` 对象补 `dungeonName: room.dungeonName` —— **修数据源**（在服务端快照里补齐字段），非前端渲染兜底；对齐同文件 intro/playing 视图（`:326`，本就含该字段），prepare 视图（`:311`）字段更全。`public/**` 零改动（故无新增兜底写法）。独立复核（`quality-lead` 严守真，只读 + 独立枚举/对抗自测，未采信作者清单）：**代码修复 APPROVE 级**（确为数据源修复、补的字段 `room.dungeonName` 是建房时写入的真实字符串、跨端纯增量非破坏），但**初判 CONCERNS** —— 因本分支携带的 `a7bd1ed` 台账条目 evidence 有 **2 处与事实不符**：① 夸大（写「独立复核 APPROVE（8/8 待验命题 PASS）」，实为 5 PASS / 1 可接受 / 1 PASS / 1 建议项——整体 APPROVE 无误但「8/8」高估）；② 文件名错误（写 `server/index.js:209-222`，实为 `server/index.mjs:209-222`）。经 `engineering-lead-2` 在 `c0e17fb`（父 `2367c2f`，ledger-only，`--numstat` 仅 `1 1 audit-log.json`）如实改正两处后，复核方独立 delta 确认 → **CONCERNS 解除、整体上调 APPROVE**。复核方**独立枚举** `public/js/screens/game.mjs` 全部 **15 处** `.room.` 读取，确认结算路径所需字段被 `{code,hostId,personaName,dungeonName}` 恰好覆盖、**无第三个受影响点**（曾疑的 `:1069` 经独立读码确认不在结算路径）。合并经 `--no-ff` 双亲核验（`a7bd1ed` + `c0e17fb4`）。",
+      "date": "2026-09-17"
     }
   ],
   "_note": "台账必须位于受版本控制的位置；docs/ 被 .gitignore 排除，放那里 CI 读不到。",
