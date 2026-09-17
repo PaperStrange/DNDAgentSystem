@@ -42,7 +42,6 @@ data/accounts.json
 data/logs/
 playwright-report/
 test-results/
-tools/security-test.mjs
 tools/llm-test.mjs
 master_tests/
 docs/*
