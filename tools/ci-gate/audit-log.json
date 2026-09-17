@@ -90,6 +90,14 @@
       "expertCR": true,
       "evidence": "经 `quality-lead-2` 独立复核（代码层 15/15 全过；CONCERNS 唯一阻断项 F1 为集成项，已由本次合并解决）；探针改动向后兼容（env 未设时行为逐字节不变），抽样已核",
       "date": "2026-09-17"
+    },
+    {
+      "merge": "4fdc544",
+      "subject": "chore(R1-6b): merge 单人探针只读 dump 与空转诊断日志",
+      "author": "Bob",
+      "expertCR": true,
+      "evidence": "**本审计为事后补做（post-merge audit）**：4fdc544 于 2026-09-17 20:52 合并入 main 时台账尚无本条，未在合并前完成审计留痕（RD-054 流程偏差，过程记录见 docs/pm/reports/R1-16-门禁正则修正-20260917.md）。补审对象为 R1-6b 分支唯一提交 `8f7901a`（区间 fa439a8..8f7901a，+30/−4，1 文件 tools/solo-probe.mjs）：新增 meDump 资源对位 dump、decide=null 持续≥2s 的 console.log 检测、default: 分支记录被静默丢弃的动作——均为**只读诊断**，不触碰断言/判定/控制流，无产品逻辑改动。合并经 --no-ff 双亲核验（3371ba8 + 8f7901a）；工作树内容与分支 tip 一致（git diff 8f7901a 为空输出）。",
+      "date": "2026-09-17"
     }
   ],
   "_note": "台账必须位于受版本控制的位置；docs/ 被 .gitignore 排除，放那里 CI 读不到。",
