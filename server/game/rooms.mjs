@@ -317,7 +317,7 @@ export class Rooms {
     }
     if (room.phase === 'ended') {
       const view = room.game ? room.game.snapshotFor(player.pid) : null;
-      return { view: 'game', phase: 'ended', room: { code: room.code, hostId: room.hostId, personaName: room.personaName }, members, game: view, win: room.game?.win || null };
+      return { view: 'game', phase: 'ended', room: { code: room.code, hostId: room.hostId, personaName: room.personaName, dungeonName: room.dungeonName }, members, game: view, win: room.game?.win || null };
     }
     // intro / playing
     const view = room.game ? room.game.snapshotFor(player.pid) : null;

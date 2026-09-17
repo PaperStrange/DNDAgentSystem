@@ -106,6 +106,14 @@
       "expertCR": true,
       "evidence": "独立复核**双作者**（均非改动者，故非自证）：`quality-lead-2` 主笔 §0–§6 初稿——§1 `SUMMARY bad=0 total=19`（19 条用例全部符合预期，其中 7 条必测反例全拒）；§2 对仓库全部 6 个真实分支做新旧正则对照，唯一变化为 `R1-6b-wenceyuan`（false→true），放宽面仅限目标形态；§3 `DEFAULT_BASELINE`（7e1c9e3）未改。`quality-lead` 接手后**未采信初稿结论**，对每条主张独立重验并补附录 A——§A.4 必过 9/9 + 必拒 9/9 + 另 19 条对抗用例全符预期（MUST-CASE FAILURES=0）；§A.3 门禁二次实跑 A/B/C。两份结论一致 APPROVE，互为交叉印证。改动本体：`compliance-check.mjs` 的 `CARD_BRANCH` 加一个可选小写字母后缀（[A-Z]+\\d+-\\d+[a-z]?-[a-z0-9]+），其余检查项代码未动。合并经 --no-ff 双亲核验（4fdc544 + f6ac849）。同笔回填 4fdc544 台账条目。",
       "date": "2026-09-17"
+    },
+    {
+      "merge": "a7bd1ed",
+      "subject": "fix(R1-14): merge 单人探针连接层加固（解析/发送/重连/token 守卫，对齐浏览器）",
+      "author": "路远行",
+      "expertCR": true,
+      "evidence": "R1-14 单人探针连接层加固：解析 / 发送 / 重连 / token 守卫，对齐浏览器实现。独立复核 APPROVE（8/8 待验命题 PASS；**命门已确认**：服务端 `server/index.js:209-222` 命中 token 即认回同一 pid）。合并经 `--no-ff` 双亲核验（`47e8c8e` + `ca43dae`）。",
+      "date": "2026-09-17"
     }
   ],
   "_note": "台账必须位于受版本控制的位置；docs/ 被 .gitignore 排除，放那里 CI 读不到。",
