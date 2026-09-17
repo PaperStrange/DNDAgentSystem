@@ -1,6 +1,7 @@
 // 画布渲染实测：缓冲尺寸 vs CSS尺寸（拉伸检测）+ 场景内容边界框（长条状检测）
 import { spawn } from 'node:child_process';
 import { chromium } from 'playwright';
+import { join } from 'node:path';
 
 const PORT = 3894;
 const server = spawn(process.execPath, ['server/index.mjs'], {
@@ -66,7 +67,7 @@ async function main() {
       };
     });
     console.log('视口 ' + vp.w + 'x' + vp.h + ':', JSON.stringify(data));
-    await page.screenshot({ path: 'e2e-shots/canvas-probe-' + vp.w + '.png' });
+    await page.screenshot({ path: join(process.env.DND_SHOTS_DIR || 'e2e-shots', 'canvas-probe-' + vp.w + '.png') });
     await page.close();
   }
   await browser.close();

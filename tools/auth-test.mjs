@@ -2,9 +2,11 @@
 import { spawn } from 'node:child_process';
 import { WebSocket } from 'ws';
 import { writeFileSync, appendFileSync } from 'node:fs';
+import { join } from 'node:path';
 
 const PORT = 3896;
-const OUT = 'tools/_auth_out.log';
+// 隔离（R1-4）：日志目录可由 DND_QA_OUT_DIR 覆盖；未设时与历史行为一致（tools/）
+const OUT = join(process.env.DND_QA_OUT_DIR || 'tools', '_auth_out.log');
 try { writeFileSync(OUT, ''); } catch (e) {}
 const log = (...a) => { const s = '[auth] ' + a.join(' '); try { appendFileSync(OUT, s + '\n'); } catch (e) {} console.log(s); };
 const sleep = (ms) => new Promise(r => setTimeout(r, ms));

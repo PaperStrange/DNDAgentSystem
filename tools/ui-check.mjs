@@ -2,7 +2,9 @@
 import { spawn } from 'node:child_process';
 import { chromium } from 'playwright';
 import { writeFileSync, appendFileSync } from 'node:fs';
-const ULOG = 'tools/_ui_out.log';
+import { join } from 'node:path';
+// 隔离（R1-4）：日志目录可由 DND_QA_OUT_DIR 覆盖；未设时与历史行为一致（tools/）
+const ULOG = join(process.env.DND_QA_OUT_DIR || 'tools', '_ui_out.log');
 try { writeFileSync(ULOG, ''); } catch (e) {}
 
 const PORT = 3893;
@@ -79,7 +81,7 @@ async function main() {
   const bgAfter = await bgArea.inputValue();
   check('R-12 随机背景≥150字', bgAfter.replace(/\s/g, '').length >= 150, '字数=' + bgAfter.replace(/\s/g, '').length + ' 开头=' + bgAfter.slice(0, 18));
   // 预览截图 + B-5 排版
-  await page.screenshot({ path: 'e2e-shots/ui-chargen.png' });
+  await page.screenshot({ path: join(process.env.DND_SHOTS_DIR || 'e2e-shots', 'ui-chargen.png') });
   const labelVisible = await page.locator('.preview-label').isVisible();
   check('B-5 预览标签可见', labelVisible);
   // F-35（对齐 S1-2/S2-1 现行设计）：主预览与面部放大画布内部尺寸===CSS尺寸（1:1，杜绝非整数缩放模糊）

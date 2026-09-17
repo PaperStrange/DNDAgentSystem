@@ -6,7 +6,7 @@ import { chromium } from 'playwright';
 const PORT = 3892;
 const SEED = Number(process.env.E2E_SEED || 20240601);
 const TIMEOUT = 30 * 60e3;
-const SHOTS = 'e2e-shots';
+const SHOTS = process.env.DND_SHOTS_DIR || 'e2e-shots';
 mkdirSync(SHOTS, { recursive: true });
 const log = (...a) => console.log('[e2e]', ...a);
 
