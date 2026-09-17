@@ -621,14 +621,20 @@ export function mountGame(root, view) {
     for (const e of ents) {
       // 平滑动画
       let anim = g.anim.get(e.eid);
-      if (!anim) { anim = { x: e.x, y: e.y, lastX: e.x, lastY: e.y, moving: false, frame: 0 }; g.anim.set(e.eid, anim); }
-      if (anim.lastX !== e.x || anim.lastY !== e.y) {
+      if (!anim) { anim = { x: e.x, y: e.y, moving: false, frame: 0 }; g.anim.set(e.eid, anim); }
+      // R1-19：插值必须**逐帧推进直至归位**。收敛判定改为基于「到目标格的剩余距离」，
+      // 而不是「目标格是否变化」——旧实现把 lastX/lastY 的同步写在 if 块**内**，
+      // 于是第二帧起条件不再成立 ⇒ 插值只推进一帧就永久停住：
+      //   · anim.x/y 停在真实格子的 30% 处永不归位（相机跟随 anim ⇒ 相机永久偏移）
+      //   · anim.moving 卡死为 true ⇒ frame 每帧自增 ⇒ bob 每帧交替 ⇒ 精灵持续抖动
+      const dx = e.x - anim.x, dy = e.y - anim.y;
+      if (Math.abs(dx) > 0.06 || Math.abs(dy) > 0.06) {
         anim.moving = true;
-        const dx = e.x - anim.x, dy = e.y - anim.y;
         anim.x += dx * .3; anim.y += dy * .3;
-        if (Math.abs(e.x - anim.x) < .06 && Math.abs(e.y - anim.y) < .06) { anim.x = e.x; anim.y = e.y; anim.moving = false; }
-        anim.lastX = e.x; anim.lastY = e.y;
         anim.dir = dx > 0 ? 'right' : dx < 0 ? 'left' : dy < 0 ? 'up' : 'down';
+      } else if (anim.moving || anim.x !== e.x || anim.y !== e.y) {
+        // 归位：吸附到真实格子并**可靠地**置 moving=false（frame 随之归零、bob 停止交替）
+        anim.x = e.x; anim.y = e.y; anim.moving = false;
       }
       if (anim.moving) anim.frame++;
       else anim.frame = 0;
@@ -1221,6 +1227,13 @@ export function mountGame(root, view) {
   window.__e2e = {
     view: () => g.view,
     cam: () => cameraPos(),
+    // R1-19：只读访问器。断言「插值是否真的逐帧推进到归位」需要直接读 anim.x/y 与
+    // moving/frame —— cam() 只是相机代理（且含边界钳制），无法直接证明 anim.x === e.x。
+    // 纯只读、无副作用；仅供既有测试钩子 __e2e 使用。
+    animOf: (eid) => {
+      const a = g.anim.get(eid);
+      return a ? { x: a.x, y: a.y, moving: a.moving, frame: a.frame, dir: a.dir || null } : null;
+    },
     scale: () => SCALE,
     setAutoplay: (on) => { g.autoplay = on; autoBtn.classList.toggle('gold', on); },
     debug: () => ({ autoplay: g.autoplay, paused: g.paused, pid: store.pid, turnPid: g.view?.game?.turn?.playerId, lastAction: g._lastAct || null }),
