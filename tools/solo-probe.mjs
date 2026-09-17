@@ -2,7 +2,7 @@
 // 1) 单人准备就绪后不应自动开局（B-10）
 // 2) 显式 room:start 后开局，序章怪物数量按1人队缩减、药水+3（B-11）
 // 3) 用真实自动游玩策略驱动单人角色，验证其能存活通过序章（修复"1分钟团灭"）
-// R1-14：连接层改用 tools/lib/ws-client-guard（解析守卫/发送守卫/自动重连/token 续身份），
+// R1-14：连接层改用 tools/ws-client-guard.mjs（解析守卫/发送守卫/自动重连/token 续身份），
 //   与 public/js/net.mjs 语义对齐；PORT=3897 不变（run-baseline.mjs 的 PORTS 依赖它）。
 import { spawn } from 'node:child_process';
 import { createPolicy } from '../public/shared/autoplay-policy.mjs';
