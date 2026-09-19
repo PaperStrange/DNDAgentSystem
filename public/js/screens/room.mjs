@@ -1,6 +1,8 @@
 // 房间：成员列表/踢人/车卡/准备。所有成员准备后自动开局
 import { store, el, toast } from '../app.mjs';
 import { RACES, CLASSES, MAX_STAT, MIN_STAT, POINT_POOL } from '../../shared/char-defs.mjs';
+// R1-22：购点计算与「基础值还原」共用同一真源，避免界面把种族加成/自由加点算进购点
+import { usedPoints, remainingPoints, baseStatsOf, flexSlots, flexFromSlots } from '../../shared/chargen-points.mjs';
 import { SKIN_TONES, HAIR_TONES, OUTFIT_TONES, EYE_TONES, ACCENT_TONES, spriteToCanvas, spritePalette } from '../pixel.mjs';
 import { aliveEntries, upsertEntry, loadRoster } from '../roster.mjs';
 import { portraitUrl } from '../portraits.mjs';
@@ -11,6 +13,7 @@ export function mountRoom(root, view) {
   const host = view.room.hostId;
   const room = view.room;
   let lastView = view; // 供确认框读取最新成员数
+  let prevHostId = view.room.hostId; // R1-21：用于检测房主转移并提示
 
   // S2-1：成员卡头像接入种族定稿立绘（展示层；加载失败回退原 emoji，不阻塞房间功能）
   const memberIcon = (m) => {
@@ -94,14 +97,57 @@ export function mountRoom(root, view) {
   box.appendChild(layout);
 
   const foot = el('div', 'spread mt16');
-  const readyState = el('div', 'muted', '全部成员准备后自动开局');
+  const readyState = el('div', 'muted', '');
   const readyBtn = el('button', 'btn big gold', view.mySheet ? (view.members.find(m => m.pid === me.pid)?.ready ? '取消准备' : '✅ 准备就绪') : '请先完成车卡');
   readyBtn.disabled = !view.mySheet;
+  // R1-21：把「还差谁未就绪」明确写出来（用户要求「明显的文字提醒」），不再只给泛化文案
+  const readyReminderText = (v) => {
+    if (v.members.length === 1) return '当前仅你一人：准备后需确认开始，或等待队友加入';
+    const notReady = v.members.filter(m => !m.ready);
+    if (!notReady.length) return '✅ 全员已就绪，即将开始…';
+    return '⚠️ 还差 ' + notReady.length + ' 位未就绪：' + notReady.map(m => m.name + (m.isMe ? '（你）' : '')).join('、') + '（全员就绪后自动开局）';
+  };
+  // R1-21：结算后「已回房等待其他玩家」状态的遮罩（避免误操作一份尚未刷新的房间界面）
+  const waitOv = el('div', 'overlay-screen');
+  const waitCard = el('div', 'overlay-card');
+  waitCard.appendChild(el('h2', '', '⏳ 已回到房间'));
+  const waitMsg = el('div', 'ov-text', '');
+  waitCard.appendChild(waitMsg);
+  waitCard.appendChild(el('div', 'muted mt8', '你已选择「回到房间」。留在结算界面的玩家看完自己的冒险卡片后即可返回，届时自动进入下一局准备。'));
+  const waitLeave = el('button', 'btn danger', '离开房间');
+  waitLeave.style.cssText = 'width:100%;margin-top:12px;';
+  waitLeave.onclick = () => net.send('room:leave');
+  waitCard.appendChild(waitLeave);
+  waitOv.appendChild(waitCard);
+  waitOv.style.display = 'none';
+  document.body.appendChild(waitOv);
+  const refreshReady = (v) => {
+    if (v.waiting) {
+      readyState.textContent = '⏳ 你已回到房间，正在等待其他玩家返回房间…';
+      readyState.style.color = '#f0b040';
+      readyState.style.fontWeight = '700';
+      readyBtn.textContent = '⏳ 等待其他玩家…';
+      readyBtn.disabled = true;
+      return;
+    }
+    readyState.textContent = readyReminderText(v);
+    const multi = v.members.length > 1;
+    const allReady = v.members.length > 0 && v.members.every(m => m.ready);
+    readyState.style.color = allReady ? '#7ee08a' : (multi ? '#f0b040' : '');
+    readyState.style.fontWeight = (multi && !allReady) ? '700' : '';
+    const myM = v.members.find(m => m.pid === v.me.pid);
+    readyBtn.textContent = v.mySheet ? (myM?.ready ? '取消准备' : '✅ 准备就绪') : '请先完成车卡';
+    readyBtn.disabled = !v.mySheet;
+  };
   // B-10：单人点击准备就绪时弹确认框——立即开始 或 继续等待队友
   readyBtn.onclick = () => {
-    const members = lastView ? lastView.members : view.members;
+    const v = lastView || view;
+    const members = v.members || [];
     const cur = members.find(m => m.pid === me.pid)?.ready;
-    if (!cur && members.length === 1) {
+    // R1-21：收紧单人确认框的触发条件——仅当最新快照确为「单人 · 准备阶段 · 非结算等待」时才弹。
+    // 注意：无法完全消除竞态（队友刚加入、其成员更新尚未到达本机）；此时服务端仍会拦截，
+    // 并给出「还差谁未就绪」的指名提示（room:start 的错误文案已指名）。
+    if (!cur && members.length === 1 && v.phase === 'prepare' && !v.waiting) {
       showSoloReadyConfirm();
       return;
     }
@@ -114,6 +160,7 @@ export function mountRoom(root, view) {
     const box = el('div', 'dialog-box');
     box.appendChild(el('h3', '', '🕯️ 孤身上路？'));
     box.appendChild(el('div', 'dg-greet', '队伍中目前只有你一人。现在就独自开始冒险，还是继续等待其他玩家加入？'));
+    box.appendChild(el('div', 'muted', '若此刻恰好有队友加入，将自动改为「等待全员就绪」——不会把队友拖进未准备的冒险。'));
     const go = el('button', 'btn gold', '⚔️ 立即开始冒险');
     go.style.cssText = 'width:100%;margin-bottom:6px;';
     go.onclick = () => {
@@ -133,6 +180,13 @@ export function mountRoom(root, view) {
   }
   box.appendChild(foot);
   root.appendChild(box);
+
+  // R1-21：首次渲染即应用就绪提醒 / 结算后等待态
+  refreshReady(view);
+  if (view.waiting) {
+    waitMsg.textContent = (view.waitingFor && view.waitingFor.length) ? ('正在等待：' + view.waitingFor.join('、') + ' 返回房间…') : '正在等待其他玩家返回房间…';
+    waitOv.style.display = '';
+  }
 
   // 需要车卡时滚动到面板
   if (!view.mySheet) {
@@ -168,10 +222,21 @@ export function mountRoom(root, view) {
       }
       memberList.appendChild(card);
     }
-    const myM = v.members.find(m => m.pid === v.me.pid);
-    readyBtn.textContent = v.mySheet ? (myM?.ready ? '取消准备' : '✅ 准备就绪') : '请先完成车卡';
-    readyBtn.disabled = !v.mySheet;
-    readyState.textContent = v.members.length === 1 ? '当前仅你一人：准备后需确认开始，或等待队友加入' : '全部成员准备后自动开局';
+    refreshReady(v);
+    // R1-21：等待遮罩（本人已回房、仍有他人停在结算界面）
+    if (v.waiting) {
+      waitMsg.textContent = (v.waitingFor && v.waitingFor.length) ? ('正在等待：' + v.waitingFor.join('、') + ' 返回房间…') : '正在等待其他玩家返回房间…';
+      waitOv.style.display = '';
+    } else {
+      waitOv.style.display = 'none';
+    }
+    // R1-21：房主离开 → 房主转移，其余成员明确看到提示（不再静默换主）
+    const newHost = v.members.find(m => m.isHost);
+    if (newHost && prevHostId && newHost.pid !== prevHostId) {
+      if (newHost.pid === v.me.pid) toast('👑 原房主已离开，你已成为新房主');
+      else if (v.me.pid !== prevHostId) toast('👑 房主已转移给 ' + newHost.name);
+    }
+    if (newHost) prevHostId = newHost.pid;
     autoBtn.classList.toggle('sel', v.room.mode !== 'manual');
     manBtn.classList.toggle('sel', v.room.mode === 'manual');
     // B-6: 保存成功检测（mySheet从无到有）
@@ -189,15 +254,16 @@ export function mountRoom(root, view) {
 // ---------- 车卡 ----------
 export function mountChargen(root, view, net) {
   const me = view.me;
-  let sheet = view.mySheet ? { name: view.mySheet.name, raceId: view.mySheet.race, classId: view.mySheet.class, stats: { ...view.mySheet.stats }, flex: {}, colors: { ...view.mySheet.colors }, background: view.mySheet.background } : null;
-  if (view.mySheet) {
-    // 反推flex（简化：清空，重新选择）
-    sheet.flex = {};
-  }
+  // R1-22：载入已有角色时，必须用「基础值」初始化加点面板。
+  // view.mySheet.stats 是服务端 buildSheet 的**最终值**（已含种族加成+自由加点），
+  // 直接拿它当基础值算购点 ⇒ 剩余点数被多扣（精灵满购点会显示 -3）。
+  const myRaceDef = view.mySheet ? RACES.find(r => r.id === view.mySheet.race) : null;
+  let sheet = view.mySheet ? { name: view.mySheet.name, raceId: view.mySheet.race, classId: view.mySheet.class, stats: baseStatsOf(view.mySheet, myRaceDef), flex: { ...(view.mySheet.flex || {}) }, colors: { ...view.mySheet.colors }, background: view.mySheet.background } : null;
   let selRace = sheet ? sheet.raceId : null;
   let selClass = sheet ? sheet.classId : null;
   let stats = sheet ? { ...sheet.stats } : null;
-  let flexList = []; // 自由加点：按槽位存储属性分配（如 ['STR','CON']），互不干扰
+  // R1-22：自由加点按槽位还原（原先一律清空 ⇒ 载入角色后自由加点丢失、剩余点数也算错）
+  let flexList = sheet ? flexSlots(sheet.flex) : []; // 自由加点：按槽位存储属性分配（如 ['STR','CON']），互不干扰
   let colors = sheet ? { ...sheet.colors } : { skin: SKIN_TONES[0], hair: HAIR_TONES[0], outfit: OUTFIT_TONES[0], eye: EYE_TONES[0], accent: ACCENT_TONES[0] };
   let look = sheet ? { hair: 0, beard: 0, brow: 0, mouth: 0, marking: 0, ...(sheet.look || {}) } : { hair: 0, beard: 0, brow: 0, mouth: 0, marking: 0 };
   let carryLevel = sheet ? (sheet.level || 1) : 1; // 跨冒险继承的等级
@@ -301,7 +367,7 @@ export function mountChargen(root, view, net) {
     name = e.name; nameInput.value = e.name;
     selRace = e.raceId; selClass = e.classId;
     stats = e.stats ? { ...e.stats } : null;
-    flexList = e.flex ? Object.keys(e.flex).flatMap(a => Array(Math.min(6, e.flex[a] || 0)).fill(a)) : [];
+    flexList = flexSlots(e.flex);
     colors = { ...(e.colors || { skin: SKIN_TONES[0], hair: HAIR_TONES[0], outfit: OUTFIT_TONES[0], eye: EYE_TONES[0], accent: ACCENT_TONES[0] }) };
     look = { hair: 0, beard: 0, brow: 0, mouth: 0, marking: 0, ...(e.look || {}) };
     carryLevel = e.level || 1;
@@ -358,6 +424,8 @@ export function mountChargen(root, view, net) {
   // 属性
   const secStats = el('div', 'cg-section');
   secStats.appendChild(el('h3', '', '④ 分配属性（线性购点，上限' + MAX_STAT + '）'));
+  // R1-22：明确标注三项口径，保证「基础值 / 种族加成 / 自由加点」可分辨
+  secStats.appendChild(el('div', 'muted stat-legend', '数值＝基础值（计入购点）；「种族加成」「自由加点」另计、不占购点。最终值＝基础值＋种族加成＋自由加点。'));
   const poolInfo = el('div', 'pool-info');
   const statBox = el('div', '');
   secStats.append(poolInfo, statBox);
@@ -410,9 +478,7 @@ export function mountChargen(root, view, net) {
   // F-20：载入已保存角色与点击保存车卡都应视为可开始游戏——
   // 统一走pushSheet把车卡同步到房间（服务端才有room.sheets，准备/开局校验依赖它）
   const buildPayload = () => {
-    const flexObj = {};
-    for (const a of flexList) flexObj[a] = (flexObj[a] || 0) + 1;
-    return { name, raceId: selRace, classId: selClass, stats: currentStats(), flex: flexObj, colors, background, look, level: carryLevel, xp: carryXp };
+    return { name, raceId: selRace, classId: selClass, stats: currentStats(), flex: flexFromSlots(flexList), colors, background, look, level: carryLevel, xp: carryXp };
   };
   const pushSheet = (silent) => {
     const payload = buildPayload();
@@ -432,7 +498,9 @@ export function mountChargen(root, view, net) {
 
   function currentStats() { return stats; }
   function statMod(v) { return Math.floor((v - 10) / 2); }
-  function usedPoints() { return stats ? Object.values(stats).reduce((a, v) => a + (v - MIN_STAT), 0) : 0; }
+  // R1-22：购点只算「基础值」（stats 现在恒为基础值）。公式取自共享真源，与服务端/测试一致。
+  function spent() { return usedPoints(stats); }
+  function remaining() { return remainingPoints(stats); }
 
   function sync() {
     // 选中状态
@@ -464,14 +532,18 @@ export function mountChargen(root, view, net) {
 
   function flexBonusOf(a) { return flexList.filter(x => x === a).length; }
   function renderStatRows() {
-    poolInfo.textContent = '剩余点数：' + (POINT_POOL - usedPoints()) + ' / ' + POINT_POOL + '（基础值下限' + MIN_STAT + '、上限' + MAX_STAT + '；种族加成与自由加点不计入购点）';
+    const rem = remaining();
+    poolInfo.textContent = '剩余点数：' + rem + ' / ' + POINT_POOL + '（基础值下限' + MIN_STAT + '、上限' + MAX_STAT + '；种族加成与自由加点不计入购点）';
+    // 反例 1：绝不用「把负数截断成 0」掩盖问题——若载入的数据确实超购，如实报出并提示处置。
+    poolInfo.classList.toggle('pool-err', rem < 0);
+    if (rem < 0) poolInfo.textContent += ' ⚠️ 载入的加点超出购点上限 ' + (-rem) + ' 点，请重新分配后再保存';
     statBox.innerHTML = '';
     if (!stats) { statBox.appendChild(el('div', 'muted', '请先选择种族与职业')); return; }
     const names = { STR: '力量', DEX: '敏捷', CON: '体质', INT: '智力', WIS: '感知', CHA: '魅力' };
     for (const a of ['STR', 'DEX', 'CON', 'INT', 'WIS', 'CHA']) {
       const racial = race().stats[a] || 0;
       const flexBonus = flexBonusOf(a);
-      const final = stats[a] + racial + flexBonus;
+      const final = stats[a] + racial + flexBonus; // stats 是基础值 ⇒ 基础 + 种族 + 自由 = 最终值
       const row = el('div', 'stat-row');
       row.appendChild(el('label', '', names[a]));
       // 边界禁用：明确限制可减/可加范围
@@ -480,15 +552,19 @@ export function mountChargen(root, view, net) {
       minus.title = stats[a] <= MIN_STAT ? '已达下限' + MIN_STAT : '降低1点（退还1点）';
       minus.onclick = () => { if (stats[a] > MIN_STAT) { stats[a]--; renderStatRows(); renderDerived(); } };
       const plus = el('button', 'btn small', '＋');
-      plus.disabled = stats[a] >= MAX_STAT || usedPoints() >= POINT_POOL;
-      plus.title = stats[a] >= MAX_STAT ? '已达上限' + MAX_STAT : (usedPoints() >= POINT_POOL ? '点数已用完' : '增加1点（消耗1点）');
-      plus.onclick = () => { if (stats[a] < MAX_STAT && usedPoints() < POINT_POOL) { stats[a]++; renderStatRows(); renderDerived(); } };
-      // 数值展示：基础值 + 加成明细 + 最终调整值
+      plus.disabled = stats[a] >= MAX_STAT || spent() >= POINT_POOL;
+      plus.title = stats[a] >= MAX_STAT ? '已达上限' + MAX_STAT : (spent() >= POINT_POOL ? '点数已用完' : '增加1点（消耗1点）');
+      plus.onclick = () => { if (stats[a] < MAX_STAT && spent() < POINT_POOL) { stats[a]++; renderStatRows(); renderDerived(); } };
+      // 数值展示：基础值 + 加成明细（种族/自由分列）+ 最终调整值 —— 三者可分辨
       const val = el('div', 'sr-val');
-      val.textContent = stats[a];
+      val.textContent = stats[a]; // 基础值（计入购点）
       const bonus = racial + flexBonus;
-      if (bonus > 0) {
-        const b = el('span', 'sr-bonus', '+' + bonus + (racial ? '（种族' + (racial > 0 ? '+' : '') + racial + '）' : '') + (flexBonus ? '（自由+' + flexBonus + '）' : ''));
+      if (bonus !== 0) {
+        const parts = [];
+        if (racial) parts.push('种族' + (racial > 0 ? '+' : '') + racial);
+        if (flexBonus) parts.push('自由+' + flexBonus);
+        const b = el('span', 'sr-bonus', (bonus > 0 ? '+' : '') + bonus + '（' + parts.join('，') + '）');
+        b.title = '基础值 ' + stats[a] + ' + 种族' + racial + ' + 自由' + flexBonus + ' = 最终 ' + final;
         val.appendChild(b);
       }
       const modEl = el('div', 'sr-mod', (final >= 10 ? '+' : '') + statMod(final) + ' → ' + final);
