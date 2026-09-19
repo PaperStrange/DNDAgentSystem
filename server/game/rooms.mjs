@@ -8,6 +8,7 @@ import { Director } from '../dm/director.mjs';
 import { DUNGEONS, MONSTERS } from './dungeon.mjs';
 import { PERSONAS, personaSummary, personaById } from '../dm/personas.mjs';
 import { buildSheet } from './charsheet.mjs';
+import { flexEqual } from '../../public/shared/chargen-points.mjs'; // R1-28：已创建角色不可改种族加点
 import { chat, llmAvailable } from '../llm.mjs';
 
 export const MAX_PLAYERS = 5;
@@ -104,6 +105,14 @@ export class Rooms {
     let sheet;
     try { sheet = buildSheet(rawSheet); }
     catch (e) { return { err: (e && e.message) ? e.message : '车卡数据非法，请检查属性与种族职业' }; }
+    // R1-28：**已创建的角色不能改「种族加点」**（自由加点 flex）。
+    // 「已创建」的判定取自**服务端真源**——本房间是否已提交过该玩家的车卡（room.sheets），
+    // 不接受客户端标志位（前端标志位可被直接发协议消息绕过）。
+    // 新角色（尚未提交）首次提交即「创建」，此后除升级加点外的种族加点一律拒绝改动。
+    const prev = room.sheets.get(player.pid);
+    if (prev && !flexEqual(prev.flex, sheet.flex)) {
+      return { err: '该角色已创建，不能修改种族加点（自由加点）。如需更换请在首次保存前设置。' };
+    }
     room.sheets.set(player.pid, sheet);
     room.ready.delete(player.pid);
     room.lastTouched = Date.now();

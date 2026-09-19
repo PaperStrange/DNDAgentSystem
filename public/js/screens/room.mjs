@@ -246,7 +246,9 @@ export function mountRoom(root, view) {
 
   let hadSheet = !!view.mySheet;
   return {
-    update(v) { renderMembers(v); },
+    // R1-28：把「服务端是否已有该玩家车卡」这一状态转换点同步给车卡面板
+    // （mySheet 非空 ⟺ 已创建 ⇒ 种族加点只读）。
+    update(v) { renderMembers(v); if (chargenRef && chargenRef.setCreated) chargenRef.setCreated(!!v.mySheet); },
     onBg: (text) => { if (chargenRef) chargenRef.onBg(text); },
   };
 }
@@ -271,6 +273,11 @@ export function mountChargen(root, view, net) {
   let name = sheet ? sheet.name : '';
   let background = sheet ? sheet.background : '';
   let saved = !!view.mySheet;
+  // R1-28：状态机 ——「创建期（新角色）」vs「已创建」。
+  // 「已创建」由**服务端真源**决定：view.mySheet 非空 ⟺ 服务端 room.sheets 已有该玩家的车卡
+  // （即已提交/已保存过）。创建期：种族加点（自由加点 flex）可编辑；已创建：锁定为只读，
+  // 且服务端会拒绝任何 flex 改动（不依赖客户端标志位）。
+  let created = !!view.mySheet;
   // R-11: 载入的角色条目id（阵亡角色不可载入）；已有车卡按同名在世条目衔接，避免重复建档
   let loadedId = null;
   if (view.mySheet) {
@@ -591,10 +598,19 @@ export function mountChargen(root, view, net) {
           sel.appendChild(o);
         }
         sel.value = flexList[i];
+        // R1-28：已创建 ⇒ 种族加点只读（下拉框禁用；服务端同步拒绝改动）
+        sel.disabled = created;
+        if (created) sel.title = '该角色已创建，种族加点已锁定';
         sel.onchange = () => { flexList[i] = sel.value; renderStatRows(); renderDerived(); };
         flexRow.appendChild(sel);
       }
       statBox.appendChild(flexRow);
+      if (created) statBox.appendChild(el('div', 'muted stat-note', '🔒 该角色已创建，种族加点（自由加点）已锁定，按保存时的值原样呈现；如需调整请在首次保存前设置。'));
+    } else {
+      // R1-28：flex:0 的种族——属性加成是**固定值**，界面本就无可调项。
+      // 明确告知，避免用户再把它误认为「种族加点被锁了」。
+      const fixed = ['STR', 'DEX', 'CON', 'INT', 'WIS', 'CHA'].filter(a => (race().stats[a] || 0) !== 0).map(a => names[a] + '+' + race().stats[a]).join('，');
+      statBox.appendChild(el('div', 'muted stat-note', 'ℹ️ ' + race().name + '的属性加成是固定值（' + (fixed || '无') + '），没有可分配的种族加点。'));
     }
   }
 
@@ -759,5 +775,8 @@ export function mountChargen(root, view, net) {
   return {
     update() {},
     onBg: (text) => { bgInput.value = text; background = text; randBgBtn.disabled = false; randBgBtn.innerHTML = '🎲 随机'; toast('✨ 已为你写下背景故事'); },
+    // R1-28：服务端快照确认「已创建」（mySheet 出现）后，把种族加点切为只读。
+    // 使「首次保存成功」这一状态转换点即时生效（无需等玩家离开再进入房间）。
+    setCreated(v) { v = !!v; if (v === created) return; created = v; renderStatRows(); },
   };
 }

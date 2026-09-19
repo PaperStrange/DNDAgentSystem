@@ -122,6 +122,7 @@ input, select, textarea { font-family: var(--font); }
 .stat-row .sr-bar { flex: 1; height: 10px; background: var(--panel2); border-radius: 5px; overflow: hidden; }
 .stat-row .sr-fill { height: 100%; background: linear-gradient(90deg, #5c4f94, #8a72b8); }
 .pool-info { color: var(--dim); font-size: 12px; margin-bottom: 8px; }
+.stat-note { font-size: 11px; margin: 6px 0 2px; }
 .color-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 6px; }
 .color-label { width: 36px; color: var(--dim); font-size: 12px; flex-shrink: 0; }
 .color-swatches { display: flex; gap: 4px; flex-wrap: wrap; }
