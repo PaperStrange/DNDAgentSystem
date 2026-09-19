@@ -56,8 +56,16 @@ export function mountGame(root, view) {
   sfxBtn.onclick = () => { g.sfx = !g.sfx; sfxBtn.textContent = g.sfx ? '🔊' : '🔇'; };
   const autoBtn = el('button', 'btn small', '🤖 自动');
   autoBtn.title = '自动游玩开关（手动模式下可随时开启）';
-  autoBtn.onclick = () => { g.autoplay = !g.autoplay; autoBtn.classList.toggle('gold', g.autoplay); };
-  top.append(gtChapter, gtObj, gtTurn, modeBadge, speedSel, pauseBtn, autoBtn, sfxBtn, leaveBtn);
+  // R1-20：切换自动/手动时必须上报服务端——服务端据此决定「该玩家回合是否被看门狗跳过」
+  autoBtn.onclick = () => {
+    g.autoplay = !g.autoplay;
+    autoBtn.classList.toggle('gold', g.autoplay);
+    net.send('game:autoplay', { on: g.autoplay });
+  };
+  // R1-20：严格回合制下的「等待」指示——让人看出在等谁行动，而不是静默卡住
+  const gtWait = el('div', 'gt-wait', '');
+  gtWait.style.cssText = 'font-size:12px;opacity:.92;white-space:nowrap;';
+  top.append(gtChapter, gtObj, gtTurn, gtWait, modeBadge, speedSel, pauseBtn, autoBtn, sfxBtn, leaveBtn);
   screen.appendChild(top);
   // R-15：房主身份 + 非房主禁用调速控件 + 快捷键提示行
   const isHostMe = store.pid === g.view?.room?.hostId;
@@ -129,6 +137,21 @@ export function mountGame(root, view) {
       gtTurn.textContent = '⚔️ 第' + gv.combat.round + '回合' + (activeEnt ? ' · 轮到 ' + activeEnt.name : '');
     } else {
       gtTurn.textContent = '';
+    }
+    // R1-20：严格回合制「等待」可见性——非我方回合时明确显示在等谁行动（而非静默卡住）
+    const myPid = store.pid || (gv.me && gv.me.pid) || null;
+    if (gv.state === 'playing' && !gv.win && gv.turn) {
+      const actorEnt = gv.entities.find(e => e.eid === gv.turn.actorEid);
+      const actorName = actorEnt ? actorEnt.name : '其他角色';
+      const mine = !!myPid && gv.turn.playerId === myPid;
+      if (gv.turn.kind === 'monster') gtWait.textContent = '⏳ 等待 ' + actorName + ' 行动…';
+      else if (!mine) gtWait.textContent = '⏳ 等待 ' + actorName + ' 行动…';
+      else if (g.autoplay) gtWait.textContent = '🤖 自动行动中…';
+      else gtWait.textContent = '🎮 轮到你行动';
+      gtWait.style.display = '';
+    } else {
+      gtWait.textContent = '';
+      gtWait.style.display = 'none';
     }
 
     // 我的状态
@@ -909,7 +932,9 @@ export function mountGame(root, view) {
     if (!g.modeInited && gv) {
       g.modeInited = true;
       const mode = gv.mode || view.room?.mode || 'auto';
-      g.autoplay = mode !== 'manual';
+      // R1-20：优先采用服务端下发的「本玩家」手动状态（中途切换/重连后仍准确），否则回退房间级模式
+      const meManual = (gv.me && typeof gv.me.manual === 'boolean') ? gv.me.manual : (mode === 'manual');
+      g.autoplay = !meManual;
       autoBtn.classList.toggle('gold', g.autoplay);
       modeBadge.textContent = mode === 'manual' ? '🎮 手动操作' : '🤖 自动战斗';
       modeBadge.className = 'badge' + (mode === 'manual' ? '' : ' gold');
@@ -1250,7 +1275,7 @@ export function mountGame(root, view) {
       return a ? { x: a.x, y: a.y, moving: a.moving, frame: a.frame, dir: a.dir || null } : null;
     },
     scale: () => SCALE,
-    setAutoplay: (on) => { g.autoplay = on; autoBtn.classList.toggle('gold', on); },
+    setAutoplay: (on) => { g.autoplay = on; autoBtn.classList.toggle('gold', on); net.send('game:autoplay', { on }); },
     debug: () => ({ autoplay: g.autoplay, paused: g.paused, pid: store.pid, turnPid: g.view?.game?.turn?.playerId, lastAction: g._lastAct || null }),
     step: () => {
       const gv = g.view?.game;

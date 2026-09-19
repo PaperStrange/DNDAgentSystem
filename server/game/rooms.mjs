@@ -245,6 +245,8 @@ export class Rooms {
     if (t === 'game:claim') return g.actClaim(player.pid);
     if (t === 'game:say') return g.actSay(player.pid, msg.text);
     if (t === 'game:endturn') return g.actEndTurn(player.pid);
+    // R1-20：玩家级自动/手动开关（游戏内「🤖 自动」按钮上报，on=true 表示自动）
+    if (t === 'game:autoplay') return g.setAutoplay(player.pid, !!msg.on);
     // F-30：BOSS遭遇表决（同意开战/逃跑）与营地行动（恢复/购买/回到冒险）
     if (t === 'game:boss-vote') return g.bossVote(player.pid, msg.vote);
     if (t === 'game:camp-rest') return g.campRest(player.pid);
