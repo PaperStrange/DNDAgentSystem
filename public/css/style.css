@@ -112,6 +112,7 @@ input, select, textarea { font-family: var(--font); }
 .opt-card.sel { border-color: var(--gold); background: #2c2540; }
 .opt-card.locked { opacity: .55; cursor: not-allowed; pointer-events: none; } /* R1-28 补充：已创建角色 ⇒ 种族卡片不可点 */
 .opt-card.locked:hover { border-color: var(--line); }
+.locked-input { opacity: .6; cursor: not-allowed; } /* R1-28 补充：已创建角色的名字/背景输入框只读 */
 .opt-card .oc-name { font-weight: 700; font-size: 13px; }
 .opt-card .oc-sub { color: var(--dim); font-size: 11px; margin-top: 2px; }
 .stat-row { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }

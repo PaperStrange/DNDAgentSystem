@@ -83,19 +83,21 @@ test('已创建角色：flex 数量变化（1→0、1→2）同样被拒绝', as
   assert.ok((await rooms.dispatch(player, { t: 'room:charsheet', sheet: payload({ flex: { STR: 1, CON: 1, DEX: 1 } }) })).err, '增加一项应被拒');
 });
 
-test('已创建角色：flex 不变（仅键序/0 值不同）⇒ 允许（其他字段可继续编辑）', async () => {
+test('已创建角色：flex 不变（仅键序/0 值不同）+ 仅改外观 ⇒ 允许', async () => {
   const { rooms, player } = mkRoom();
   await rooms.dispatch(player, { t: 'room:charsheet', sheet: payload({ flex: { STR: 1, CON: 1 } }) });
-  const r = await rooms.dispatch(player, { t: 'room:charsheet', sheet: payload({ flex: { CON: 1, STR: 1 }, background: '改了背景' }) });
-  assert.ok(!r.err, 'flex 等价 + 仅改背景应被接受：' + (r.err || ''));
-  assert.equal(rooms.rooms.get('TEST').sheets.get('p1').background, '改了背景');
+  const r = await rooms.dispatch(player, { t: 'room:charsheet', sheet: payload({ flex: { CON: 1, STR: 1 }, look: { hair: 2 } }) });
+  assert.ok(!r.err, 'flex 等价 + 仅改外观应被接受：' + (r.err || ''));
+  assert.equal(rooms.rooms.get('TEST').sheets.get('p1').look.hair, 2);
 });
 
-test('已创建角色：改基础值但 flex 不变 ⇒ 允许（本卡只管种族加点；整组属性属 R1-24/R2-1）', async () => {
+test('已创建角色：改基础值 stats ⇒ 服务端拒绝（用户裁定「除了外观全锁」）', async () => {
   const { rooms, player } = mkRoom();
   await rooms.dispatch(player, { t: 'room:charsheet', sheet: payload({ flex: { STR: 1, CON: 1 } }) });
   const r = await rooms.dispatch(player, { t: 'room:charsheet', sheet: payload({ stats: { ...BASE, STR: 14, DEX: 14 }, flex: { STR: 1, CON: 1 } }) });
-  assert.ok(!r.err, 'flex 未变的基础值编辑应被接受（未越界到 R1-24）：' + (r.err || ''));
+  assert.ok(r.err, '基础值改动必须被拒绝');
+  assert.match(r.err, /属性/);
+  assert.deepEqual(rooms.rooms.get('TEST').sheets.get('p1').base, BASE, '基础值应原样保留');
 });
 
 // ---------------------------------------------------------------------------
@@ -127,11 +129,71 @@ test('新角色：可自由选择任意种族（种族身份锁只对已创建�
   assert.equal(rooms.rooms.get('TEST').sheets.get('p1').race, 'elf');
 });
 
-test('已创建角色：种族未变（raceId 相同）⇒ 不因种族锁被误拒', async () => {
+test('已创建角色：全字段不变（原样重交）⇒ 放行（不误拒）', async () => {
   const { rooms, player } = mkRoom();
   await rooms.dispatch(player, { t: 'room:charsheet', sheet: payload({ flex: { STR: 1, CON: 1 } }) });
-  const r = await rooms.dispatch(player, { t: 'room:charsheet', sheet: payload({ raceId: 'human', flex: { STR: 1, CON: 1 }, background: '仅改背景' }) });
-  assert.ok(!r.err, '种族未变应放行：' + (r.err || ''));
+  const r = await rooms.dispatch(player, { t: 'room:charsheet', sheet: payload({ raceId: 'human', flex: { STR: 1, CON: 1 } }) });
+  assert.ok(!r.err, '原样重交应放行：' + (r.err || ''));
+});
+
+// ---------------------------------------------------------------------------
+// 3c. R1-28 补充（用户 2026-09-20 依审计裁定「除了外观全锁」）：
+//     已创建角色 ⇒ classId/level/xp/stats/name/background 均不可改；colors/look 仍可改
+// ---------------------------------------------------------------------------
+async function createdBase() {
+  const { rooms, player } = mkRoom();
+  await rooms.dispatch(player, { t: 'room:charsheet', sheet: payload({ flex: { STR: 1, CON: 1 } }) });
+  return { rooms, player };
+}
+const stored = (rooms) => rooms.rooms.get('TEST').sheets.get('p1');
+
+test('已创建角色：改职业 classId ⇒ 服务端拒绝（用户点名）', async () => {
+  const { rooms, player } = await createdBase();
+  const r = await rooms.dispatch(player, { t: 'room:charsheet', sheet: payload({ classId: 'wizard', flex: { STR: 1, CON: 1 } }) });
+  assert.ok(r.err); assert.match(r.err, /职业/);
+  assert.equal(stored(rooms).class, 'fighter', '职业应原样保留');
+});
+
+test('已创建角色：改等级 level ⇒ 服务端拒绝', async () => {
+  const { rooms, player } = await createdBase();
+  const r = await rooms.dispatch(player, { t: 'room:charsheet', sheet: payload({ level: 4, flex: { STR: 1, CON: 1 } }) });
+  assert.ok(r.err); assert.match(r.err, /等级/);
+  assert.equal(stored(rooms).level, 1);
+});
+
+test('已创建角色：改经验 xp ⇒ 服务端拒绝', async () => {
+  const { rooms, player } = await createdBase();
+  const r = await rooms.dispatch(player, { t: 'room:charsheet', sheet: payload({ xp: 99999, flex: { STR: 1, CON: 1 } }) });
+  assert.ok(r.err); assert.match(r.err, /经验/);
+  assert.equal(stored(rooms).xp, 0);
+});
+
+test('已创建角色：改名字 name ⇒ 服务端拒绝', async () => {
+  const { rooms, player } = await createdBase();
+  const r = await rooms.dispatch(player, { t: 'room:charsheet', sheet: payload({ name: '换个名', flex: { STR: 1, CON: 1 } }) });
+  assert.ok(r.err); assert.match(r.err, /名字/);
+  assert.equal(stored(rooms).name, '甲');
+});
+
+test('已创建角色：改背景 background ⇒ 服务端拒绝', async () => {
+  const { rooms, player } = await createdBase();
+  const r = await rooms.dispatch(player, { t: 'room:charsheet', sheet: payload({ background: '新背景', flex: { STR: 1, CON: 1 } }) });
+  assert.ok(r.err); assert.match(r.err, /背景/);
+});
+
+test('已创建角色：改外观 colors/look ⇒ 允许（外观不在锁内）', async () => {
+  const { rooms, player } = await createdBase();
+  const r = await rooms.dispatch(player, { t: 'room:charsheet', sheet: payload({ colors: { skin: '#123456' }, look: { hair: 5 }, flex: { STR: 1, CON: 1 } }) });
+  assert.ok(!r.err, '外观应可改：' + (r.err || ''));
+  assert.equal(stored(rooms).look.hair, 5);
+  assert.equal(stored(rooms).colors.skin, '#123456');
+});
+
+test('已创建角色：stats 键序不同、值不变 ⇒ 等价放行（statsEqual 归一化）', async () => {
+  const { rooms, player } = await createdBase();
+  const shuffled = { CHA: BASE.CHA, WIS: BASE.WIS, INT: BASE.INT, CON: BASE.CON, DEX: BASE.DEX, STR: BASE.STR };
+  const r = await rooms.dispatch(player, { t: 'room:charsheet', sheet: payload({ stats: shuffled, flex: { STR: 1, CON: 1 } }) });
+  assert.ok(!r.err, '键序不同应等价放行：' + (r.err || ''));
 });
 
 // ---------------------------------------------------------------------------

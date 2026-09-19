@@ -8,10 +8,23 @@ import { Director } from '../dm/director.mjs';
 import { DUNGEONS, MONSTERS } from './dungeon.mjs';
 import { PERSONAS, personaSummary, personaById } from '../dm/personas.mjs';
 import { buildSheet } from './charsheet.mjs';
-import { flexEqual } from '../../public/shared/chargen-points.mjs'; // R1-28：已创建角色不可改种族加点
+import { flexEqual, statsEqual } from '../../public/shared/chargen-points.mjs'; // R1-28：已创建角色不可改种族加点/属性
 import { chat, llmAvailable } from '../llm.mjs';
 
 export const MAX_PLAYERS = 5;
+
+// R1-28：**已创建角色除「外观（colors/look）」外一律不可改**的字段清单（服务端唯一真源）。
+// eq = 字段级等价比较（标量用 ===，对象用等价函数）。范围沿革见 setSheet 注释。
+const LOCKED_FIELDS = [
+  { key: 'race', label: '种族', eq: (a, b) => a === b },
+  { key: 'class', label: '职业', eq: (a, b) => a === b },
+  { key: 'level', label: '等级', eq: (a, b) => a === b },
+  { key: 'xp', label: '经验', eq: (a, b) => a === b },
+  { key: 'name', label: '名字', eq: (a, b) => a === b },
+  { key: 'background', label: '背景', eq: (a, b) => a === b },
+  { key: 'base', label: '属性', eq: statsEqual },
+  { key: 'flex', label: '种族加点（自由加点）', eq: flexEqual },
+];
 
 // R-12：离线背景故事模板（每条≥150字、风格各异，供随机生成）
 export const BG_TEMPLATES = [
@@ -105,19 +118,22 @@ export class Rooms {
     let sheet;
     try { sheet = buildSheet(rawSheet); }
     catch (e) { return { err: (e && e.message) ? e.message : '车卡数据非法，请检查属性与种族职业' }; }
-    // R1-28：**已创建的角色不能改「种族加点」**（自由加点 flex）。
+    // R1-28：**已创建角色除「外观（colors/look）」外一律不可改**。
     // 「已创建」的判定取自**服务端真源**——本房间是否已提交过该玩家的车卡（room.sheets），
     // 不接受客户端标志位（前端标志位可被直接发协议消息绕过）。
-    // 新角色（尚未提交）首次提交即「创建」，此后除升级加点外的种族加点一律拒绝改动。
+    // 范围沿革：
+    //   ① R1-28 初版：只锁「种族加点 flex」；
+    //   ② 用户裁定补充：追加「种族身份 race」；
+    //   ③ 用户 2026-09-20 依审计报告（docs/pm/reports/已创建角色可改字段审计-20260920.md）
+    //      再裁定「除了外观全锁」⇒ 追加 class/level/xp/base(stats)/name/background。
+    //   colors/look 属**纯外观、不影响数值**，**保持可改**。
     const prev = room.sheets.get(player.pid);
-    // R1-28 补充（用户裁定）：**已创建角色也不能更换「种族身份」**。
-    // 原因：保持 flex 不变、只把种族从「人类」改成「半精灵」即可白拿半精灵的固定加成（{CHA:2}），
-    // 是一条**等效绕过路径** ⇒ 只锁 flex 不够，raceId 同样不可变。
-    if (prev && prev.race !== sheet.race) {
-      return { err: '该角色已创建，不能更换种族。如需更换请在首次保存前设置。' };
-    }
-    if (prev && !flexEqual(prev.flex, sheet.flex)) {
-      return { err: '该角色已创建，不能修改种族加点（自由加点）。如需更换请在首次保存前设置。' };
+    if (prev) {
+      for (const f of LOCKED_FIELDS) {
+        if (!f.eq(prev[f.key], sheet[f.key])) {
+          return { err: '该角色已创建，不能修改「' + f.label + '」。如需调整请在首次保存前设置。' };
+        }
+      }
     }
     room.sheets.set(player.pid, sheet);
     room.ready.delete(player.pid);

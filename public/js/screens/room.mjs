@@ -426,7 +426,11 @@ export function mountChargen(root, view, net) {
     const card = el('div', 'opt-card');
     card.appendChild(el('div', 'oc-name', c.icon + ' ' + c.name));
     card.appendChild(el('div', 'oc-sub', 'HP骰d' + c.hitDie + ' · AC' + c.ac + ' · ' + c.weapons[0].name));
-    card.onclick = () => { selClass = c.id; stats = null; sync(); };
+    card.onclick = () => {
+      // R1-28 补充（用户裁定「除了外观全锁」）：已创建角色 ⇒ 职业锁定（前端只读；服务端亦拒绝）
+      if (created) { toast('该角色已创建，不能修改职业。如需调整请在首次保存前设置。'); return; }
+      selClass = c.id; stats = null; sync();
+    };
     classGrid.appendChild(card);
   }
   secClass.appendChild(classGrid);
@@ -465,11 +469,13 @@ export function mountChargen(root, view, net) {
   const randBgBtn = el('button', 'btn small gold', '🎲 随机');
   randBgBtn.title = '随机生成一段背景故事（150字以上）';
   randBgBtn.onclick = () => {
+    // R1-28 补充（用户裁定「除了外观全锁」）：已创建角色 ⇒ 背景锁定
+    if (created) { toast('该角色已创建，不能修改背景。如需调整请在首次保存前设置。'); return; }
     if (!selRace || !selClass) { toast('请先选择种族与职业', true); return; }
     randBgBtn.disabled = true;
     randBgBtn.innerHTML = '<span class="spin"></span> 生成中…';
     net.send('room:bg-random', { raceId: selRace, classId: selClass, colors });
-    setTimeout(() => { randBgBtn.disabled = false; randBgBtn.innerHTML = '🎲 随机'; }, 30000);
+    setTimeout(() => { if (!created) randBgBtn.disabled = false; randBgBtn.innerHTML = '🎲 随机'; }, 30000);
   };
   bgRow.appendChild(randBgBtn);
   secBg.appendChild(bgRow);
@@ -505,6 +511,9 @@ export function mountChargen(root, view, net) {
   };
   const saveWrap = el('div', 'mt8');
   saveWrap.appendChild(saveBtn);
+  // R1-28 补充：已创建角色的总提示（applyCreatedLocks 按 created 填充/清空）
+  const lockedNote = el('div', 'muted stat-note', '');
+  saveWrap.appendChild(lockedNote);
   mainCol.appendChild(saveWrap);
 
   function currentStats() { return stats; }
@@ -542,16 +551,28 @@ export function mountChargen(root, view, net) {
   }
 
   function flexBonusOf(a) { return flexList.filter(x => x === a).length; }
-  // R1-28 补充（用户裁定）：已创建角色 ⇒ 种族身份不可改——种族卡片不可点（与 flex 锁定同风格）。
-  // 真正的强制在服务端（rooms.mjs setSheet 拒绝改 race）；此处只做前端只读与视觉提示。
-  function applyRaceLock() {
-    raceGrid.querySelectorAll('.opt-card').forEach(c => {
+  // R1-28 补充（用户 2026-09-20 依审计裁定「除了外观全锁」）：
+  // 已创建角色 ⇒ 除「外观（colors/look）」外的信息一律只读；真正的强制在服务端（rooms.mjs setSheet）。
+  // 前端只做只读 + 视觉提示：种族/职业卡片、名字、背景、随机背景按钮、属性 ± 按钮、自由加点下拉。
+  function applyCreatedLocks() {
+    const lockCards = (grid) => grid.querySelectorAll('.opt-card').forEach(c => {
       c.classList.toggle('locked', created);
-      c.title = created ? '该角色已创建，不能更换种族' : '';
+      c.title = created ? '该角色已创建，不可修改' : '';
     });
+    lockCards(raceGrid); lockCards(classGrid);
+    nameInput.readOnly = created;
+    nameInput.classList.toggle('locked-input', created);
+    nameInput.title = created ? '该角色已创建，不能修改名字' : '';
+    bgInput.readOnly = created;
+    bgInput.classList.toggle('locked-input', created);
+    bgInput.title = created ? '该角色已创建，不能修改背景' : '';
+    randBgBtn.disabled = created;
+    lockedNote.textContent = created
+      ? '🔒 该角色已创建，除「外观」外均不可修改（种族 / 职业 / 属性 / 名字 / 背景 / 等级 / 经验）。如需调整请在首次保存前设置。'
+      : '';
   }
   function renderStatRows() {
-    applyRaceLock();
+    applyCreatedLocks();
     const rem = remaining();
     poolInfo.textContent = '剩余点数：' + rem + ' / ' + POINT_POOL + '（基础值下限' + MIN_STAT + '、上限' + MAX_STAT + '；种族加成与自由加点不计入购点）';
     // 反例 1：绝不用「把负数截断成 0」掩盖问题——若载入的数据确实超购，如实报出并提示处置。
@@ -566,15 +587,15 @@ export function mountChargen(root, view, net) {
       const final = stats[a] + racial + flexBonus; // stats 是基础值 ⇒ 基础 + 种族 + 自由 = 最终值
       const row = el('div', 'stat-row');
       row.appendChild(el('label', '', names[a]));
-      // 边界禁用：明确限制可减/可加范围
+      // 边界禁用：明确限制可减/可加范围；R1-28 补充：已创建角色 ⇒ 属性也不可改
       const minus = el('button', 'btn small', '−');
-      minus.disabled = stats[a] <= MIN_STAT;
-      minus.title = stats[a] <= MIN_STAT ? '已达下限' + MIN_STAT : '降低1点（退还1点）';
-      minus.onclick = () => { if (stats[a] > MIN_STAT) { stats[a]--; renderStatRows(); renderDerived(); } };
+      minus.disabled = created || stats[a] <= MIN_STAT;
+      minus.title = created ? '该角色已创建，不能修改属性' : (stats[a] <= MIN_STAT ? '已达下限' + MIN_STAT : '降低1点（退还1点）');
+      minus.onclick = () => { if (!created && stats[a] > MIN_STAT) { stats[a]--; renderStatRows(); renderDerived(); } };
       const plus = el('button', 'btn small', '＋');
-      plus.disabled = stats[a] >= MAX_STAT || spent() >= POINT_POOL;
-      plus.title = stats[a] >= MAX_STAT ? '已达上限' + MAX_STAT : (spent() >= POINT_POOL ? '点数已用完' : '增加1点（消耗1点）');
-      plus.onclick = () => { if (stats[a] < MAX_STAT && spent() < POINT_POOL) { stats[a]++; renderStatRows(); renderDerived(); } };
+      plus.disabled = created || stats[a] >= MAX_STAT || spent() >= POINT_POOL;
+      plus.title = created ? '该角色已创建，不能修改属性' : (stats[a] >= MAX_STAT ? '已达上限' + MAX_STAT : (spent() >= POINT_POOL ? '点数已用完' : '增加1点（消耗1点）'));
+      plus.onclick = () => { if (!created && stats[a] < MAX_STAT && spent() < POINT_POOL) { stats[a]++; renderStatRows(); renderDerived(); } };
       // 数值展示：基础值 + 加成明细（种族/自由分列）+ 最终调整值 —— 三者可分辨
       const val = el('div', 'sr-val');
       val.textContent = stats[a]; // 基础值（计入购点）

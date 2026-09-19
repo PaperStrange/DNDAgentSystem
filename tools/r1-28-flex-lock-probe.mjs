@@ -109,7 +109,7 @@ const pickClass = (page, idx) => page.locator('.opt-grid').nth(1).locator('.opt-
 async function sendSheet(page, sheet) {
   const before = await page.evaluate(() => (window.__toasts || []).length);
   await page.evaluate((s) => { window.__S.net.send('room:charsheet', { sheet: s }); }, sheet);
-  await sleep(700);
+  await sleep(1100);
   const after = await page.evaluate(() => (window.__toasts || []).length);
   const toast = await page.evaluate(() => (window.__toasts || []).slice(-1)[0] || '');
   return { toast, newToast: after > before };
@@ -118,8 +118,29 @@ async function sendSheet(page, sheet) {
 function readStored(page) {
   return page.evaluate(() => {
     const s = window.__S.view && window.__S.view.mySheet;
-    return s ? { flex: s.flex, base: s.base, background: s.background, race: s.race } : null;
+    return s ? { flex: s.flex, base: s.base, background: s.background, race: s.race, colors: s.colors, name: s.name, class: s.class, level: s.level, xp: s.xp } : null;
   });
+}
+// 用「当前服务端已存 sheet」构造一份等价 payload —— 作为「只改某字段」的基线，
+// 避免硬编码值与真实存储漂移（R1-28 补充后 background 等也在锁内，硬编码会误判）。
+function currentPayload(page) {
+  return page.evaluate(() => {
+    const s = window.__S.view && window.__S.view.mySheet;
+    return s ? { name: s.name, raceId: s.race, classId: s.class, stats: s.base, flex: s.flex, level: s.level, xp: s.xp, background: s.background, colors: s.colors, look: s.look } : null;
+  });
+}
+// 构造一个与给定 flex「确定不同」的自由加点分配（用于验证「改 flex ⇒ 拒绝」）。
+// 取第一个属性，换成另一个尚未使用的属性；保持总点数不变。
+function differentFlex(flex) {
+  const all = ['STR', 'DEX', 'CON', 'INT', 'WIS', 'CHA'];
+  const keys = Object.keys(flex || {});
+  if (keys.length === 0) return { STR: 1 };
+  const first = keys[0];
+  const other = all.find(k => k !== first && !keys.includes(k)) || (first === 'STR' ? 'DEX' : 'STR');
+  const out = { ...flex };
+  delete out[first];
+  out[other] = (out[other] || 0) + 1;
+  return out;
 }
 
 async function main() {
@@ -188,17 +209,20 @@ async function main() {
     check('E) 重进后：剩余点数非负（R1-22 的 -3 未复现）', e.remaining !== null && e.remaining >= 0, 'remaining=' + e.remaining);
 
     // ===== F) 直接发协议消息改 flex：服务端拒绝 =====
-    const baseStats = { STR: 15, DEX: 13, CON: 14, INT: 10, WIS: 10, CHA: 8 };
-    const resp = await sendSheet(page, { name: '锁甲', raceId: 'human', classId: 'fighter', stats: baseStats, flex: { DEX: 1, CON: 1 }, level: 1, xp: 0 });
+    // 用「当前服务端已存 sheet」作基线（避免硬编码值与真实存储漂移）。
+    const base = await currentPayload(page);
+    log('F) 基线 payload（取自服务端已存 sheet）：', JSON.stringify(base));
+    check('F) 基线 payload 非空（已创建角色的存储可读）', !!base, JSON.stringify(base));
+    const resp = await sendSheet(page, { ...base, flex: differentFlex(base.flex) });
     log('直接改 flex 的服务端响应：', JSON.stringify(resp));
     check('F) 直接发协议消息改 flex ⇒ 服务端拒绝（带回执）', resp.newToast && /已创建|种族加点/.test(resp.toast), JSON.stringify(resp));
-    // 同一角色、flex 不变、只改背景 ⇒ 应被接受（未越界）
-    const okResp = await sendSheet(page, { name: '锁甲', raceId: 'human', classId: 'fighter', stats: baseStats, flex: { STR: 1, CON: 1 }, background: '改了背景', level: 1, xp: 0 });
-    log('flex 不变改背景的响应：', JSON.stringify(okResp));
+    // 同一角色、只改外观 colors/look ⇒ 应被接受（外观不在锁内）
+    const okResp = await sendSheet(page, { ...base, colors: { ...base.colors, skin: '#123456' }, look: { ...base.look, hair: 5 } });
+    log('只改外观 colors/look 的响应：', JSON.stringify(okResp));
     const storedAfterOk = await readStored(page);
-    log('flex 不变改背景后服务端存储：', JSON.stringify(storedAfterOk));
-    check('F) flex 不变（仅改背景）⇒ 被接受（无新拒绝提示 + 服务端已写入背景）',
-      !okResp.newToast && storedAfterOk && storedAfterOk.background === '改了背景',
+    log('只改外观后服务端存储：', JSON.stringify(storedAfterOk));
+    check('F) 只改外观（colors/look）⇒ 被接受（无新拒绝提示 + 服务端已写入）',
+      !okResp.newToast && storedAfterOk && storedAfterOk.colors && storedAfterOk.colors.skin === '#123456',
       JSON.stringify(okResp) + ' | stored=' + JSON.stringify(storedAfterOk));
 
     // ===== H) 已创建角色：种族身份锁定（用户裁定补充）=====
@@ -223,21 +247,84 @@ async function main() {
     const selAfter = await page.evaluate(() => [...document.querySelectorAll('.opt-grid')[0].querySelectorAll('.opt-card.sel .oc-name')].map(n => n.textContent.trim()));
     check('H) 已创建角色：点击其他种族卡片不改变选中', JSON.stringify(selBefore) === JSON.stringify(selAfter), JSON.stringify(selBefore) + ' → ' + JSON.stringify(selAfter));
 
-    // 直发协议消息：改 raceId（flex 不变）⇒ 服务端拒绝（贴原始响应）
-    const raceResp = await sendSheet(page, { name: '锁甲', raceId: 'halfelf', classId: 'fighter', stats: baseStats, flex: { STR: 1, CON: 1 }, level: 1, xp: 0 });
+    // 直发协议消息：改 raceId（其余不变）⇒ 服务端拒绝（贴原始响应）
+    const raceResp = await sendSheet(page, { ...base, raceId: base.raceId === 'human' ? 'halfelf' : 'human' });
     log('直接改 raceId 的服务端响应：', JSON.stringify(raceResp));
-    check('H) 直接发协议消息改 raceId（flex 不变）⇒ 服务端拒绝', raceResp.newToast && /已创建|种族/.test(raceResp.toast), JSON.stringify(raceResp));
+    check('H) 直接发协议消息改 raceId（其余不变）⇒ 服务端拒绝', raceResp.newToast && /已创建|种族/.test(raceResp.toast), JSON.stringify(raceResp));
 
-    // 换种族被拒后：种族/flex/base 均不受影响（未引入新 bug）
+    // 换种族被拒后：race/flex/base 均不受影响（未引入新 bug）
     const storedAfterRace = await readStored(page);
     log('改 raceId 被拒后服务端存储：', JSON.stringify(storedAfterRace));
-    check('H) 改 raceId 被拒后：种族仍为 human，flex/base 不受影响',
-      storedAfterRace && storedAfterRace.race === 'human'
-        && JSON.stringify(storedAfterRace.flex) === JSON.stringify({ STR: 1, CON: 1 })
-        && JSON.stringify(storedAfterRace.base) === JSON.stringify(baseStats),
+    check('H) 改 raceId 被拒后：种族仍为原值，flex/base 不受影响',
+      storedAfterRace && storedAfterRace.race === base.raceId
+        && JSON.stringify(storedAfterRace.flex) === JSON.stringify(base.flex)
+        && JSON.stringify(storedAfterRace.base) === JSON.stringify(base.stats),
       JSON.stringify(storedAfterRace));
 
-    check('A–H) 无脚本错误', errors.length === 0, errors.slice(0, 2).join(' | '));
+    // ===== I) 已创建角色：除「外观」外全锁（用户 2026-09-20 依审计裁定）=====
+    // 基线取自服务端已存 sheet（base）；逐个字段直发协议消息，验证被点名拒绝。
+    const fieldCases = [
+      { label: '职业 classId', patch: { classId: base.classId === 'wizard' ? 'fighter' : 'wizard' }, expect: /职业/ },
+      { label: '等级 level', patch: { level: base.level >= 4 ? 1 : base.level + 1 }, expect: /等级/ },
+      { label: '经验 xp', patch: { xp: (base.xp || 0) + 99999 }, expect: /经验/ },
+      { label: '属性 stats', patch: { stats: { ...base.stats, STR: base.stats.STR - 1, DEX: base.stats.DEX + 1 } }, expect: /属性/ },
+      { label: '名字 name', patch: { name: base.name === '换个名' ? '锁甲' : '换个名' }, expect: /名字/ },
+      { label: '背景 background', patch: { background: base.background === '新背景' ? '旧背景' : '新背景' }, expect: /背景/ },
+      { label: '种族 raceId', patch: { raceId: base.raceId === 'human' ? 'halfelf' : 'human' }, expect: /种族/ },
+      { label: '自由加点 flex', patch: { flex: differentFlex(base.flex) }, expect: /种族加点/ },
+    ];
+    for (const fc of fieldCases) {
+      const beforeStored = await readStored(page);
+      const r = await sendSheet(page, { ...base, ...fc.patch });
+      const afterStored = await readStored(page);
+      log('I) 改「' + fc.label + '」⇒ resp=' + JSON.stringify(r)
+        + ' | storedBefore=' + JSON.stringify(beforeStored)
+        + ' | storedAfter=' + JSON.stringify(afterStored));
+      check('I) 已创建角色：改「' + fc.label + '」⇒ 服务端拒绝（点名该字段）',
+        r.newToast && fc.expect.test(r.toast), JSON.stringify(r) + ' | storedAfter=' + JSON.stringify(afterStored));
+      // 复位基线：把服务端存储改回 base（修复版：无差异 ⇒ 被接受且无副作用；
+      // 修复前：可把被误改的字段重置，避免逐字段证据互相污染/串味）。
+      await sendSheet(page, base);
+    }
+    // 外观 colors / look ⇒ 应被接受（不在锁内）
+    // 注意：toast 检测易受「上一条拒绝 toast 尚未消失」干扰 ⇒ 以**服务端存储是否真的写入**为准。
+    const beforeLook = await readStored(page);
+    const lookResp = await sendSheet(page, { ...base, colors: { ...base.colors, skin: '#654321' }, look: { ...base.look, hair: 3 } });
+    log('I) 改外观 colors/look ⇒', JSON.stringify(lookResp));
+    await sleep(400);
+    const afterLook = await readStored(page);
+    log('I) 改外观前后 colors.skin：', (beforeLook && beforeLook.colors && beforeLook.colors.skin) + ' → ' + (afterLook && afterLook.colors && afterLook.colors.skin));
+    check('I) 已创建角色：改外观 colors/look ⇒ 被接受（服务端已写入 skin=#654321）',
+      !!afterLook && !!afterLook.colors && afterLook.colors.skin === '#654321',
+      'toast=' + JSON.stringify(lookResp) + ' | stored=' + JSON.stringify(afterLook));
+
+    // 前端控件：除外观外全部只读/禁用
+    const ui = await page.evaluate(() => {
+      const grids = document.querySelectorAll('.opt-grid');
+      const raceCards = [...grids[0].querySelectorAll('.opt-card')];
+      const classCards = [...grids[1].querySelectorAll('.opt-card')];
+      const nameEl = document.querySelector('input[placeholder="为你的角色起个名字"]');
+      const bgEl = document.querySelector('textarea');
+      const statBtns = [...document.querySelectorAll('.stat-row .btn.small')];
+      const flexSel = [...document.querySelectorAll('.stat-row select')];
+      return {
+        raceLocked: raceCards.length > 0 && raceCards.every(c => c.classList.contains('locked')),
+        classLocked: classCards.length > 0 && classCards.every(c => c.classList.contains('locked')),
+        nameReadOnly: !!(nameEl && nameEl.readOnly),
+        bgReadOnly: !!(bgEl && bgEl.readOnly),
+        statBtnsDisabled: statBtns.length > 0 && statBtns.every(b => b.disabled),
+        flexDisabled: flexSel.length > 0 && flexSel.every(s => s.disabled),
+      };
+    });
+    log('I) 前端控件状态：', JSON.stringify(ui));
+    check('I) 前端：种族卡片锁', ui.raceLocked, JSON.stringify(ui));
+    check('I) 前端：职业卡片锁', ui.classLocked, JSON.stringify(ui));
+    check('I) 前端：名字只读', ui.nameReadOnly, JSON.stringify(ui));
+    check('I) 前端：背景只读', ui.bgReadOnly, JSON.stringify(ui));
+    check('I) 前端：属性 ± 按钮禁用', ui.statBtnsDisabled, JSON.stringify(ui));
+    check('I) 前端：自由加点下拉禁用', ui.flexDisabled, JSON.stringify(ui));
+
+    check('A–I) 无脚本错误', errors.length === 0, errors.slice(0, 2).join(' | '));
     await page.screenshot({ path: SHOTS + '/r1-28-flex-lock.png' });
     await page.close();
   }
@@ -258,12 +345,15 @@ async function main() {
 
     const pre = await readChargen(page);
     check('G-pre) 载入前（新角色）：无锁定提示', !pre.notes.some(t => /已创建/.test(t)), JSON.stringify(pre.notes));
-    // 新角色：种族卡片未被锁定（别把好的也锁了）
-    const preRaceLocked = await page.evaluate(() => {
-      const grid = document.querySelectorAll('.opt-grid')[0];
-      return [...grid.querySelectorAll('.opt-card')].some(c => c.classList.contains('locked'));
+    // 新角色：种族/职业卡片、名字、背景均未被锁（别把好的也锁了）
+    const preLock = await page.evaluate(() => {
+      const anyCardLocked = [...document.querySelectorAll('.opt-card')].some(c => c.classList.contains('locked'));
+      const nameEl = document.querySelector('input[placeholder="为你的角色起个名字"]');
+      const bgEl = document.querySelector('textarea');
+      return { anyCardLocked, nameReadOnly: !!(nameEl && nameEl.readOnly), bgReadOnly: !!(bgEl && bgEl.readOnly) };
     });
-    check('G-pre) 载入前（新角色）：种族卡片**未**锁定（新角色仍可自由换种族）', preRaceLocked === false, 'anyLocked=' + preRaceLocked);
+    check('G-pre) 载入前（新角色）：种族/职业卡片**未**锁定（新角色仍可自由换）', preLock.anyCardLocked === false, JSON.stringify(preLock));
+    check('G-pre) 载入前（新角色）：名字/背景**未**只读', preLock.nameReadOnly === false && preLock.bgReadOnly === false, JSON.stringify(preLock));
 
     // 载入名册角色（首个 .cg-section select 即名册下拉）
     await page.selectOption('.cg-section select', { index: 1 });
@@ -274,8 +364,30 @@ async function main() {
     check('G) 载入已创建角色：出现「已创建…已锁定」提示', g.notes.some(t => /已创建/.test(t)), JSON.stringify(g.notes));
     check('G) 载入已创建角色：剩余点数非负', g.remaining !== null && g.remaining >= 0, 'remaining=' + g.remaining);
 
-    // 服务端拒绝：直接发协议消息改 flex
-    const resp = await sendSheet(page, { name: '旧角色', raceId: 'halfelf', classId: 'rogue', stats: { STR: 10, DEX: 15, CON: 14, INT: 10, WIS: 10, CHA: 8 }, flex: { STR: 1, CON: 1 }, level: 1, xp: 0 });
+    // 前端：载入名册角色后，除外观外全部只读/禁用
+    const gUi = await page.evaluate(() => {
+      const grids = document.querySelectorAll('.opt-grid');
+      const raceCards = [...grids[0].querySelectorAll('.opt-card')];
+      const classCards = [...grids[1].querySelectorAll('.opt-card')];
+      const nameEl = document.querySelector('input[placeholder="为你的角色起个名字"]');
+      const bgEl = document.querySelector('textarea');
+      const statBtns = [...document.querySelectorAll('.stat-row .btn.small')];
+      return {
+        raceLocked: raceCards.length > 0 && raceCards.every(c => c.classList.contains('locked')),
+        classLocked: classCards.length > 0 && classCards.every(c => c.classList.contains('locked')),
+        nameReadOnly: !!(nameEl && nameEl.readOnly),
+        bgReadOnly: !!(bgEl && bgEl.readOnly),
+        statBtnsDisabled: statBtns.length > 0 && statBtns.every(b => b.disabled),
+      };
+    });
+    log('G) 载入名册角色后前端控件：', JSON.stringify(gUi));
+    check('G) 载入已创建角色：种族/职业卡片锁 + 名字/背景只读 + 属性按钮禁用',
+      gUi.raceLocked && gUi.classLocked && gUi.nameReadOnly && gUi.bgReadOnly && gUi.statBtnsDisabled, JSON.stringify(gUi));
+
+    // 服务端拒绝：直接发协议消息改 flex（基线取自服务端已存 sheet，避免硬编码漂移）
+    const gBase = await currentPayload(page);
+    log('G) 载入角色基线 payload：', JSON.stringify(gBase));
+    const resp = await sendSheet(page, { ...gBase, flex: differentFlex(gBase.flex) });
     log('载入后直接改 flex 的服务端响应：', JSON.stringify(resp));
     check('G) 载入已创建角色后直接改 flex ⇒ 服务端拒绝', resp.newToast && /已创建|种族加点/.test(resp.toast), JSON.stringify(resp));
 

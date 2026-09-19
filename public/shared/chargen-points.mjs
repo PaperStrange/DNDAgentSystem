@@ -81,4 +81,11 @@ export function flexEqual(a, b) {
   return ATTR_KEYS.every(k => (na[k] || 0) === (nb[k] || 0));
 }
 
+// R1-28 补充：两份「基础属性」是否等价（逐属性比较）。
+// 服务端用它判断「已创建角色」的基础值是否被改动（改了就拒绝）。
+export function statsEqual(a, b) {
+  const na = a || {}, nb = b || {};
+  return ATTR_KEYS.every(k => (Number(na[k]) || 0) === (Number(nb[k]) || 0));
+}
+
 export { MIN_STAT, MAX_STAT, POINT_POOL };
