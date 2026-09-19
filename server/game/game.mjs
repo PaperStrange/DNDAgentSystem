@@ -51,6 +51,9 @@ export class Game {
     this.xpPool = 0;
     this.clues = []; // 队伍共享线索（任意玩家获得，全队可见）
     this.seatOrder = [...sheets.keys()];
+    // R1-20：玩家级「手动/自动」状态（原实现只有房间级 room.mode）。
+    // 默认按房间模式初始化；游戏内「🤖 自动」按钮经 game:autoplay 消息实时改写。
+    this.manual = new Map([...sheets.keys()].map(pid => [pid, room.mode === 'manual']));
     const soloStartPotion = sheets.size === 1 ? 3 : 1; // B-11：单人开局多带治疗药水，避免1分钟内团灭
     for (const [pid, sheet] of sheets) {
       this.players.set(pid, {
@@ -266,6 +269,7 @@ export class Game {
     if (this.camp?.active && this.camp.ownerPid === pid) { this.camp.active = false; this.camp.ownerPid = null; this.setTeamState('adventuring'); } // F-30：营地休整者离场
     this.players.delete(pid);
     this.seatOrder = this.seatOrder.filter(x => x !== pid);
+    this.manual?.delete(pid); // R1-20：清理玩家级手动状态
     this.dialogues.delete(pid);
     this.eventTrees.delete(pid); // F-24：离场玩家事件树移除
     if (this.pendingBoss) this.pendingBoss.votes.delete(pid); // F-30：离场者不再参与表决

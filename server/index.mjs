@@ -216,7 +216,7 @@ wss.on('connection', (ws, req) => {
           if (msg.rename && name) old.name = name;
           ws.__pid = pid;
           send(pid, { t: 's:hello', pid, name: old.name, roomCode: old.roomCode, token: old.token, account: old.account || null });
-          if (old.roomCode) { const r = rooms.rooms.get(old.roomCode); if (r) broadcastRoom(r); }
+          if (old.roomCode) { const r = rooms.rooms.get(old.roomCode); if (r) { r.game?.notifyPresence?.(old.pid); broadcastRoom(r); } } // R1-20：重连后按最新在线状态重算看门狗
           else send(pid, { t: 's:state', view: rooms.snapshotFor(old) });
           return;
         }
@@ -246,6 +246,7 @@ wss.on('connection', (ws, req) => {
     // 断线保留10分钟，房间游戏照常；房间大厅中离线1分钟后移除
     const room = rooms.roomOf(p);
     if (room) {
+      room.game?.notifyPresence?.(pid); // R1-20：断线后重算当前回合看门狗（手动玩家离线→2500ms 防死锁）
       if (room.phase === 'prepare' || room.phase === 'ended') {
         setTimeout(() => {
           const pp = players.get(pid);

@@ -32,27 +32,64 @@ export function installTurn(game) {
     this._startPlayerTurn(pid);
   }
 
+  // R1-20：玩家级「手动/自动」状态。原实现只有房间级 room.mode，无法区分「自行切到手动的玩家」，
+  // 导致 auto 房间里的手动玩家仍被看门狗按自动规则跳过。默认按房间模式初始化，游戏内「🤖 自动」按钮实时改写。
+  game.isManualPlayer = function (pid) {
+    if (this.manual && this.manual.has(pid)) return !!this.manual.get(pid);
+    return this.room.mode === 'manual';
+  }
+
+  // R1-20：玩家级自动/手动开关（客户端「🤖 自动」按钮上报，on=true 表示自动）。
+  // 切换时若正处该玩家回合，立即按新状态重算看门狗（手动在线→不跳过；自动在线→8000ms）。
+  game.setAutoplay = function (pid, on) {
+    if (!this.players.has(pid)) return { ok: false, msg: '玩家不存在' };
+    this.manual.set(pid, !on);
+    if (this.turn && this.turn.kind === 'player' && this.turn.playerId === pid) this._armTurnWatchdog(pid);
+    this.onChange(); // 让快照反映最新手动状态（供 UI 显示）
+    return { ok: true, manual: !on };
+  }
+
+  // R1-20：按「该玩家」的手动/自动 + 在线状态装配回合看门狗：
+  //   手动 + 在线 → 0（一直等待，满足用户「前一个未结束回合时下一个必须一直等待」）
+  //   自动 + 在线 → 8000（不变）
+  //   离线        → 2500（不变，断线防死锁的唯一保障）
+  // F-30：营地期间不设看门狗（保留）
+  game._armTurnWatchdog = function (pid) {
+    if (this.turnTimer) { clearTimeout(this.turnTimer); this.turnTimer = null; }
+    if (!this.turn || this.turn.kind !== 'player' || this.turn.playerId !== pid) return;
+    const isManual = this.isManualPlayer(pid);
+    const online = this.isPlayerOnline(pid);
+    const timeoutMs = isManual ? (online ? 0 : 2500) : (online ? 8000 : 2500);
+    if (timeoutMs > 0 && !this.camp?.active) {
+      this.turnTimer = this.later(timeoutMs, () => {
+        if (this.state === 'playing' && this.turn && this.turn.kind === 'player' && this.turn.playerId === pid) {
+          const p = this.players.get(pid);
+          const e = p ? this.entities.get(p.eid) : null;
+          this.logMsg('system', '⏳ ' + (e ? e.name : '玩家') + ' 未行动，回合自动跳过');
+          this._endTurn();
+        }
+      });
+    }
+  }
+
+  // R1-20：在线状态变化（断线/重连）时重算当前回合的看门狗。
+  //   关键：手动玩家在线时看门狗为 0（不跳过）；若其断线，必须改回 2500ms 跳过，否则回合永久卡死。
+  game.notifyPresence = function (pid) {
+    if (!this.turn || this.turn.kind !== 'player' || this.turn.playerId !== pid) return;
+    this._armTurnWatchdog(pid);
+  }
+
   game._startPlayerTurn = function (pid) {
     const p = this.players.get(pid);
     if (!p || p.dead) return this._endTurn();
     const e = this.entities.get(p.eid);
     if (!e || e.dead) return this._endTurn();
     this.turn = { actorEid: e.eid, playerId: pid, kind: 'player', moveLeft: e.speed, actionUsed: false, bonusUsed: false, round: this.combat.active ? this.combat.round : 0 };
-    // 回合看门狗：自动模式在线8秒/离线2.5秒防挂机（自动模式由策略驱动，8秒足以容错拥堵）；
-    // F-27：手动模式玩家回合不自动结束——只有点击「结束回合」按钮才进入下一顺位（离线掉线保留2.5秒跳过防死锁）；
+    // R1-20：回合看门狗改按「该玩家」的手动/自动状态装配（room.mode → 玩家级，见 _armTurnWatchdog）：
+    //   手动+在线→不跳过（一直等待，满足用户「前一个未结束回合时下一个必须一直等待」）；
+    //   自动+在线→8000ms；离线→2500ms（断线防死锁，保留）。
     // F-30：营地休整者的回合不设看门狗（等待其选择恢复/购买/回到冒险）
-    if (this.turnTimer) clearTimeout(this.turnTimer);
-    const isManual = this.room.mode === 'manual';
-    const online = this.isPlayerOnline(pid);
-    const timeoutMs = isManual ? (online ? 0 : 2500) : (online ? 8000 : 2500);
-    if (timeoutMs > 0 && !this.camp?.active) {
-      this.turnTimer = this.later(timeoutMs, () => {
-        if (this.state === 'playing' && this.turn && this.turn.kind === 'player' && this.turn.playerId === pid) {
-          this.logMsg('system', '⏳ ' + e.name + ' 未行动，回合自动跳过');
-          this._endTurn();
-        }
-      });
-    }
+    this._armTurnWatchdog(pid);
     if (e.webSkip) { // 被蛛网缠住：跳过本回合（F-23：debuff状态机清除）
       e.webSkip = false;
       this.removeDebuff(pid, 'web');

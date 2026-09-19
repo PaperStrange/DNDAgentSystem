@@ -47,6 +47,7 @@ export function installSnapshot(game) {
       me = {
         pid, name: p.name, sheet: p.sheet, gold: p.gold, level: p.level, xp: p.xp, xpNeed: XP_NEED[p.level] || 0, items: p.items, keys: p.keys, slots: p.slots,
         charges: p.charges, eid: p.eid, downed: p.downed, dead: p.dead, claimCooldown: p.claimCooldown,
+        manual: this.isManualPlayer(pid), // R1-20：玩家级手动状态（供 UI 显示与重连后模式恢复）
         states: this.playerStateSummary(p), // F-23：玩家状态机摘要
         goal: myGoal, stats: p.stats, attacks: this.playerAttacks(p), bonusAttacks: this.bonusAttacks(p),
       };
