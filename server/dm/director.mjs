@@ -85,7 +85,8 @@ export class Director {
       if (p) { p.goals = [g]; game.logMsg('goal', '📜 ' + p.name + ' 收到了命运的密语……', { private: pid }); }
     }
     game.narrate('goalAssign', {});
-    game.beginPlay();
+    // R1-27：不在此处开局。冒险真正开始（首个回合/怪物游荡）由房间在「全员确认门」通过后
+    // 调用 game.beginPlay() 触发（见 server/game/rooms.mjs 的 _beginPlay / confirmStart）。
   }
 
   async _assignGoals(game) {

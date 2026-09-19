@@ -247,7 +247,9 @@ wss.on('connection', (ws, req) => {
     const room = rooms.roomOf(p);
     if (room) {
       room.game?.notifyPresence?.(pid); // R1-20：断线后重算当前回合看门狗（手动玩家离线→2500ms 防死锁）
-      if (room.phase === 'prepare' || room.phase === 'ended') {
+      // R1-27：确认门（confirm）与 prepare 同类——离线者无法确认，>60s 自动移出以放行确认门；
+      // 60s 内重连（R1-23）保留席位与确认状态。playing 阶段**不**适用（保留断线重连）。
+      if (room.phase === 'prepare' || room.phase === 'ended' || room.phase === 'confirm') {
         setTimeout(() => {
           const pp = players.get(pid);
           if (pp && !pp.online && pp.roomCode === room.code && (room.phase === 'prepare' || room.phase === 'ended')) {

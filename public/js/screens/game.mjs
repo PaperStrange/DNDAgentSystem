@@ -8,7 +8,7 @@ let SCALE = 4;
 
 export function mountGame(root, view) {
   const net = store.net;
-  const g = { view, pending: null, floaters: [], anim: new Map(), introSeen: false, autoplay: false, modeInited: false, policy: createPolicy(), sfx: true, lastSnapSeq: 0, speed: 1, logFilter: 'all', cardSent: false, panelTab: 'log', unitFilter: null, rosterMarked: false, eventTreeOpen: null };
+  const g = { view, pending: null, floaters: [], anim: new Map(), introSeen: false, confirmSent: false, autoplay: false, modeInited: false, policy: createPolicy(), sfx: true, lastSnapSeq: 0, speed: 1, logFilter: 'all', cardSent: false, panelTab: 'log', unitFilter: null, rosterMarked: false, eventTreeOpen: null };
   let raf = null, canvas, ctx, wrap, autoTicker = null;
 
   // ---------- DOM ----------
@@ -951,6 +951,8 @@ export function mountGame(root, view) {
     const gv = view.game;
     // R-4/R1-23: 按房主设定的模式初始化自动战斗（只执行一次）；R1-20：优先采用玩家级 me.manual
     initModeOnce(view);
+    // R1-27：全员确认门通过（phase→playing）且本机已确认 ⇒ 自动关闭开场覆盖层（隐藏目标仍在侧栏常驻可查）。
+    if (view.phase === 'playing' && !g.introSeen && (g.confirmSent || view.members?.find(m => m.isMe)?.confirmed)) g.introSeen = true;
     // 伤害数字与闪烁
     if (gv && prev?.game) {
       for (const e of gv.entities) {
@@ -1119,7 +1121,9 @@ export function mountGame(root, view) {
       document.body.appendChild(ov);
     }
     // 开场覆盖
-    if (gv.state === 'intro' || (gv.state === 'playing' && !g.introSeen && gv.me?.goal)) {
+    // R1-27：新增「全员确认门」（view.phase === 'confirm'）——门期间按钮变为可用的「确认开始」，
+    // 并指名显示"还差谁未确认"；全员确认后（phase→playing）本机自动关闭覆盖层。门期间 game.state 仍为 'intro'。
+    if (view.phase === 'confirm' || gv.state === 'intro' || (gv.state === 'playing' && !g.introSeen && gv.me?.goal)) {
       const ov = el('div', 'overlay-screen');
       const card = el('div', 'overlay-card');
       card.appendChild(el('h2', '', '⚔️ ' + view.room.dungeonName));
@@ -1131,13 +1135,30 @@ export function mountGame(root, view) {
       } else {
         card.appendChild(el('div', 'ov-goal', '📜 命运正在为你写下隐藏目标……'));
       }
-      const btn = el('button', 'btn gold big', gv.state === 'intro' ? '聆听命运的低语…' : '🎲 开始冒险！');
-      if (gv.state === 'playing') {
-        btn.onclick = () => { g.introSeen = true; ov.remove(); };
+      if (view.phase === 'confirm') {
+        // R1-27：全员确认门。服务端持有确认状态（room.confirmed）；此处仅渲染与发消息。
+        const members = view.members || [];
+        const iConfirmed = g.confirmSent || !!members.find(m => m.isMe)?.confirmed;
+        const pending = members.filter(m => !m.confirmed);
+        if (iConfirmed) {
+          card.appendChild(el('div', 'ov-goal', '✅ 你已确认隐藏目标，等待其他队友确认…' + (pending.length ? '还差：' + pending.map(m => m.name).join('、') : '即将开始…')));
+        } else {
+          const btn = el('button', 'btn gold big', '✅ 我已读完隐藏目标，确认开始');
+          btn.onclick = () => { g.confirmSent = true; net.send('room:confirm'); };
+          card.appendChild(btn);
+          card.appendChild(el('div', 'muted mt8', pending.length > 1
+            ? '全员确认后冒险才开始。还差 ' + pending.length + ' 位未确认：' + pending.map(m => m.name + (m.isMe ? '（你）' : '')).join('、')
+            : '全员确认后冒险才开始。'));
+        }
       } else {
-        btn.disabled = true;
+        const btn = el('button', 'btn gold big', gv.state === 'intro' ? '聆听命运的低语…' : '🎲 开始冒险！');
+        if (gv.state === 'playing') {
+          btn.onclick = () => { g.introSeen = true; ov.remove(); };
+        } else {
+          btn.disabled = true;
+        }
+        card.appendChild(btn);
       }
-      card.appendChild(btn);
       ov.appendChild(card);
       document.body.appendChild(ov);
     }
