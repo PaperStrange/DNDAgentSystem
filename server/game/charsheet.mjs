@@ -1,6 +1,7 @@
 // 简化快速车卡：8种族 × 5职业，线性购点，自动派生属性（种族/职业数据共享自 public/shared/char-defs.mjs）
 import { attrMod, ATTRS, SKILLS } from '../rules/rulesdb.mjs';
 import { RACES, CLASSES, MAX_STAT, MIN_STAT, POINT_POOL } from '../../public/shared/char-defs.mjs';
+import { usedPoints } from '../../public/shared/chargen-points.mjs';
 export { RACES, CLASSES, MAX_STAT, MIN_STAT, POINT_POOL };
 
 export const MAX_LEVEL = 4;
@@ -19,8 +20,8 @@ function assertValidSheetInput({ name, raceId, classId, stats, flex, level }) {
   for (const k of STAT_KEYS) {
     const v = stats[k];
     if (!Number.isInteger(v) || v < MIN_STAT || v > MAX_STAT) throw new Error('属性 ' + k + ' 非法（需为 ' + MIN_STAT + '~' + MAX_STAT + ' 的整数）');
-    spent += v - MIN_STAT;
   }
+  spent = usedPoints(stats); // R1-22：与客户端/测试共用同一公式，保证「文案=算法」
   if (spent > POINT_POOL) throw new Error('属性购点超出上限（' + spent + '>' + POINT_POOL + '）');
   const race = RACES.find(r => r.id === raceId);
   const flexKeys = Object.keys(flex || {});
@@ -52,6 +53,9 @@ export function buildSheet({ name, raceId, classId, stats, flex = {}, colors = {
   return {
     name: name || '无名冒险者', icon: cls.icon, race: race.id, raceName: race.name, class: cls.id, className: cls.name,
     level: lv, xp: Number(xp) || 0,
+    // R1-22：随 sheet 一并下发「基础值 + 自由加点」的原始分配。
+    // 注意：stats(=final) 已含种族加成与自由加点，只能用于战斗/派生；界面算购点必须用 base。
+    base: { ...stats }, flex: { ...(flex || {}) },
     background: background || '平凡的旅人', colors: { skin: '#e8b88a', hair: '#4a2a18', outfit: '#304878', eye: '#2860a0', accent: '#c8a030', ...colors },
     look: { hair: 0, beard: 0, brow: 0, mouth: 0, marking: 0, ...look },
     stats: final, mods, hp, maxHp: hp, ac, prof, mainAttr: main,
