@@ -1150,6 +1150,28 @@ export function mountGame(root, view) {
             ? '全员确认后冒险才开始。还差 ' + pending.length + ' 位未确认：' + pending.map(m => m.name + (m.isMe ? '（你）' : '')).join('、')
             : '全员确认后冒险才开始。'));
         }
+        // R1-27（team-lead 裁定补充）：门内踢人入口 —— 仅房主可见。
+        // 缘由：门期间客户端停在游戏页（view:'game'），房主够不到房间页的「踢」按钮，
+        // 若不在此处给入口，「主出口=房主踢人」在门期间不可达（只能干等超时）。
+        // 复用既有 room:kick 协议（服务端 kickRoom 已处理 phase==='confirm'）。
+        const isHost = view.room?.hostId === store.pid;
+        const kickable = pending.filter(m => !m.isMe); // 房主不能踢自己
+        if (isHost && kickable.length) {
+          const kickRow = el('div', 'row mt8');
+          kickRow.style.flexWrap = 'wrap';
+          kickRow.style.justifyContent = 'center';
+          kickRow.style.alignItems = 'center';
+          kickRow.style.gap = '6px';
+          kickRow.appendChild(el('div', 'muted', '房主可踢出未确认者：'));
+          for (const m of kickable) {
+            const kb = el('button', 'btn', '🚪 踢出 ' + m.name);
+            kb.style.fontSize = '12px';
+            kb.style.padding = '3px 10px';
+            kb.onclick = () => net.send('room:kick', { targetPid: m.pid });
+            kickRow.appendChild(kb);
+          }
+          card.appendChild(kickRow);
+        }
       } else {
         const btn = el('button', 'btn gold big', gv.state === 'intro' ? '聆听命运的低语…' : '🎲 开始冒险！');
         if (gv.state === 'playing') {
