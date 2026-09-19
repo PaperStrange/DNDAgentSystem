@@ -114,11 +114,11 @@ async function sendSheet(page, sheet) {
   const toast = await page.evaluate(() => (window.__toasts || []).slice(-1)[0] || '');
   return { toast, newToast: after > before };
 }
-// 读取服务端已保存 sheet 的关键字段（用于证明「被接受后确实写入」）
+// 读取服务端已保存 sheet 的关键字段（用于证明「被接受后确实写入」/「被拒后未被改动」）
 function readStored(page) {
   return page.evaluate(() => {
     const s = window.__S.view && window.__S.view.mySheet;
-    return s ? { flex: s.flex, base: s.base, background: s.background } : null;
+    return s ? { flex: s.flex, base: s.base, background: s.background, race: s.race } : null;
   });
 }
 
@@ -201,7 +201,43 @@ async function main() {
       !okResp.newToast && storedAfterOk && storedAfterOk.background === '改了背景',
       JSON.stringify(okResp) + ' | stored=' + JSON.stringify(storedAfterOk));
 
-    check('A–F) 无脚本错误', errors.length === 0, errors.slice(0, 2).join(' | '));
+    // ===== H) 已创建角色：种族身份锁定（用户裁定补充）=====
+    // 种族卡片状态（第一组 .opt-grid 即种族网格）
+    const raceCards = await page.evaluate(() => {
+      const grid = document.querySelectorAll('.opt-grid')[0];
+      return [...grid.querySelectorAll('.opt-card')].map(c => ({
+        name: (c.querySelector('.oc-name')?.textContent || '').trim(),
+        locked: c.classList.contains('locked'),
+        pe: getComputedStyle(c).pointerEvents,
+      }));
+    });
+    log('已创建角色·种族卡片：', JSON.stringify(raceCards.map(c => ({ n: c.name, locked: c.locked, pe: c.pe }))));
+    check('H) 已创建角色：所有种族卡片被锁定（locked 类 + pointer-events:none）',
+      raceCards.length > 0 && raceCards.every(c => c.locked && c.pe === 'none'),
+      JSON.stringify(raceCards.slice(0, 2)));
+
+    // 真实点击另一个种族卡片 ⇒ 选中不变（pointer-events:none 生效）
+    const selBefore = await page.evaluate(() => [...document.querySelectorAll('.opt-grid')[0].querySelectorAll('.opt-card.sel .oc-name')].map(n => n.textContent.trim()));
+    await page.locator('.opt-grid').nth(0).locator('.opt-card').nth(1).click({ force: true }).catch(() => {});
+    await sleep(300);
+    const selAfter = await page.evaluate(() => [...document.querySelectorAll('.opt-grid')[0].querySelectorAll('.opt-card.sel .oc-name')].map(n => n.textContent.trim()));
+    check('H) 已创建角色：点击其他种族卡片不改变选中', JSON.stringify(selBefore) === JSON.stringify(selAfter), JSON.stringify(selBefore) + ' → ' + JSON.stringify(selAfter));
+
+    // 直发协议消息：改 raceId（flex 不变）⇒ 服务端拒绝（贴原始响应）
+    const raceResp = await sendSheet(page, { name: '锁甲', raceId: 'halfelf', classId: 'fighter', stats: baseStats, flex: { STR: 1, CON: 1 }, level: 1, xp: 0 });
+    log('直接改 raceId 的服务端响应：', JSON.stringify(raceResp));
+    check('H) 直接发协议消息改 raceId（flex 不变）⇒ 服务端拒绝', raceResp.newToast && /已创建|种族/.test(raceResp.toast), JSON.stringify(raceResp));
+
+    // 换种族被拒后：种族/flex/base 均不受影响（未引入新 bug）
+    const storedAfterRace = await readStored(page);
+    log('改 raceId 被拒后服务端存储：', JSON.stringify(storedAfterRace));
+    check('H) 改 raceId 被拒后：种族仍为 human，flex/base 不受影响',
+      storedAfterRace && storedAfterRace.race === 'human'
+        && JSON.stringify(storedAfterRace.flex) === JSON.stringify({ STR: 1, CON: 1 })
+        && JSON.stringify(storedAfterRace.base) === JSON.stringify(baseStats),
+      JSON.stringify(storedAfterRace));
+
+    check('A–H) 无脚本错误', errors.length === 0, errors.slice(0, 2).join(' | '));
     await page.screenshot({ path: SHOTS + '/r1-28-flex-lock.png' });
     await page.close();
   }
@@ -222,6 +258,12 @@ async function main() {
 
     const pre = await readChargen(page);
     check('G-pre) 载入前（新角色）：无锁定提示', !pre.notes.some(t => /已创建/.test(t)), JSON.stringify(pre.notes));
+    // 新角色：种族卡片未被锁定（别把好的也锁了）
+    const preRaceLocked = await page.evaluate(() => {
+      const grid = document.querySelectorAll('.opt-grid')[0];
+      return [...grid.querySelectorAll('.opt-card')].some(c => c.classList.contains('locked'));
+    });
+    check('G-pre) 载入前（新角色）：种族卡片**未**锁定（新角色仍可自由换种族）', preRaceLocked === false, 'anyLocked=' + preRaceLocked);
 
     // 载入名册角色（首个 .cg-section select 即名册下拉）
     await page.selectOption('.cg-section select', { index: 1 });

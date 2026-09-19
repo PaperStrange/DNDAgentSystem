@@ -408,7 +408,11 @@ export function mountChargen(root, view, net) {
     const card = el('div', 'opt-card');
     card.appendChild(el('div', 'oc-name', r.icon + ' ' + r.name));
     card.appendChild(el('div', 'oc-sub', r.features.map(f => f.name).join(' / ')));
-    card.onclick = () => { selRace = r.id; selClass = selClass || 'fighter'; stats = null; sync(); };
+    card.onclick = () => {
+      // R1-28 补充（用户裁定）：已创建角色 ⇒ 种族身份锁定（前端只读；服务端亦拒绝）
+      if (created) { toast('该角色已创建，不能更换种族。如需更换请在首次保存前设置。'); return; }
+      selRace = r.id; selClass = selClass || 'fighter'; stats = null; sync();
+    };
     raceGrid.appendChild(card);
   }
   secRace.appendChild(raceGrid);
@@ -538,7 +542,16 @@ export function mountChargen(root, view, net) {
   }
 
   function flexBonusOf(a) { return flexList.filter(x => x === a).length; }
+  // R1-28 补充（用户裁定）：已创建角色 ⇒ 种族身份不可改——种族卡片不可点（与 flex 锁定同风格）。
+  // 真正的强制在服务端（rooms.mjs setSheet 拒绝改 race）；此处只做前端只读与视觉提示。
+  function applyRaceLock() {
+    raceGrid.querySelectorAll('.opt-card').forEach(c => {
+      c.classList.toggle('locked', created);
+      c.title = created ? '该角色已创建，不能更换种族' : '';
+    });
+  }
   function renderStatRows() {
+    applyRaceLock();
     const rem = remaining();
     poolInfo.textContent = '剩余点数：' + rem + ' / ' + POINT_POOL + '（基础值下限' + MIN_STAT + '、上限' + MAX_STAT + '；种族加成与自由加点不计入购点）';
     // 反例 1：绝不用「把负数截断成 0」掩盖问题——若载入的数据确实超购，如实报出并提示处置。

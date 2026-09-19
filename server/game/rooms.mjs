@@ -110,6 +110,12 @@ export class Rooms {
     // 不接受客户端标志位（前端标志位可被直接发协议消息绕过）。
     // 新角色（尚未提交）首次提交即「创建」，此后除升级加点外的种族加点一律拒绝改动。
     const prev = room.sheets.get(player.pid);
+    // R1-28 补充（用户裁定）：**已创建角色也不能更换「种族身份」**。
+    // 原因：保持 flex 不变、只把种族从「人类」改成「半精灵」即可白拿半精灵的固定加成（{CHA:2}），
+    // 是一条**等效绕过路径** ⇒ 只锁 flex 不够，raceId 同样不可变。
+    if (prev && prev.race !== sheet.race) {
+      return { err: '该角色已创建，不能更换种族。如需更换请在首次保存前设置。' };
+    }
     if (prev && !flexEqual(prev.flex, sheet.flex)) {
       return { err: '该角色已创建，不能修改种族加点（自由加点）。如需更换请在首次保存前设置。' };
     }

@@ -99,6 +99,42 @@ test('已创建角色：改基础值但 flex 不变 ⇒ 允许（本卡只管种
 });
 
 // ---------------------------------------------------------------------------
+// 3b. R1-28 补充（用户裁定）：已创建角色 ⇒ **种族身份**也不可改
+//     原因：保持 flex 不变、只换种族即可白拿目标种族的固定加成（等效绕过路径）
+// ---------------------------------------------------------------------------
+test('已创建角色：改 raceId（flex 不变）⇒ 服务端拒绝', async () => {
+  const { rooms, player } = mkRoom();
+  await rooms.dispatch(player, { t: 'room:charsheet', sheet: payload({ flex: { STR: 1, CON: 1 } }) });
+  // 人类 → 半精灵：flex 保持不变，仅换种族 ⇒ 曾可白拿半精灵 {CHA:2}
+  const r = await rooms.dispatch(player, { t: 'room:charsheet', sheet: payload({ raceId: 'halfelf', flex: { STR: 1, CON: 1 } }) });
+  assert.ok(r.err, '改种族必须被拒绝');
+  assert.match(r.err, /已创建|种族/, '错误信息应说明「已创建角色不能更换种族」');
+  assert.equal(rooms.rooms.get('TEST').sheets.get('p1').race, 'human', '已保存的种族应原样保留');
+});
+
+test('已创建角色：同时改 raceId 与 flex ⇒ 拒绝（种族优先报错）', async () => {
+  const { rooms, player } = mkRoom();
+  await rooms.dispatch(player, { t: 'room:charsheet', sheet: payload({ flex: { STR: 1, CON: 1 } }) });
+  const r = await rooms.dispatch(player, { t: 'room:charsheet', sheet: payload({ raceId: 'halfelf', flex: { DEX: 1, CHA: 1 } }) });
+  assert.ok(r.err);
+  assert.match(r.err, /种族/);
+});
+
+test('新角色：可自由选择任意种族（种族身份锁只对已创建角色生效）', async () => {
+  const { rooms, player } = mkRoom();
+  const r1 = await rooms.dispatch(player, { t: 'room:charsheet', sheet: payload({ raceId: 'elf', flex: {} }) });
+  assert.ok(!r1.err, '新角色选精灵应被接受：' + (r1.err || ''));
+  assert.equal(rooms.rooms.get('TEST').sheets.get('p1').race, 'elf');
+});
+
+test('已创建角色：种族未变（raceId 相同）⇒ 不因种族锁被误拒', async () => {
+  const { rooms, player } = mkRoom();
+  await rooms.dispatch(player, { t: 'room:charsheet', sheet: payload({ flex: { STR: 1, CON: 1 } }) });
+  const r = await rooms.dispatch(player, { t: 'room:charsheet', sheet: payload({ raceId: 'human', flex: { STR: 1, CON: 1 }, background: '仅改背景' }) });
+  assert.ok(!r.err, '种族未变应放行：' + (r.err || ''));
+});
+
+// ---------------------------------------------------------------------------
 // 4. 既有行为未被破坏
 // ---------------------------------------------------------------------------
 test('非准备阶段仍拒绝改卡（原有守卫保留）', async () => {
