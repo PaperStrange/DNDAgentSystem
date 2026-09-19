@@ -901,21 +901,31 @@ export function mountGame(root, view) {
   }
 
   // ---------- 快照更新 ----------
+  // R1-23：把"模式初始化"从 update() 中抽出，使其也能在挂载时立即执行一次。
+  // 原实现只在 update() 内初始化（modeInited 只跑一次），而 mountGame 不会调用 update()，
+  // 游戏内快照又是事件驱动（空闲时不下发）⇒ 断线重连直接进冒险后要等到"下一个服务端事件"
+  // 才恢复 autoplay，导致重连后头几秒必然不动。挂载即初始化可消除这段必然延迟。
+  // 注意：只恢复"离开前的设置"（mode 由快照下发），绝不强制置为自动（卡片反例 1）。
+  function initModeOnce(view) {
+    const gv = view?.game;
+    if (g.modeInited || !gv) return;
+    g.modeInited = true;
+    const mode = gv.mode || view.room?.mode || 'auto';
+    g.autoplay = mode !== 'manual';
+    autoBtn.classList.toggle('gold', g.autoplay);
+    modeBadge.textContent = mode === 'manual' ? '🎮 手动操作' : '🤖 自动战斗';
+    modeBadge.className = 'badge' + (mode === 'manual' ? '' : ' gold');
+    if (gv.speed) { g.speed = gv.speed; speedSel.value = String(gv.speed); }
+    if (gv.paused) { g.paused = true; pauseBtn.textContent = '▶ 继续'; pauseBtn.classList.add('gold'); }
+    restartTicker(); // R1-23：速度设置一并生效到节拍器（原来 update 只改 g.speed、不刷新节拍器）
+  }
+
   function update(view) {
     const prev = g.view;
     g.view = view;
     const gv = view.game;
-    // R-4: 按房主设定的模式初始化自动战斗（用独立标志只执行一次；旧firstGame判断恒为false导致模式从未初始化）
-    if (!g.modeInited && gv) {
-      g.modeInited = true;
-      const mode = gv.mode || view.room?.mode || 'auto';
-      g.autoplay = mode !== 'manual';
-      autoBtn.classList.toggle('gold', g.autoplay);
-      modeBadge.textContent = mode === 'manual' ? '🎮 手动操作' : '🤖 自动战斗';
-      modeBadge.className = 'badge' + (mode === 'manual' ? '' : ' gold');
-      if (gv.speed) { g.speed = gv.speed; speedSel.value = String(gv.speed); }
-      if (gv.paused) { g.paused = true; pauseBtn.textContent = '▶ 继续'; pauseBtn.classList.add('gold'); }
-    }
+    // R-4/R1-23: 按房主设定的模式初始化自动战斗（只执行一次）
+    initModeOnce(view);
     // 伤害数字与闪烁
     if (gv && prev?.game) {
       for (const e of gv.entities) {
@@ -1339,6 +1349,9 @@ export function mountGame(root, view) {
 
   renderSide();
   renderOverlays(view);
+  // R1-23：挂载即按初始快照初始化模式（不再等"下一个服务端事件"）——
+  // 覆盖"断线重连直接进冒险"的路径，使自动/手动标识与驱动在首帧即正确。
+  initModeOnce(view);
   return {
     update,
     onLogExport: (m) => {

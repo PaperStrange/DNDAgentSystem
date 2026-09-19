@@ -94,7 +94,12 @@ window.__DND = { native: isNativeShell(), server: net.server };
 net.onState = (view) => {
   S.view = view;
   S.snapshot = view;
-  if (view.me) S.pid = view.me.pid;
+  // R1-23：身份以传输层为准（net.pid 由服务端 s:hello 下发，见 net.mjs）。
+  // 原实现只在 view.me 存在时赋值；而「冒险中」的视图没有顶层 me（"我是谁"嵌在 view.game.me），
+  // 于是断线重连直接进入冒险时会跳过房间页 → store.pid 丢失 → 自动战斗与手动操作全部失效。
+  // net.pid 与视图形态无关，统一覆盖 lobby/room/game/ended，故作为权威来源（view.me 仅作兜底）。
+  if (net.pid) S.pid = net.pid;
+  else if (view.me) S.pid = view.me.pid;
   route(view);
 };
 net.onError = (msg) => toast(msg, true);
