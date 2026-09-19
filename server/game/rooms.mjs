@@ -99,7 +99,11 @@ export class Rooms {
   setSheet(player, rawSheet) {
     const room = this.roomOf(player);
     if (!room || room.phase !== 'prepare') return { err: '游戏已开始，不能修改车卡' };
-    const sheet = buildSheet(rawSheet);
+    // R1-22：非法车卡必须「被拒绝**且有反馈**」。buildSheet 对非法输入会抛出，
+    // 原先抛出后没有任何回执（客户端只看到卡住）⇒ 这里改为把原因作为 err 回传。
+    let sheet;
+    try { sheet = buildSheet(rawSheet); }
+    catch (e) { return { err: (e && e.message) ? e.message : '车卡数据非法，请检查属性与种族职业' }; }
     room.sheets.set(player.pid, sheet);
     room.ready.delete(player.pid);
     room.lastTouched = Date.now();
