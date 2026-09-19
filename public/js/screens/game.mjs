@@ -1166,11 +1166,15 @@ export function mountGame(root, view) {
       card.appendChild(table);
       const btnRow = el('div', 'row mt16');
       btnRow.style.justifyContent = 'center';
-      const backBtn = el('button', 'btn gold', '🏠 返回房间');
+      // R1-21：结束后的去向由每位玩家各自决定，互不联动（别人回房/离开不再改变你的界面）
+      const stayBtn = el('button', 'btn', '🖼 留在结算界面');
+      stayBtn.title = '留在这里查看你的冒险卡片；其他玩家的操作不会影响你';
+      stayBtn.onclick = () => { net.send('room:stay'); toast('已选择留在结算界面，看完后随时可点「回到房间」'); };
+      const backBtn = el('button', 'btn gold', '🏠 回到房间');
       backBtn.onclick = () => net.send('room:return');
-      const leave2 = el('button', 'btn', '离开');
+      const leave2 = el('button', 'btn danger', '离开房间');
       leave2.onclick = () => net.send('room:leave');
-      btnRow.append(backBtn, leave2);
+      btnRow.append(stayBtn, backBtn, leave2);
       // R-23: 房主可下载本次冒险完整日志（含私密条目）用于报错自查
       if (store.pid === view.room.hostId) {
         const dlBtn = el('button', 'btn small', '📥 下载完整日志');
