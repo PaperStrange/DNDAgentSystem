@@ -45,6 +45,9 @@ export class Rooms {
       members: [host.pid], sheets: new Map(), ready: new Set(),
       game: null, director: null, createdAt: Date.now(),
       lastTouched: Date.now(),
+      // R1-21：冒险结束后的去向按「玩家」维度记录（pid -> 'stay' | 'return'），
+      // 与 room.phase 的房间级状态机解耦——某人的选择不再联动他人。
+      afterEnd: new Map(),
     };
     this.rooms.set(code, room);
     return { room };
@@ -65,6 +68,7 @@ export class Rooms {
     const wasHost = room.hostId === player.pid;
     room.members = room.members.filter(p => p !== player.pid);
     room.ready.delete(player.pid);
+    room.afterEnd?.delete(player.pid); // R1-21：离开即从结算去向中移除
     if (room.game && (room.phase === 'playing' || room.phase === 'intro' || room.phase === 'ended')) room.game.removePlayer(player.pid, false);
     player.roomCode = null;
     if (room.members.length === 0) { this._close(room); return { left: true }; }
@@ -73,7 +77,9 @@ export class Rooms {
       const p = this._playerName(room.hostId);
       room.hostName = p;
     }
-    if (room.phase === 'prepare') this._checkAutoStart(room);
+    // R1-21：若结算阶段因有人离开而凑齐「全员已回房」，则重置房间（不产生永久卡住的房间）
+    if (room.phase === 'ended' && this._allReturned(room)) this._resetToPrepare(room);
+    else if (room.phase === 'prepare') this._checkAutoStart(room);
     return { left: true, room };
   }
   kickRoom(host, targetPid) {
@@ -83,9 +89,11 @@ export class Rooms {
     if (targetPid === host.pid) return { err: '不能踢自己' };
     room.members = room.members.filter(p => p !== targetPid);
     room.ready.delete(targetPid);
+    room.afterEnd?.delete(targetPid); // R1-21：被踢者从结算去向中移除
     if (room.game && room.phase === 'playing') room.game.removePlayer(targetPid, true);
     if (room.members.length === 0) { this._close(room); return { kicked: true, victimPid: targetPid }; }
-    if (room.phase === 'prepare') this._checkAutoStart(room);
+    if (room.phase === 'ended' && this._allReturned(room)) this._resetToPrepare(room);
+    else if (room.phase === 'prepare') this._checkAutoStart(room);
     return { kicked: true, room, victimPid: targetPid };
   }
   setSheet(player, rawSheet) {
@@ -124,7 +132,14 @@ export class Rooms {
     room.game = new Game({ room: { code: room.code, dungeonId: room.dungeonId, hostId: room.hostId, mode: room.mode }, sheets, personaId: room.personaId, director: room.director, onChange: () => this._broadcastRoom(room), isPlayerOnline: (pid) => this._isOnline ? this._isOnline(pid) : true });
     const g = room.game;
     const origEnd = g._endGame.bind(g);
-    g._endGame = (kind, reason) => { origEnd(kind, reason); room.phase = 'ended'; this.touch(room); this._writeLogFile(room); }; // R-23: 冒险结束时在房主本地落盘完整日志
+    g._endGame = (kind, reason) => {
+      origEnd(kind, reason);
+      room.phase = 'ended';
+      room.ready.clear();      // R1-21：本局就绪标记作废，下一局重新准备
+      room.afterEnd.clear();   // R1-21：结算去向清零，每位玩家重新决定
+      this.touch(room);
+      this._writeLogFile(room);
+    }; // R-23: 冒险结束时在房主本地落盘完整日志
     // F-22/F-34：AI DM难度调校在后台并行执行，绝不阻塞开局——
     // 离线公式在prepareTuning内同步兜底立即生效，LLM精调与NPC对话变体就绪后热应用
     g.prepareTuning().catch(e => console.error('[room] 难度调校失败，使用离线公式', e?.message));
@@ -141,14 +156,35 @@ export class Rooms {
       this._broadcastRoom(room);
     });
   }
+  // R1-21：冒险结束后的去向按「玩家」维度处理——某人点「回到房间」只改变他自己的视图，
+  // 不再把 room.phase 直接翻成 prepare 而联动所有人（原缺陷）。
   returnToRoom(player) {
     const room = this.roomOf(player);
     if (!room || room.phase !== 'ended') return { err: '冒险结束前不能返回房间' };
+    room.afterEnd.set(player.pid, 'return');
+    this.touch(room);
+    // 全员都选择「回到房间」⇒ 房间整体重置，进入下一局准备阶段（game/director 释放）
+    if (this._allReturned(room)) this._resetToPrepare(room);
+    return { room };
+  }
+  // R1-21：显式「留在结算界面」（默认即留在结算界面；此消息用于记录玩家的明确选择）
+  stayAfterEnd(player) {
+    const room = this.roomOf(player);
+    if (!room || room.phase !== 'ended') return { err: '当前不在结算阶段' };
+    room.afterEnd.set(player.pid, 'stay');
+    this.touch(room);
+    return { room, stayed: true };
+  }
+  _allReturned(room) {
+    return room.members.length > 0 && room.members.every(pid => room.afterEnd.get(pid) === 'return');
+  }
+  // R1-21：全员已回到房间后，才真正重置房间（释放本局 game/director，清空去向标记）
+  _resetToPrepare(room) {
     room.phase = 'prepare';
     room.game = null; room.director = null;
     room.ready.clear();
+    room.afterEnd.clear();
     this.touch(room);
-    return { room };
   }
   roomOf(player) {
     return this.rooms.get(player.roomCode) || null;
@@ -202,11 +238,14 @@ export class Rooms {
       const room = this.roomOf(player);
       if (!room) return { err: '不在房间中' };
       if (room.phase !== 'prepare') return { err: '当前无法开始游戏' };
-      if (room.members.some(p => !room.ready.has(p))) return { err: '还有玩家未准备' };
+      // R1-21：开局判定仍严格为「全员就绪」（条件未改）；仅把提示改为指名「还差谁未就绪」
+      const notReady = room.members.filter(p => !room.ready.has(p)).map(p => this._registryName?.(p) || p);
+      if (notReady.length) return { err: '还有玩家未准备：' + notReady.join('、') };
       this.startGame(room);
       return { room };
     }
     if (msg.t === 'room:return') return this.returnToRoom(player);
+    if (msg.t === 'room:stay') return this.stayAfterEnd(player);
     if (msg.t === 'room:bg-random') return this.randomBackground(player, msg);
     return { err: '未知消息' };
   }
@@ -320,8 +359,21 @@ export class Rooms {
       };
     }
     if (room.phase === 'ended') {
+      const myAfterEnd = room.afterEnd.get(player.pid) || null;
+      // R1-21：该玩家已选择「回到房间」——只对他本人呈现房间准备视图（等待其他玩家），不联动他人
+      if (myAfterEnd === 'return') {
+        return {
+          view: 'room', phase: 'prepare', waiting: true,
+          waitingFor: room.members.filter(pid => room.afterEnd.get(pid) !== 'return').map(pid => this._registryName?.(pid) || pid),
+          room: { code: room.code, hostId: room.hostId, dungeonId: room.dungeonId, dungeonName: room.dungeonName, personaId: room.personaId, personaName: room.personaName, mode: room.mode, max: MAX_PLAYERS },
+          dungeon: DUNGEONS.find(d => d.id === room.dungeonId),
+          persona: personaSummary(personaById(room.personaId)),
+          members, me: { pid: player.pid, name: player.name },
+          mySheet: room.sheets.get(player.pid) || null,
+        };
+      }
       const view = room.game ? room.game.snapshotFor(player.pid) : null;
-      return { view: 'game', phase: 'ended', room: { code: room.code, hostId: room.hostId, personaName: room.personaName, dungeonName: room.dungeonName }, members, game: view, win: room.game?.win || null };
+      return { view: 'game', phase: 'ended', room: { code: room.code, hostId: room.hostId, personaName: room.personaName, dungeonName: room.dungeonName }, members, game: view, win: room.game?.win || null, myAfterEnd };
     }
     // intro / playing
     const view = room.game ? room.game.snapshotFor(player.pid) : null;
