@@ -110,6 +110,7 @@ async function waitFor(page, fn, timeoutMs, stepMs = 400) {
 // ---------- 主流程 ----------
 async function main() {
   await sleep(1500);
+  const tag = String(Date.now() % 100000);
   browser = await chromium.launch();
   const ctxA = await browser.newContext({ viewport: { width: 1440, height: 900 } });
   const ctxB = await browser.newContext({ viewport: { width: 1440, height: 900 } });
@@ -121,7 +122,7 @@ async function main() {
 
   // ---- 建房：A 创建（自动房间），B 加入 ----
   await pageA.goto('http://localhost:' + PORT + '/');
-  await register(pageA, '甲玩家');
+  await register(pageA, '甲' + tag);
   await pageA.click('.persona-grid .persona-card:nth-child(2)');
   await pageA.click('.create-box .btn.gold');
   await pageA.waitForSelector('.room-code');
@@ -129,7 +130,7 @@ async function main() {
   log('房间码=' + code);
 
   await pageB.goto('http://localhost:' + PORT + '/');
-  await register(pageB, '乙玩家');
+  await register(pageB, '乙' + tag);
   await pageB.fill('input[placeholder="房间码，如 AB3CD"]', code);
   await pageB.click('button:has-text("加入房间")');
   await pageB.waitForSelector('.room-code', { timeout: 15000 });
