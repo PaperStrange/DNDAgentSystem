@@ -138,6 +138,14 @@
       "expertCR": true,
       "evidence": "R1-18 客户端移动前置校验：`public/js/screens/game.mjs` 在 `handleTap` 默认移动分支前新增 `isTileWalkable()`（`BLOCKED_TILE_CHARS = '#TD~'`）——点击不可通行格（`#`/`T`/`D`/`~`）时**不发出 `game:move`** 并弹浮动文字「那里过不去」；判据只读目标格地形字符、**不做路径搜索**，可通行格（`.`/`g`/`^`，含预算不足/被墙隔开者）请求一律照发 ⇒ **无过度拦截**。另新增只读钩子 `__e2e.floaters()`（纯读、返回新对象副本）。`server/**` 零改动（`git show --name-only de329eb | grep -c '^server/'` = 0）；产品改动仅 `game.mjs`（+18/−0），另含新行为 harness `tools/r1-18-move-guard-test.mjs`（+646）与台账（+8）。独立复核（`quality-lead` 严守真，**非作者**；只读 + 独立实跑真实服务器/Chromium 行为 harness，WS 出站帧拦截 + 独立读码枚举，未采信作者证据）：**7 项待验命题全部 PASS、整体 APPROVE**，无 CONCERNS/REJECT；§9 三条非阻断观察（harness `reason` 字段残留 / `BLOCKED_TILE_CHARS` 硬编码的前向漂移建议 / T4-info 量化留痕）。核心命题：字符集**三源逐字符相等、零漂移**——服务端 `blockMove:true` 类型集（`dungeon.mjs:415/417/419/420` = wall/water/door/tree）= 快照序列化（`snapshot.mjs:34-35`）= 客户端守卫 = `autoplay-policy.mjs:49`；且**按构造即正确**（阻挡集全仓仅 4 个写入点）。harness 实跑 **15/15、EXIT=0**（port 3896，seed 20240602，手动战斗模式）。**行为变更已双处留痕**：报告 `docs/pm/reports/R1-18-客户端移动前置校验-20260917.md` §5 + 台账 `Z2=10317e5` 条目 evidence；用户 2026-09-17 裁定「保留当前」。合并经 `--no-ff` 双亲核验（`10317e5` + `896ede0`）；分支 tip `896ede0` 为 **ledger-only**（`1 1 tools/ci-gate/audit-log.json`，回填 `Z2=10317e5`，`entries=16`）。",
       "date": "2026-09-18"
+    },
+    {
+      "merge": "f51a5e4",
+      "subject": "fix(R1-23): merge 断线重连恢复 store.pid + 挂载即初始化战斗模式",
+      "author": "路远行",
+      "expertCR": true,
+      "evidence": "R1-23 断线重连恢复自动战斗/手动操作。根因：`public/js/app.mjs` 的 `net.onState` 原实现只在 `view.me` 存在时赋值 `S.pid`；而「冒险中」视图无顶层 `me`（「我是谁」嵌在 `view.game.me`），断线重连直接进冒险时会跳过房间页 ⇒ `store.pid` 丢失 ⇒ `autoplay-policy.mjs` 的身份守卫（`!me || me.pid !== pid → return null`）恒真 ⇒ 自动驱动空转、手动操作不可用。修法：① `app.mjs` 身份来源改为以**传输层 `net.pid`**（服务端 `s:hello` 下发，先于 `s:state`）为准，`view.me` 仅作兜底（`if (net.pid) S.pid = net.pid; else if (view.me) S.pid = view.me.pid;`）；② `public/js/screens/game.mjs` 把「模式初始化」从 `update()` 抽出为 `initModeOnce(view)`，并在 `mountGame` 挂载末尾（`renderOverlays` 之后）调用一次，使重连进入冒险**首帧即按快照恢复模式**（不再等下一个服务端事件，消除必然延迟；仅恢复离开前设置，**绝不强制置为自动**——卡片反例 1）。硬约束逐条未破：`autoplay-policy.mjs` / `server/**` diff 为空、`turn.mjs:47` 离线 2500ms 分支逐字节未动。独立复核（`quality-lead-2` 严守真，**非作者**；只读 + **自建 harness 独立 A/B 双向验证**，未采信作者证据）：**6/6 待验命题全部 PASS、整体 APPROVE**，无反例复现（2 条非阻断观察）。核心 A/B（同脚本 / 同 seed=20240601 / 同端口 3110）：**还原版 `1f1dc3c`** 重连后 `store.pid=null`、身份守卫恒 `null`、`lastAction` 恒 `null`、角色坐标 8×1s 采样**一动不动**（用户原报现象 100% 复现）；**修复版 `84938cd`** 重连后 `store.pid == net.pid`、`autoplay=true`、角色**持续移动**（`lastAction` 持续派发）。手动模式：还原版重连后 `isMyTurn=false`、**完全不可操作**，修复版仍手动（`autoplay=false`）且**可操作** ⇒ 卡片反例 1（重连一律变自动）不成立。合并经 `--no-ff` 双亲核验（`1f1dc3c` + `84938cd`）；分支 tip `84938cd` 为 **ledger-only**（回填 `Z3=1f1dc3c`，`entries=17`）。独立复核报告：`docs/pm/reviews/R1-23-CR-独立复核-20260919.md`。",
+      "date": "2026-09-19"
     }
   ],
   "_note": "台账必须位于受版本控制的位置；docs/ 被 .gitignore 排除，放那里 CI 读不到。",
