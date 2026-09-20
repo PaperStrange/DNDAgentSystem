@@ -23,6 +23,7 @@ function mkRoom() {
     code: 'TEST', hostId: 'p1', hostName: 'A', phase: 'prepare',
     members: ['p1'], sheets: new Map(), ready: new Set(), afterEnd: new Map(),
     lastTouched: Date.now(),
+    confirmed: new Set(), confirmTimer: null,
   });
   return { rooms, player };
 }

@@ -23,6 +23,14 @@ const accountSessions = new Map(); // account -> token（单点登录：同一�
 const newToken = () => 'tk_' + randomBytes(18).toString('hex'); // 秘密重连令牌（绝不通过快照外发）
 // 安全：config 永不外发；令牌只经 s:hello 发送给持有者本人
 
+// R1-27 F1：房间处于这些阶段时，离线玩家 >60s 自动移出（放行「准备 / 结算 / 确认门」）。
+// ⚠️ 单一真源：ws.on('close') 里「是否装配 60s 计时器」与「到点是否仍应移出」**必须用同一判定**——
+// 两处各写一份清单会出现「外层加了某阶段、内层漏加」⇒ 计时器空转、离线者永不移出（R1-27 F1 缺陷根因）。
+const OFFLINE_REMOVABLE_PHASES = new Set(['prepare', 'ended', 'confirm']);
+// R1-27 F1：离线自动移出阈值。默认 60s；回归用例（tests/r1-27/offline-remove.test.mjs）
+// 可用 DND_OFFLINE_REMOVE_MS 缩短，避免用例真等 60s（逻辑与生产完全一致，仅时长不同）。
+const OFFLINE_REMOVE_MS = Number(process.env.DND_OFFLINE_REMOVE_MS) > 0 ? Number(process.env.DND_OFFLINE_REMOVE_MS) : 60e3;
+
 rooms.bindRegistry(
   (pid) => players.get(pid)?.name || pid,
   (pid) => players.get(pid)?.online ?? true,
@@ -247,14 +255,17 @@ wss.on('connection', (ws, req) => {
     const room = rooms.roomOf(p);
     if (room) {
       room.game?.notifyPresence?.(pid); // R1-20：断线后重算当前回合看门狗（手动玩家离线→2500ms 防死锁）
-      if (room.phase === 'prepare' || room.phase === 'ended') {
+      // R1-27：确认门（confirm）与 prepare 同类——离线者无法确认，>60s 自动移出以放行确认门；
+      // 60s 内重连（R1-23）保留席位与确认状态。playing 阶段**不**适用（保留断线重连）。
+      // 判定用单一真源 OFFLINE_REMOVABLE_PHASES（见文件顶部常量区），外层装配与内层到点条件必须一致。
+      if (OFFLINE_REMOVABLE_PHASES.has(room.phase)) {
         setTimeout(() => {
           const pp = players.get(pid);
-          if (pp && !pp.online && pp.roomCode === room.code && (room.phase === 'prepare' || room.phase === 'ended')) {
+          if (pp && !pp.online && pp.roomCode === room.code && OFFLINE_REMOVABLE_PHASES.has(room.phase)) {
             rooms.leaveRoom(pp);
             broadcastRoom(room);
           }
-        }, 60e3);
+        }, OFFLINE_REMOVE_MS);
       } else {
         broadcastRoom(room);
       }
