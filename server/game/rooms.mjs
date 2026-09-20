@@ -8,9 +8,26 @@ import { Director } from '../dm/director.mjs';
 import { DUNGEONS, MONSTERS } from './dungeon.mjs';
 import { PERSONAS, personaSummary, personaById } from '../dm/personas.mjs';
 import { buildSheet } from './charsheet.mjs';
+import { flexEqual, statsEqual } from '../../public/shared/chargen-points.mjs'; // R1-28：已创建角色不可改种族加点/属性
 import { chat, llmAvailable } from '../llm.mjs';
 
 export const MAX_PLAYERS = 5;
+
+// R1-28：**已创建角色除「外观（colors/look）」外一律不可改**的字段清单（服务端唯一真源）。
+// eq = 字段级等价比较（标量用 ===，对象用等价函数）。范围沿革见 setSheet 注释。
+const LOCKED_FIELDS = [
+  { key: 'race', label: '种族', eq: (a, b) => a === b },
+  { key: 'class', label: '职业', eq: (a, b) => a === b },
+  { key: 'level', label: '等级', eq: (a, b) => a === b },
+  { key: 'xp', label: '经验', eq: (a, b) => a === b },
+  { key: 'name', label: '名字', eq: (a, b) => a === b },
+  { key: 'background', label: '背景', eq: (a, b) => a === b },
+  { key: 'base', label: '属性', eq: statsEqual },
+  { key: 'flex', label: '种族加点（自由加点）', eq: flexEqual },
+];
+
+// R1-27：全员确认门的兜底超时（毫秒）。超时未全员确认 → 退回 prepare（绝不自动开局）。
+export const CONFIRM_TIMEOUT_MS = 180e3;
 
 // R-12：离线背景故事模板（每条≥150字、风格各异，供随机生成）
 export const BG_TEMPLATES = [
@@ -43,6 +60,9 @@ export class Rooms {
       personaId: persona.id, personaName: persona.name, phase: 'prepare',
       mode: mode === 'manual' ? 'manual' : 'auto', // 战斗模式：默认自动战斗
       members: [host.pid], sheets: new Map(), ready: new Set(),
+      // R1-27：全员确认门 —— 记录「已确认隐藏目标」的成员（与 ready 并列，房间级）。
+      // 冒险在全员确认前不真正开始（beginPlay 被推迟，见 startGame/_beginPlay）。
+      confirmed: new Set(), confirmTimer: null,
       game: null, director: null, createdAt: Date.now(),
       lastTouched: Date.now(),
       // R1-21：冒险结束后的去向按「玩家」维度记录（pid -> 'stay' | 'return'），
@@ -68,8 +88,9 @@ export class Rooms {
     const wasHost = room.hostId === player.pid;
     room.members = room.members.filter(p => p !== player.pid);
     room.ready.delete(player.pid);
+    room.confirmed?.delete(player.pid); // R1-27：离开即从确认集合移除
     room.afterEnd?.delete(player.pid); // R1-21：离开即从结算去向中移除
-    if (room.game && (room.phase === 'playing' || room.phase === 'intro' || room.phase === 'ended')) room.game.removePlayer(player.pid, false);
+    if (room.game && (room.phase === 'playing' || room.phase === 'intro' || room.phase === 'confirm' || room.phase === 'ended')) room.game.removePlayer(player.pid, false);
     player.roomCode = null;
     if (room.members.length === 0) { this._close(room); return { left: true }; }
     if (wasHost) {
@@ -80,6 +101,7 @@ export class Rooms {
     // R1-21：若结算阶段因有人离开而凑齐「全员已回房」，则重置房间（不产生永久卡住的房间）
     if (room.phase === 'ended' && this._allReturned(room)) this._resetToPrepare(room);
     else if (room.phase === 'prepare') this._checkAutoStart(room);
+    else if (room.phase === 'confirm') this._checkConfirmComplete(room); // R1-27：离开者移出后重算确认门
     return { left: true, room };
   }
   kickRoom(host, targetPid) {
@@ -89,11 +111,13 @@ export class Rooms {
     if (targetPid === host.pid) return { err: '不能踢自己' };
     room.members = room.members.filter(p => p !== targetPid);
     room.ready.delete(targetPid);
+    room.confirmed?.delete(targetPid); // R1-27：被踢者从确认集合移除
     room.afterEnd?.delete(targetPid); // R1-21：被踢者从结算去向中移除
-    if (room.game && room.phase === 'playing') room.game.removePlayer(targetPid, true);
+    if (room.game && (room.phase === 'playing' || room.phase === 'confirm')) room.game.removePlayer(targetPid, true);
     if (room.members.length === 0) { this._close(room); return { kicked: true, victimPid: targetPid }; }
     if (room.phase === 'ended' && this._allReturned(room)) this._resetToPrepare(room);
     else if (room.phase === 'prepare') this._checkAutoStart(room);
+    else if (room.phase === 'confirm') this._checkConfirmComplete(room); // R1-27：被踢者移出后重算确认门
     return { kicked: true, room, victimPid: targetPid };
   }
   setSheet(player, rawSheet) {
@@ -104,6 +128,23 @@ export class Rooms {
     let sheet;
     try { sheet = buildSheet(rawSheet); }
     catch (e) { return { err: (e && e.message) ? e.message : '车卡数据非法，请检查属性与种族职业' }; }
+    // R1-28：**已创建角色除「外观（colors/look）」外一律不可改**。
+    // 「已创建」的判定取自**服务端真源**——本房间是否已提交过该玩家的车卡（room.sheets），
+    // 不接受客户端标志位（前端标志位可被直接发协议消息绕过）。
+    // 范围沿革：
+    //   ① R1-28 初版：只锁「种族加点 flex」；
+    //   ② 用户裁定补充：追加「种族身份 race」；
+    //   ③ 用户 2026-09-20 依审计报告（docs/pm/reports/已创建角色可改字段审计-20260920.md）
+    //      再裁定「除了外观全锁」⇒ 追加 class/level/xp/base(stats)/name/background。
+    //   colors/look 属**纯外观、不影响数值**，**保持可改**。
+    const prev = room.sheets.get(player.pid);
+    if (prev) {
+      for (const f of LOCKED_FIELDS) {
+        if (!f.eq(prev[f.key], sheet[f.key])) {
+          return { err: '该角色已创建，不能修改「' + f.label + '」。如需调整请在首次保存前设置。' };
+        }
+      }
+    }
     room.sheets.set(player.pid, sheet);
     room.ready.delete(player.pid);
     room.lastTouched = Date.now();
@@ -127,6 +168,7 @@ export class Rooms {
   async startGame(room) {
     if (room.phase !== 'prepare') return;
     room.phase = 'intro';
+    room.confirmed.clear(); // R1-27：新一局确认门从零开始
     room.director = new Director({ personaId: room.personaId, dungeon: DUNGEONS.find(d => d.id === room.dungeonId) });
     const sheets = new Map([...room.members].map(pid => [pid, room.sheets.get(pid)]));
     room.game = new Game({ room: { code: room.code, dungeonId: room.dungeonId, hostId: room.hostId, mode: room.mode }, sheets, personaId: room.personaId, director: room.director, onChange: () => this._broadcastRoom(room), isPlayerOnline: (pid) => this._isOnline ? this._isOnline(pid) : true });
@@ -136,25 +178,76 @@ export class Rooms {
       origEnd(kind, reason);
       room.phase = 'ended';
       room.ready.clear();      // R1-21：本局就绪标记作废，下一局重新准备
+      room.confirmed.clear();  // R1-27：确认门作废，下一局重新确认
       room.afterEnd.clear();   // R1-21：结算去向清零，每位玩家重新决定
+      this._clearConfirmTimer(room);
       this.touch(room);
       this._writeLogFile(room);
     }; // R-23: 冒险结束时在房主本地落盘完整日志
     // F-22/F-34：AI DM难度调校在后台并行执行，绝不阻塞开局——
     // 离线公式在prepareTuning内同步兜底立即生效，LLM精调与NPC对话变体就绪后热应用
     g.prepareTuning().catch(e => console.error('[room] 难度调校失败，使用离线公式', e?.message));
-    // 开场：旁白+隐藏目标（LLM可能耗时，就绪后进入playing；超时收紧由director内控）
+    // 开场：旁白+隐藏目标（LLM可能耗时）。
+    // R1-27：生成完毕后进入「全员确认门」（room.phase='confirm'）——**不再直接 beginPlay**，
+    // 冒险真正开始（首个回合/怪物游荡）推迟到全员确认（见 _beginPlay）。生成失败亦进门。
     room.director.intro(room.game).then(() => {
-      room.phase = 'playing';
-      this.touch(room);
-      this._broadcastRoom(room);
+      this._enterConfirm(room);
     }).catch(e => {
       console.error('[room] 开场失败', e);
-      room.game.beginPlay();
-      room.phase = 'playing';
-      this.touch(room);
-      this._broadcastRoom(room);
+      this._enterConfirm(room);
     });
+  }
+  // R1-27：进入「全员确认门」。game.state 仍为 'intro'（无回合/无游荡），turn=null ⇒ 看门狗无从装配。
+  _enterConfirm(room) {
+    if (room.phase === 'ended') return; // 生成期间若已结束则不覆盖
+    room.phase = 'confirm';
+    this._armConfirmTimer(room);
+    this.touch(room);
+    this._broadcastRoom(room);
+  }
+  // R1-27：确认门兜底出口——超时未全员确认则退回 prepare（**绝不自动开局**），避免房间永久卡在确认态。
+  // 主要出口仍是「房主踢人」（已有）+「成员离开」（已有）+「离线>60s 自动移出」（index.mjs）。
+  _armConfirmTimer(room) {
+    this._clearConfirmTimer(room);
+    room.confirmTimer = setTimeout(() => {
+      if (this.rooms.get(room.code) !== room) return; // 房间已关闭
+      if (room.phase !== 'confirm') return;           // 已离开确认阶段
+      room.phase = 'prepare';
+      room.game = null; room.director = null;
+      room.ready.clear();
+      room.confirmed.clear();
+      room.afterEnd.clear();
+      room.confirmTimer = null;
+      this.touch(room);
+      console.log('[room] 确认门超时，退回准备阶段：', room.code);
+      this._broadcastRoom(room);
+    }, CONFIRM_TIMEOUT_MS);
+  }
+  _clearConfirmTimer(room) {
+    if (room.confirmTimer) { clearTimeout(room.confirmTimer); room.confirmTimer = null; }
+  }
+  // R1-27：成员点击「确认隐藏目标」
+  confirmStart(player) {
+    const room = this.roomOf(player);
+    if (!room || room.phase !== 'confirm') return { err: '当前不在确认阶段' };
+    if (!room.members.includes(player.pid)) return { err: '你不在本房间' };
+    room.confirmed.add(player.pid); // Set ⇒ 重复点击幂等
+    this.touch(room);
+    this._checkConfirmComplete(room);
+    return { room };
+  }
+  _checkConfirmComplete(room) {
+    if (room.phase !== 'confirm') return;
+    if (room.members.length > 0 && room.members.every(pid => room.confirmed.has(pid))) this._beginPlay(room);
+  }
+  // R1-27：全员确认后，冒险才真正开始（首个回合、怪物游荡在此刻才启动）。
+  _beginPlay(room) {
+    if (room.phase !== 'confirm') return;
+    this._clearConfirmTimer(room);
+    room.phase = 'playing';
+    room.game?.beginPlay(); // state='playing' + _startWander + _startFirstTurn
+    this.touch(room);
+    this._broadcastRoom(room);
   }
   // R1-21：冒险结束后的去向按「玩家」维度处理——某人点「回到房间」只改变他自己的视图，
   // 不再把 room.phase 直接翻成 prepare 而联动所有人（原缺陷）。
@@ -183,7 +276,9 @@ export class Rooms {
     room.phase = 'prepare';
     room.game = null; room.director = null;
     room.ready.clear();
+    room.confirmed.clear(); // R1-27：确认门作废，下一局重新确认
     room.afterEnd.clear();
+    this._clearConfirmTimer(room);
     this.touch(room);
   }
   roomOf(player) {
@@ -192,6 +287,7 @@ export class Rooms {
   _playerName(pid) { return this._registryName?.(pid) || '房主'; }
   _close(room) {
     if (room.game) { room.game.closed = true; for (const t of room.game.timers) clearTimeout(t); room.game._stopWander?.(); } // F-31：房间关闭停止游荡计时器
+    this._clearConfirmTimer(room); // R1-27：停止确认门计时器
     this.rooms.delete(room.code);
   }
   touch(room) { room.lastTouched = Date.now(); }
@@ -244,6 +340,8 @@ export class Rooms {
       this.startGame(room);
       return { room };
     }
+    // R1-27：全员确认门 —— 成员确认自己的隐藏目标（幂等）
+    if (msg.t === 'room:confirm') return this.confirmStart(player);
     if (msg.t === 'room:return') return this.returnToRoom(player);
     if (msg.t === 'room:stay') return this.stayAfterEnd(player);
     if (msg.t === 'room:bg-random') return this.randomBackground(player, msg);
@@ -348,6 +446,7 @@ export class Rooms {
       pid, name: this._registryName?.(pid) || pid,
       sheet: room.sheets.get(pid) || null,
       ready: room.ready.has(pid), isHost: room.hostId === pid, online: this._isOnline?.(pid) ?? true,
+      confirmed: room.confirmed?.has(pid) ?? false, // R1-27：确认门进度（供界面指名"还差谁未确认"）
       isMe: pid === player.pid,
     }));
     if (room.phase === 'prepare') {
@@ -376,6 +475,16 @@ export class Rooms {
       }
       const view = room.game ? room.game.snapshotFor(player.pid) : null;
       return { view: 'game', phase: 'ended', room: { code: room.code, hostId: room.hostId, personaName: room.personaName, dungeonName: room.dungeonName }, members, game: view, win: room.game?.win || null, myAfterEnd };
+    }
+    // R1-27：全员确认门（game.state 仍为 'intro'，无回合/无游荡）
+    if (room.phase === 'confirm') {
+      const view = room.game ? room.game.snapshotFor(player.pid) : null;
+      return {
+        view: 'game', phase: 'confirm',
+        room: { code: room.code, hostId: room.hostId, personaName: room.personaName, dungeonName: room.dungeonName },
+        members,
+        game: view,
+      };
     }
     // intro / playing
     const view = room.game ? room.game.snapshotFor(player.pid) : null;

@@ -80,7 +80,12 @@ export function randomSheet(seedName) {
   const race = pick(RACES), cls = pick(CLASSES);
   const stats = {};
   let pool = POINT_POOL;
-  const order = ['DEX', 'CON', cls.main, 'WIS', 'CHA', 'STR'];
+  // R1-30：以 ATTRS（唯一权威清单）旋转派生处理次序 —— 令 cls.main 恰在 index 2（沿用原意图「主属性居中」），
+  // 保证 6 项属性各出现一次。原硬编码 ['DEX','CON',cls.main,'WIS','CHA','STR'] 在 cls.main 命中
+  // 固定项（STR/DEX/WIS…）时会重复该项、漏掉 INT ⇒ stats.INT 经下方 += 后为 NaN ⇒ buildSheet 校验抛异常。
+  const mi = ATTRS.indexOf(cls.main);
+  const shift = (mi - 2 + ATTRS.length) % ATTRS.length;
+  const order = [...ATTRS.slice(shift), ...ATTRS.slice(0, shift)];
   for (const a of order) { const v = Math.min(MAX_STAT, MIN_STAT + Math.floor(pool / order.length) + (a === cls.main ? 2 : 0)); stats[a] = v; pool -= (v - MIN_STAT); }
   let p = pool; for (const a of ATTRS) { if (p <= 0) break; stats[a] += 1; p -= 1; }
   const flex = {};
