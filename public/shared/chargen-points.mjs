@@ -63,4 +63,29 @@ export function flexFromSlots(slots) {
   return out;
 }
 
+// R1-28：归一化自由加点对象 —— 只保留 6 个属性键上的正整数，抹掉 0/缺省/非法值。
+// 用于「已创建角色不可改种族加点」的等价比较，避免键序/0 值造成误判。
+export function normalizeFlex(flex) {
+  const out = {};
+  for (const k of ATTR_KEYS) {
+    const n = Math.max(0, Math.floor(Number(flex && flex[k]) || 0));
+    if (n > 0) out[k] = n;
+  }
+  return out;
+}
+
+// R1-28：两份自由加点分配是否等价（归一化后逐属性比较）。
+// 服务端用它判断「已创建角色」的新车卡是否改动了种族加点（改了就拒绝）。
+export function flexEqual(a, b) {
+  const na = normalizeFlex(a), nb = normalizeFlex(b);
+  return ATTR_KEYS.every(k => (na[k] || 0) === (nb[k] || 0));
+}
+
+// R1-28 补充：两份「基础属性」是否等价（逐属性比较）。
+// 服务端用它判断「已创建角色」的基础值是否被改动（改了就拒绝）。
+export function statsEqual(a, b) {
+  const na = a || {}, nb = b || {};
+  return ATTR_KEYS.every(k => (Number(na[k]) || 0) === (Number(nb[k]) || 0));
+}
+
 export { MIN_STAT, MAX_STAT, POINT_POOL };
