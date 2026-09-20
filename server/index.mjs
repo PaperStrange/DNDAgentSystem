@@ -36,7 +36,8 @@ rooms.bindRegistry(
   (pid) => players.get(pid)?.name || pid,
   (pid) => players.get(pid)?.online ?? true,
   broadcastRoom,
-  uniqueIpCount // F-19：大厅在线人数卡片=同一局域网Unique IP数
+  uniqueIpCount, // F-19：大厅在线人数卡片=同一局域网Unique IP数
+  (pid) => players.get(pid)?.account || null // R1-33 Part 2：账号权威（rooms 据此调用 characters.authorize/settle）
 );
 
 function uniqueIpCount() {

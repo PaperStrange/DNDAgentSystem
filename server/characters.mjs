@@ -15,6 +15,13 @@ const FILE = join(DATA_DIR, 'characters.json');
 // 被锁字段（用户 2026-09-20 裁定「除外观全锁」）。外观 colors/look 不在此列 —— 保持可改。
 export const LOCKED_FIELDS = ['name', 'raceId', 'classId', 'stats', 'flex', 'level', 'xp', 'background'];
 
+// R1-33 Part 2（team-lead 拍板）：level/xp 走「**覆盖**」而非「拒绝」。
+// 理由：level/xp 会随服务端合法成长（settle）而变化，客户端本地名册副本可能滞后；
+// 若按陈旧值拒绝，玩家换设备/重进房间会被自己的旧副本卡死。故一律采用**服务端权威值**。
+// 但必须**可观测**：authorize 返回 overridden（被忽略的客户端字段名）+ 打日志，**绝不静默覆盖**。
+// 其余被锁字段（name/raceId/classId/stats/flex/background）仍严格**拒改**。
+export const OVERRIDE_FIELDS = ['level', 'xp'];
+
 function emptyDb() { return { schema: 1, characters: {}, byAccount: {}, importKeys: {} }; }
 
 function load() {
@@ -61,14 +68,19 @@ function eqObj(a, b) {
   return true;
 }
 
+// 单字段等价比较（stats/flex 用对象等价，其余标量 ===）。
+function fieldEq(f, a, b) {
+  if (f === 'stats' || f === 'flex') return eqObj(a, b);
+  return a === b;
+}
+
 // 逐字段比对权威副本 vs 提交值；返回差异字段名（空数组 = 一致）
 export function lockedDiff(recLocked, incoming) {
   const diff = [];
   for (const f of LOCKED_FIELDS) {
     const a = recLocked ? recLocked[f] : undefined;
     const b = incoming ? incoming[f] : undefined;
-    if (f === 'stats' || f === 'flex') { if (!eqObj(a, b)) diff.push(f); }
-    else if (a !== b) diff.push(f);
+    if (!fieldEq(f, a, b)) diff.push(f);
   }
   return diff;
 }
@@ -96,8 +108,10 @@ function newRecord(account, locked, editable, origin, status) {
 
 // 核心：权威判定。
 //  characterId 为空 ⇒ 新建角色（服务端签发 id；强制 level=1/xp=0）。
-//  characterId 非空 ⇒ 读服务端权威副本，逐字段比对；有差异则拒绝（外观除外）。
-// 返回 { err } 或 { raw, characterId, created }（raw 为归一化后的原始车卡输入）。
+//  characterId 非空 ⇒ 读服务端权威副本，逐字段比对：
+//    · level/xp：**覆盖**（忽略客户端值、采用服务端权威值；返回 overridden + 日志，绝不静默）
+//    · 其余被锁字段：有差异则**拒绝**（外观除外）
+// 返回 { err } 或 { raw, characterId, created, overridden }（raw 为归一化后的原始车卡输入）。
 export function authorize(account, characterId, rawSheet) {
   if (!account) return { err: '请先登录账号' };
   let sheet;
@@ -108,14 +122,21 @@ export function authorize(account, characterId, rawSheet) {
   if (characterId) {
     const rec = db.characters[characterId];
     if (!rec || rec.accountId !== account) return { err: '角色不存在或不属于当前账号' };
-    const diff = lockedDiff(rec.locked, lockedOf(sheet));
+    const incoming = lockedOf(sheet);
+    // level/xp：客户端值可能滞后于服务端成长 ⇒ 覆盖（采用权威值），并记录被忽略的字段
+    const overridden = OVERRIDE_FIELDS.filter(f => !fieldEq(f, rec.locked[f], incoming[f]));
+    // 其余被锁字段：仍严格拒改
+    const diff = lockedDiff(rec.locked, incoming).filter(f => !OVERRIDE_FIELDS.includes(f));
     if (diff.length) return { err: '该角色已创建，不能修改：' + diff.join('、') };
+    if (overridden.length) {
+      console.log('[R1-33] authorize 覆盖客户端 ' + overridden.join('/') + '：采用服务端权威值（char=' + characterId + '）');
+    }
     // 外观可改：仅更新 editable（不参与锁定）
     rec.editable = { colors: sheet.colors, look: sheet.look };
     rec.updatedAt = Date.now();
     rec.version = (rec.version || 1) + 1;
     save(db);
-    return { raw: rawFromLocked(rec.locked, rec.editable), characterId, created: true };
+    return { raw: rawFromLocked(rec.locked, rec.editable), characterId, created: true, overridden };
   }
 
   // 新建：强制 level=1 / xp=0（研究 §A.6「不可直接认证无限等级和经验」）
