@@ -170,6 +170,14 @@
       "expertCR": true,
       "evidence": "R1-20 严格回合制：看门狗按玩家级手动/自动状态判定（手动+在线不装配超时；自动+在线 8000ms；离线 2500ms 断线防死锁保留），行动权唯一。独立复核 APPROVE 6/6（复核人 quality-lead-2，非作者；复核对象 c106081；报告 docs/pm/reviews/R1-20-CR-独立复核-20260919.md）。合并经 --no-ff 双亲核验（8055094 + 7f21e48）；已核合并内容==受审内容：git diff c106081 6c8d674 -- . ':(exclude)tools/ci-gate/audit-log.json' 为空（产品代码逐字节一致，中间仅一笔台账回填提交）。",
       "date": "2026-09-20"
+    },
+    {
+      "merge": "c342e74",
+      "subject": "fix(R1-27): merge 全员确认门（含 F1 断线计时器修复）",
+      "author": "路远行",
+      "expertCR": true,
+      "evidence": "R1-27 全员确认门：进入战斗前新增 room:confirm 阶段，全体成员就绪才 _beginPlay（beginPlay 单入口、伪造确认无效）；含 F1 阻塞项修复（离线>60s 自动移出在 confirm 阶段失效——index.mjs:255 内层复检漏加 confirm，作者抽单一真源修复）。独立对抗性复核（复核人 quality-lead 严守真，非作者，独立重演不采信作者探针；报告 docs/pm/reviews/R1-27-CR-独立复核-20260920.md）：首轮对象 6cbb765 → CONCERNS（8 项 6 PASS、1 项部分 FAIL=⑤F1 阻塞、1 项 PASS 附 F2 残留）；F1 修复提交 4b25416 后【增量复核】→ PASS（报告同文件「增量复核 · F1 修复（至 4b25416）」节，含生产默认值 64s 实测 + G4 结构守卫有牙 + ended 语义不变）。本台账以「修复后增量复核 PASS」为准。合并经 --no-ff 双亲核验（6c8d674 + 05f823a9 → tip c342e74）；分支 tip 05f823a9 为 ledger-only（chore(R1-27): 台账回填 Z7=6c8d674；父链 4b25416(F1 修复) → 6cbb765(门内踢人入口)）；已核合并内容==受审内容：受审对象 4b25416，其与 tip 之间仅一笔台账回填，无额外产品改动。",
+      "date": "2026-09-20"
     }
   ],
   "_note": "台账必须位于受版本控制的位置；docs/ 被 .gitignore 排除，放那里 CI 读不到。",
