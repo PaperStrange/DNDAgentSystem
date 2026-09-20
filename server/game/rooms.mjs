@@ -8,9 +8,23 @@ import { Director } from '../dm/director.mjs';
 import { DUNGEONS, MONSTERS } from './dungeon.mjs';
 import { PERSONAS, personaSummary, personaById } from '../dm/personas.mjs';
 import { buildSheet } from './charsheet.mjs';
+import { flexEqual, statsEqual } from '../../public/shared/chargen-points.mjs'; // R1-28：已创建角色不可改种族加点/属性
 import { chat, llmAvailable } from '../llm.mjs';
 
 export const MAX_PLAYERS = 5;
+
+// R1-28：**已创建角色除「外观（colors/look）」外一律不可改**的字段清单（服务端唯一真源）。
+// eq = 字段级等价比较（标量用 ===，对象用等价函数）。范围沿革见 setSheet 注释。
+const LOCKED_FIELDS = [
+  { key: 'race', label: '种族', eq: (a, b) => a === b },
+  { key: 'class', label: '职业', eq: (a, b) => a === b },
+  { key: 'level', label: '等级', eq: (a, b) => a === b },
+  { key: 'xp', label: '经验', eq: (a, b) => a === b },
+  { key: 'name', label: '名字', eq: (a, b) => a === b },
+  { key: 'background', label: '背景', eq: (a, b) => a === b },
+  { key: 'base', label: '属性', eq: statsEqual },
+  { key: 'flex', label: '种族加点（自由加点）', eq: flexEqual },
+];
 
 // R1-27：全员确认门的兜底超时（毫秒）。超时未全员确认 → 退回 prepare（绝不自动开局）。
 export const CONFIRM_TIMEOUT_MS = 180e3;
@@ -114,6 +128,23 @@ export class Rooms {
     let sheet;
     try { sheet = buildSheet(rawSheet); }
     catch (e) { return { err: (e && e.message) ? e.message : '车卡数据非法，请检查属性与种族职业' }; }
+    // R1-28：**已创建角色除「外观（colors/look）」外一律不可改**。
+    // 「已创建」的判定取自**服务端真源**——本房间是否已提交过该玩家的车卡（room.sheets），
+    // 不接受客户端标志位（前端标志位可被直接发协议消息绕过）。
+    // 范围沿革：
+    //   ① R1-28 初版：只锁「种族加点 flex」；
+    //   ② 用户裁定补充：追加「种族身份 race」；
+    //   ③ 用户 2026-09-20 依审计报告（docs/pm/reports/已创建角色可改字段审计-20260920.md）
+    //      再裁定「除了外观全锁」⇒ 追加 class/level/xp/base(stats)/name/background。
+    //   colors/look 属**纯外观、不影响数值**，**保持可改**。
+    const prev = room.sheets.get(player.pid);
+    if (prev) {
+      for (const f of LOCKED_FIELDS) {
+        if (!f.eq(prev[f.key], sheet[f.key])) {
+          return { err: '该角色已创建，不能修改「' + f.label + '」。如需调整请在首次保存前设置。' };
+        }
+      }
+    }
     room.sheets.set(player.pid, sheet);
     room.ready.delete(player.pid);
     room.lastTouched = Date.now();
