@@ -35,7 +35,8 @@ rooms.bindRegistry(
   (pid) => players.get(pid)?.name || pid,
   (pid) => players.get(pid)?.online ?? true,
   broadcastRoom,
-  uniqueIpCount // F-19：大厅在线人数卡片=同一局域网Unique IP数
+  uniqueIpCount, // F-19：大厅在线人数卡片=同一局域网Unique IP数
+  (pid) => players.get(pid) || null // R1-31：按 pid 取 player（kickRoom 清 roomCode 用）
 );
 
 function uniqueIpCount() {
@@ -108,7 +109,8 @@ function handleMsg(player, raw) {
     if (res.kicked) {
       const victim = players.get(res.victimPid || player.pid);
       if (victim) {
-        victim.roomCode = null;
+        // R1-31：被踢者的 roomCode 清理已下沉到 Rooms._removeMember（单一真源），此处不再自行兜底。
+        // 若移除路径漏清，Rooms.snapshotFor 的成员资格护栏亦会回落大厅视图（纵深防御）。
         send(victim.pid, { t: 's:kicked' });
         send(victim.pid, { t: 's:state', view: rooms.snapshotFor(victim) });
       }

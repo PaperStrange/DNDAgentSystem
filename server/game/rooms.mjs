@@ -82,16 +82,27 @@ export class Rooms {
     room.lastTouched = Date.now();
     return { room };
   }
+  // R1-31：成员移除的**单一真源**——「离开」与「被踢」共用，消除「两处清理逻辑各写一遍」的根因。
+  // 旧缺陷（本卡）：kickRoom 漏清被踢者 roomCode（靠 index.mjs 兜底）；且其 removePlayer 阶段集
+  // 仅 playing|confirm，导致 ended 阶段被踢者残留于 game.players（与 members 不一致）。
+  // 语义逐条保留：
+  //   · R1-27：从 confirmed 确认集合移除；
+  //   · R1-21：从 afterEnd 结算去向移除；
+  //   · 局内移除 game.players——**阶段集统一为 4 阶段**（playing|intro|confirm|ended）；
+  //   · 清 player.roomCode——统一在本函数内完成（不再依赖任何调用方）。
+  _removeMember(room, pid, { byKick = false, player = null } = {}) {
+    room.members = room.members.filter(p => p !== pid);
+    room.ready.delete(pid);
+    room.confirmed?.delete(pid); // R1-27：从确认集合移除
+    room.afterEnd?.delete(pid);  // R1-21：从结算去向移除
+    if (room.game && (room.phase === 'playing' || room.phase === 'intro' || room.phase === 'confirm' || room.phase === 'ended')) room.game.removePlayer(pid, byKick);
+    if (player) player.roomCode = null; // R1-31：清除被移除者的房间归属（服务端权威）
+  }
   leaveRoom(player) {
     const room = this.roomOf(player);
     if (!room) { player.roomCode = null; return { left: true }; }
     const wasHost = room.hostId === player.pid;
-    room.members = room.members.filter(p => p !== player.pid);
-    room.ready.delete(player.pid);
-    room.confirmed?.delete(player.pid); // R1-27：离开即从确认集合移除
-    room.afterEnd?.delete(player.pid); // R1-21：离开即从结算去向中移除
-    if (room.game && (room.phase === 'playing' || room.phase === 'intro' || room.phase === 'confirm' || room.phase === 'ended')) room.game.removePlayer(player.pid, false);
-    player.roomCode = null;
+    this._removeMember(room, player.pid, { byKick: false, player });
     if (room.members.length === 0) { this._close(room); return { left: true }; }
     if (wasHost) {
       room.hostId = room.members[0];
@@ -109,11 +120,9 @@ export class Rooms {
     if (!room || room.hostId !== host.pid) return { err: '只有房主可以踢人' };
     if (!room.members.includes(targetPid)) return { err: '该玩家已不在房间中' };
     if (targetPid === host.pid) return { err: '不能踢自己' };
-    room.members = room.members.filter(p => p !== targetPid);
-    room.ready.delete(targetPid);
-    room.confirmed?.delete(targetPid); // R1-27：被踢者从确认集合移除
-    room.afterEnd?.delete(targetPid); // R1-21：被踢者从结算去向中移除
-    if (room.game && (room.phase === 'playing' || room.phase === 'confirm')) room.game.removePlayer(targetPid, true);
+    // R1-31：被踢者仅以 pid 传入 ⇒ 经注册表取回其 player 对象，供 _removeMember 清 roomCode
+    const victim = this._registryGetPlayer?.(targetPid) || null;
+    this._removeMember(room, targetPid, { byKick: true, player: victim });
     if (room.members.length === 0) { this._close(room); return { kicked: true, victimPid: targetPid }; }
     if (room.phase === 'ended' && this._allReturned(room)) this._resetToPrepare(room);
     else if (room.phase === 'prepare') this._checkAutoStart(room);
@@ -168,7 +177,7 @@ export class Rooms {
   async startGame(room) {
     if (room.phase !== 'prepare') return;
     room.phase = 'intro';
-    room.confirmed.clear(); // R1-27：新一局确认门从零开始
+    room.confirmed?.clear(); // R1-27：新一局确认门从零开始
     room.director = new Director({ personaId: room.personaId, dungeon: DUNGEONS.find(d => d.id === room.dungeonId) });
     const sheets = new Map([...room.members].map(pid => [pid, room.sheets.get(pid)]));
     room.game = new Game({ room: { code: room.code, dungeonId: room.dungeonId, hostId: room.hostId, mode: room.mode }, sheets, personaId: room.personaId, director: room.director, onChange: () => this._broadcastRoom(room), isPlayerOnline: (pid) => this._isOnline ? this._isOnline(pid) : true });
@@ -178,7 +187,7 @@ export class Rooms {
       origEnd(kind, reason);
       room.phase = 'ended';
       room.ready.clear();      // R1-21：本局就绪标记作废，下一局重新准备
-      room.confirmed.clear();  // R1-27：确认门作废，下一局重新确认
+      room.confirmed?.clear();  // R1-27：确认门作废，下一局重新确认
       room.afterEnd.clear();   // R1-21：结算去向清零，每位玩家重新决定
       this._clearConfirmTimer(room);
       this.touch(room);
@@ -215,7 +224,7 @@ export class Rooms {
       room.phase = 'prepare';
       room.game = null; room.director = null;
       room.ready.clear();
-      room.confirmed.clear();
+      room.confirmed?.clear();
       room.afterEnd.clear();
       room.confirmTimer = null;
       this.touch(room);
@@ -231,14 +240,14 @@ export class Rooms {
     const room = this.roomOf(player);
     if (!room || room.phase !== 'confirm') return { err: '当前不在确认阶段' };
     if (!room.members.includes(player.pid)) return { err: '你不在本房间' };
-    room.confirmed.add(player.pid); // Set ⇒ 重复点击幂等
+    room.confirmed?.add(player.pid); // Set ⇒ 重复点击幂等
     this.touch(room);
     this._checkConfirmComplete(room);
     return { room };
   }
   _checkConfirmComplete(room) {
     if (room.phase !== 'confirm') return;
-    if (room.members.length > 0 && room.members.every(pid => room.confirmed.has(pid))) this._beginPlay(room);
+    if (room.members.length > 0 && room.members.every(pid => room.confirmed?.has(pid))) this._beginPlay(room);
   }
   // R1-27：全员确认后，冒险才真正开始（首个回合、怪物游荡在此刻才启动）。
   _beginPlay(room) {
@@ -276,7 +285,7 @@ export class Rooms {
     room.phase = 'prepare';
     room.game = null; room.director = null;
     room.ready.clear();
-    room.confirmed.clear(); // R1-27：确认门作废，下一局重新确认
+    room.confirmed?.clear(); // R1-27：确认门作废，下一局重新确认
     room.afterEnd.clear();
     this._clearConfirmTimer(room);
     this.touch(room);
@@ -442,6 +451,9 @@ export class Rooms {
     if (!player.roomCode) return { view: 'lobby', online: this._onlineCount ? this._onlineCount() : 0, rooms: this.roomList(), dungeons: DUNGEONS.map(d => ({ id: d.id, name: d.name, icon: d.icon, desc: d.desc, publicGoal: d.publicGoal.text })), personas: PERSONAS.map(personaSummary), me: { pid: player.pid, name: player.name } };
     const room = this.rooms.get(player.roomCode);
     if (!room) { player.roomCode = null; return this.snapshotFor(player); }
+    // R1-31：成员资格护栏——roomCode 即使指向真实房间，也必须是成员才返回该房间视图。
+    // 防「陈旧 roomCode」（某条移除路径未清）导致非成员拿到房间/局内快照。正常成员必在 members 内 ⇒ 不误伤。
+    if (!this.isMember(player.pid, room)) { player.roomCode = null; return this.snapshotFor(player); }
     const members = room.members.map(pid => ({
       pid, name: this._registryName?.(pid) || pid,
       sheet: room.sheets.get(pid) || null,
@@ -496,7 +508,8 @@ export class Rooms {
     };
   }
   // 由index.mjs注入注册表引用与广播函数
-  bindRegistry(getName, isOnline, broadcast, onlineCount) { this._registryName = getName; this._isOnline = isOnline; this._broadcast = broadcast; this._onlineCount = onlineCount; }
+  // R1-31：新增 getPlayer(pid) —— kickRoom 仅持 pid，需取回 player 对象以清 roomCode（与 leaveRoom 共用 _removeMember）。
+  bindRegistry(getName, isOnline, broadcast, onlineCount, getPlayer) { this._registryName = getName; this._isOnline = isOnline; this._broadcast = broadcast; this._onlineCount = onlineCount; this._registryGetPlayer = getPlayer; }
   _broadcastRoom(room) { if (this._broadcast) this._broadcast(room); }
 
   isMember(pid, room) { return room.members.includes(pid); }
