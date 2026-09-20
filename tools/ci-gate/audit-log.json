@@ -162,6 +162,14 @@
       "expertCR": true,
       "evidence": "R1-22 车卡加点显示修复（产品 diff 4 文件：新增共享真源 `public/shared/chargen-points.mjs` +66、`public/js/screens/room.mjs` +33/−20、`server/game/charsheet.mjs` +5/−1、`server/game/rooms.mjs` +5/−1；另含测试 `tests/r1-22/chargen-points.test.mjs` +128、探针 `tools/r1-22-chargen-points-probe.mjs` +244、截图 `e2e-shots/r1-22-chargen-points.png`）。**根因**：车卡加点面板把服务端 `buildSheet` 的**最终值**（`stats`＝基础＋种族加成＋自由加点）当作**基础值**去算购点 ⇒ 精灵满购点重进后显示 `剩余点数：-3 / 27`（`val=17`、`mod=+4 → 19` 种族二次叠加），且自由加点被一律清空。**修法**：① 抽出 `public/shared/chargen-points.mjs` 作**购点共享真源**（`usedPoints`/`remainingPoints`/`baseStatsOf`/`flexSlots`/`flexFromSlots`），服务端**校验**（`charsheet.mjs:24` `spent = usedPoints(stats)`）与客户端**显示**（`room.mjs` `spent()/remaining()`）**共用同一公式**，消除「显示用最终值 / 校验用基础值」的输入不同源；② `buildSheet` 随 sheet 一并下发 `base`（原始分配）与 `flex`（自由加点），界面用 `baseStatsOf()` 载入**基础值**、`flexSlots()` **还原自由加点**（原先清空）；③ 数值展示**加成分列 + 图例**（图例标注「数值＝基础值（计入购点）；种族加成/自由加点另计、不占购点」，`sr-bonus` 拆「种族+N，自由+N」）；④ **负数如实报出**（反例 1：`rem<0` 时 `pool-err` 高亮 + 「⚠️ 载入的加点超出购点上限 N 点」，不截断为 0）；⑤ `setSheet` 非法输入由「抛出（静默、无回执）」改为返回 `{err}`（经 `dispatch`→`index.mjs` 通用 `{err}`⇒`s:error`⇒客户端 toast）。购点常量未动（`char-defs.mjs` 不在 diff）。**独立复核**（`quality-lead` 严守真，**非作者**；只读 + **自建 2 套装置独立重演**，未采信作者报告/探针）：**APPROVE 7/7**。复核方**拒绝运行作者探针**（其把截图硬编码写入受版本控制的 `e2e-shots/r1-22-chargen-points.png`，会**覆写**，违反只读）⇒ **自建等价装置独立双跑**：主检出 `1f1dc3c`（port 3111）**复现** `remaining=-3`（`val=17`/`mod=+4 → 19`，与用户报告逐字吻合），分支 `86e2f48`（port 3110）**证伪为 0**（`val=15`/`bonus=+2（种族+2）`/`mod=+3 → 17`，无二次叠加）；边界抽查 **11/11**；单测 **12/12**、全量 **89/89**。合并经 `--no-ff` 双亲核验（`c27f003` + `40a4c19`）；分支 tip `40a4c19` 为 **ledger-only**（`chore(R1-22): 台账回填 Z5=c27f003`；父链 `86e2f48`(fix) → `278f7b3`(merge main) → `40a4c19`；回填 `Z5=c27f003`、`entries=19`）。独立复核报告：`docs/pm/reviews/R1-22-CR-独立复核-20260919.md`。",
       "date": "2026-09-20"
+    },
+    {
+      "merge": "6c8d674",
+      "subject": "fix(R1-20): merge 严格回合制（看门狗按玩家级手动状态判定）",
+      "author": "路远行",
+      "expertCR": true,
+      "evidence": "R1-20 严格回合制：看门狗按玩家级手动/自动状态判定（手动+在线不装配超时；自动+在线 8000ms；离线 2500ms 断线防死锁保留），行动权唯一。独立复核 APPROVE 6/6（复核人 quality-lead-2，非作者；复核对象 c106081；报告 docs/pm/reviews/R1-20-CR-独立复核-20260919.md）。合并经 --no-ff 双亲核验（8055094 + 7f21e48）；已核合并内容==受审内容：git diff c106081 6c8d674 -- . ':(exclude)tools/ci-gate/audit-log.json' 为空（产品代码逐字节一致，中间仅一笔台账回填提交）。",
+      "date": "2026-09-20"
     }
   ],
   "_note": "台账必须位于受版本控制的位置；docs/ 被 .gitignore 排除，放那里 CI 读不到。",
