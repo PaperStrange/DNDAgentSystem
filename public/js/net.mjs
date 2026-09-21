@@ -51,6 +51,8 @@ export class Net {
     this.name = localStorage.getItem('dnd_name') || '';
     this.onState = null; this.onHello = null; this.onKicked = null; this.onError = null; this.onEval = null; this.onBg = null;
     this.onAuthOk = null; this.onAuthError = null; this.onLogExport = null;
+    this.onCharacters = null; this.onRosterImport = null; // R1-33：账号角色列表 / 名册迁移回执
+    this.characters = []; // R1-33：服务端下发的账号角色（s:hello.characters）
     this._reconnectTimer = null;
   }
   // 原生壳首启/切换服务器：保存地址后重连
@@ -84,7 +86,10 @@ export class Net {
         if (msg.account) { this.account = msg.account; localStorage.setItem(LS_ACCOUNT, this.account); }
         localStorage.setItem(LS_TOKEN, this.token);
         localStorage.setItem('dnd_name', this.name);
+        // R1-33：账号角色列表（服务端权威）——用于重建/校验名册条目
+        this.characters = Array.isArray(msg.characters) ? msg.characters : [];
         this.onHello && this.onHello(msg);
+        this.onCharacters && this.onCharacters(this.characters);
         this.onAuthOk && this.onAuthOk(msg);
       } else if (msg.t === 's:state') {
         this.onState && this.onState(msg.view);
@@ -115,6 +120,8 @@ export class Net {
         this.onBg && this.onBg(msg.text);
       } else if (msg.t === 's:log-export') {
         this.onLogExport && this.onLogExport(msg);
+      } else if (msg.t === 's:roster-import') {
+        this.onRosterImport && this.onRosterImport(msg); // R1-33：名册迁移回执
       } else if (msg.t === 'pong') { /* noop */ }
     };
     ws.onclose = () => {

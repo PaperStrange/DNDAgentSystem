@@ -4,6 +4,7 @@ import { mountLobby } from './screens/lobby.mjs';
 import { mountRoom } from './screens/room.mjs';
 import { mountGame } from './screens/game.mjs';
 import { migrateColors, migrateLook } from './pixel.mjs';
+import { pendingImports, applyServerIds, markSyncErrors, restoreFromServer } from './roster.mjs'; // R1-33：名册迁移/重建
 
 const S = {
   view: null, snapshot: null, pid: null, name: '', net: null,
@@ -105,6 +106,42 @@ net.onState = (view) => {
 net.onError = (msg) => toast(msg, true);
 net.onKicked = () => { toast('你被房主移出了房间', true); };
 net.onHello = (msg) => { S.account = msg.account || null; };
+// R1-33：账号角色列表到达 —— 先按服务端重建本地名册（清缓存/换设备场景），再迁移尚未上传的本地条目。
+// 顺序「先读本地 → 并入服务端 → 以服务端为准」；任一步失败都不阻塞、不删本地数据。
+net.onCharacters = (chars) => {
+  try {
+    if (!S.account) return;
+    S.characters = Array.isArray(chars) ? chars : [];
+    const n = restoreFromServer(S.characters);
+    if (n) toast('🔄 已从服务器恢复 ' + n + ' 名角色');
+    requestRosterImport();
+  } catch (e) { /* 不阻塞 */ }
+};
+net.onRosterImport = (msg) => {
+  try {
+    applyServerIds(msg && msg.map);                 // 回写 serverId（非破坏：只加字段）
+    const n = markSyncErrors(msg && msg.errors);    // 失败项保留原卡 + 记原因
+    if (n) toast('⚠️ ' + n + ' 个本地角色未能同步（已保留原卡）', true);
+  } catch (e) { /* 不阻塞 */ }
+};
+
+// R1-33：把「本地有、服务端无」的名册条目一次性并入服务端（幂等，见 server/characters.mjs importKeys）
+function requestRosterImport() {
+  try {
+    if (!S.account) return;
+    const entries = pendingImports();
+    if (!entries.length) return;
+    const payload = entries.map(e => ({
+      rosterId: e.id,
+      sheet: {
+        name: e.name, raceId: e.raceId, classId: e.classId,
+        stats: e.stats, flex: e.flex, colors: e.colors, look: e.look,
+        background: e.background, level: e.level, xp: e.xp, status: e.status,
+      },
+    }));
+    net.send('roster:import', { entries: payload });
+  } catch (e) { /* 迁移失败不阻塞 */ }
+}
 net.onAuthOk = () => { if (S.curScreen && S.curScreen.onAuthOk) S.curScreen.onAuthOk(); };
 net.onAuthError = (msg) => { if (S.curScreen && S.curScreen.onAuthError) S.curScreen.onAuthError(msg); };
 net.onEval = (ev) => { if (S.curScreen && S.curScreen.onEval) S.curScreen.onEval(ev); };
