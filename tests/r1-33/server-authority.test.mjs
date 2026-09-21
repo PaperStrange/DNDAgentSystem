@@ -40,7 +40,8 @@ function mkRoom({ account = acct(), pid = 'p1', code = 'TEST' } = {}) {
   const accounts = new Map([[pid, account]]);
   rooms.bindRegistry(
     (p) => p, (p) => true, () => { /* noop */ }, () => 0,
-    (p) => accounts.get(p) || null, // R1-33 Part 2：getAccount
+    (p) => null,                    // getPlayer（解冲突新增第 5 参；R1-33 测试不涉及踢人，无需解析）
+    (p) => accounts.get(p) || null, // R1-33 Part 2：getAccount（解冲突后移至第 6 参）
   );
   const room = {
     code, hostId: pid, hostName: 'A', phase: 'prepare',

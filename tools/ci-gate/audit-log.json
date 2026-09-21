@@ -194,6 +194,14 @@
       "expertCR": true,
       "evidence": "R1-30 randomSheet 全职业抛异常修复：处理次序改为 ATTRS 旋转派生（修 4/5 职业漏 INT 抛异常）。受审对象 6e23d29（R1-30 分支 tip，其后无提交 ⇒ 复核有效）。独立复核 APPROVE 6/6（复核人 quality-lead-2，非作者；docs/pm/reviews/R1-30-CR-独立复核-20260920.md），复核独立全仓核实并定性「randomSheet 无调用点、实际影响=0」。合并经 --no-ff，双亲 = 7ea543b(Z9) + a375d33。合并内容==受审内容：R1-30 自身改动（6c8d674..6e23d29）= 3 文件 +196/−1，与 Z10 净增（7ea543b..a1eb61e）= 3 文件 +196/−1 逐文件逐行数一致 ⇒ 产品代码与受审对象一致（diff 6e23d29..a1eb61e 多出的 11 文件为 Z8/Z9 已复核内容，因 6e23d29 基线为 Z7）。合并后 npm test = 145/145（team-lead 在 main 上独立重跑确认）。执行人说明：release-ops-lead 会话不可恢复（重新派单无效，用户批准），本笔由 team-lead 代执行。",
       "date": "2026-09-20"
+    },
+    {
+      "merge": "4344900",
+      "subject": "feat(R1-33): merge 服务端角色权威（Part1+Part2：存储/迁移/权威判定/settle 成长写回）",
+      "author": "游承峰",
+      "expertCR": true,
+      "evidence": "R1-33 服务端角色权威（Part1+Part2）。Part1 受审对象 fe3823b（独立复核 PASS 10/10，docs/pm/reviews/R1-33-P1-CR-独立复核-20260920.md）；Part2 受审对象 0663558（独立复核 PASS，docs/pm/reviews/R1-33-P2-CR-独立复核-20260920.md，含判别器 U10g 证明「换新房间继承」靠账号权威库而非 R1-28 会话回退、变异测试有牙 9/12 失败）。合并经 --no-ff，双亲 = a1eb61e(Z10) + 944218e。合并内容==受审对象：git diff --name-only 0663558 4344900 -- . :(exclude)tools/ci-gate/audit-log.json 为空（该笔只多台账）。Z11 净增（a1eb61e..4344900 排除台账）= R1-33 的 9 文件 +831/−10。合并后 npm test = 157/157（team-lead 在 main 上独立重跑确认）。执行人说明：release-ops-lead 会话不可恢复（重新派单无效，用户批准），本笔由 team-lead 代执行。",
+      "date": "2026-09-21"
     }
   ],
   "_note": "台账必须位于受版本控制的位置；docs/ 被 .gitignore 排除，放那里 CI 读不到。",
