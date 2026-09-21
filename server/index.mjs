@@ -10,6 +10,7 @@ import { config } from './config.mjs';
 import { setSeed, uid } from './util.mjs';
 import { Rooms, MAX_PLAYERS } from './game/rooms.mjs';
 import { registerAccount, verifyAccount } from './accounts.mjs';
+import { listByAccount, importEntry } from './characters.mjs'; // R1-33：服务端角色权威
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 const pub = resolve(root, 'public');
@@ -35,7 +36,8 @@ rooms.bindRegistry(
   (pid) => players.get(pid)?.name || pid,
   (pid) => players.get(pid)?.online ?? true,
   broadcastRoom,
-  uniqueIpCount // F-19：大厅在线人数卡片=同一局域网Unique IP数
+  uniqueIpCount, // F-19：大厅在线人数卡片=同一局域网Unique IP数
+  (pid) => players.get(pid)?.account || null // R1-33 Part 2：账号权威（rooms 据此调用 characters.authorize/settle）
 );
 
 function uniqueIpCount() {
@@ -75,6 +77,22 @@ function handleMsg(player, raw) {
   try { msg = JSON.parse(raw); } catch { return; }
   if (process.env.DND_DEBUG) console.log('[msg]', player.pid.slice(-4), msg.t, msg.targetEid ? 'target=' + msg.targetEid.slice(-4) : '');
   if (msg.t === 'ping') return send(player.pid, { t: 'pong' });
+  // R1-33：名册迁移（账号级，不依赖房间）—— 本地名册条目一次性并入服务端角色库。
+  // 幂等（importKeys），失败逐条回错误且**不落盘、不删本地**。
+  if (msg.t === 'roster:import') {
+    const account = player.account;
+    if (!account) { sendErr(player.pid, '请先登录账号'); return; }
+    const entries = Array.isArray(msg.entries) ? msg.entries.slice(0, 60) : [];
+    const map = {}; const errors = [];
+    for (const e of entries) {
+      const rosterId = String((e && e.rosterId) || '');
+      const r = importEntry(account, rosterId, (e && e.sheet) || {});
+      if (r && r.err) errors.push({ rosterId, reason: r.err });
+      else if (r && r.characterId) map[rosterId] = r.characterId;
+    }
+    send(player.pid, { t: 's:roster-import', map, errors });
+    return;
+  }
   Promise.resolve(rooms.dispatch(player, msg)).then((res) => {
     if (!res) return;
     if (process.env.DND_DEBUG && (msg.t === 'game:move' || msg.t === 'game:cast' || msg.t === 'game:attack')) {
@@ -209,7 +227,7 @@ wss.on('connection', (ws, req) => {
         pid = uid('p');
         ws.__pid = pid;
         players.set(pid, { pid, name: account, ws, roomCode: null, online: true, token, account, ip });
-        send(pid, { t: 's:hello', pid, name: account, roomCode: null, token, account, ip });
+        send(pid, { t: 's:hello', pid, name: account, roomCode: null, token, account, ip, characters: listByAccount(account) }); // R1-33：下发账号角色（重建/校验名册）
         send(pid, { t: 's:state', view: rooms.snapshotFor(players.get(pid)) });
         return;
       }
@@ -223,7 +241,7 @@ wss.on('connection', (ws, req) => {
           old.ip = String(req.socket.remoteAddress || '').replace(/^::ffff:/, ''); // F-19：重连刷新IP
           if (msg.rename && name) old.name = name;
           ws.__pid = pid;
-          send(pid, { t: 's:hello', pid, name: old.name, roomCode: old.roomCode, token: old.token, account: old.account || null });
+          send(pid, { t: 's:hello', pid, name: old.name, roomCode: old.roomCode, token: old.token, account: old.account || null, characters: old.account ? listByAccount(old.account) : [] }); // R1-33：重连同样下发账号角色
           if (old.roomCode) { const r = rooms.rooms.get(old.roomCode); if (r) { r.game?.notifyPresence?.(old.pid); broadcastRoom(r); } } // R1-20：重连后按最新在线状态重算看门狗
           else send(pid, { t: 's:state', view: rooms.snapshotFor(old) });
           return;

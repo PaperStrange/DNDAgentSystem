@@ -62,3 +62,75 @@ export function markDeathByName(name) {
 export function aliveEntries() {
   return loadRoster().filter(x => x.status !== 'dead');
 }
+
+// ---------- R1-33：服务端角色权威的客户端侧 ----------
+// 名册条目可携带：
+//   serverId    —— 服务端签发的 characterId（「已创建」的引用；有它 ⇒ 服务端权威锁定生效）
+//   syncError   —— 迁移失败原因（**保留原卡**，不删）
+//   restored    —— 由服务端列表重建（清缓存/换设备场景）
+
+// 待迁移条目：本地有、尚无 serverId
+export function pendingImports() {
+  return loadRoster().filter(e => e && e.id && !e.serverId);
+}
+
+export function findByServerId(serverId) {
+  if (!serverId) return null;
+  return loadRoster().find(e => e && e.serverId === serverId) || null;
+}
+
+// 迁移回执：把 serverId 写回本地条目（只加字段，非破坏）
+export function applyServerIds(map) {
+  if (!map) return 0;
+  const list = loadRoster();
+  let n = 0;
+  for (const e of list) {
+    if (!e || !e.id) continue;
+    const cid = map[e.id];
+    if (cid && e.serverId !== cid) { e.serverId = cid; delete e.syncError; n++; }
+  }
+  if (n) save(list);
+  return n;
+}
+
+// 迁移失败项：保留原卡 + 记原因（绝不删）
+export function markSyncErrors(errors) {
+  if (!Array.isArray(errors) || !errors.length) return 0;
+  const list = loadRoster();
+  let n = 0;
+  for (const er of errors) {
+    const e = list.find(x => x && x.id === er.rosterId);
+    if (e) { e.syncError = er.reason || '迁移失败'; n++; }
+  }
+  if (n) save(list);
+  return n;
+}
+
+// 由服务端角色列表重建本地条目（清缓存/换设备/无痕场景）。
+// 仅补齐「本地没有该 serverId」的角色；已有条目不动。返回新增条数。
+export function restoreFromServer(characters) {
+  if (!Array.isArray(characters) || !characters.length) return 0;
+  const list = loadRoster();
+  const have = new Set(list.filter(e => e && e.serverId).map(e => e.serverId));
+  let n = 0;
+  for (const c of characters) {
+    if (!c || !c.characterId || have.has(c.characterId)) continue;
+    const L = c.locked || {}, E = c.editable || {};
+    const now = Date.now();
+    list.unshift({
+      id: 'ro_srv_' + c.characterId,
+      serverId: c.characterId,
+      name: L.name, raceId: L.raceId, classId: L.classId,
+      stats: { ...(L.stats || {}) }, flex: { ...(L.flex || {}) },
+      level: L.level || 1, xp: L.xp || 0, background: L.background || '',
+      colors: { ...(E.colors || {}) }, look: { ...(E.look || {}) },
+      status: c.status === 'dead' ? 'dead' : 'alive',
+      createdAt: now, updatedAt: now, restored: true,
+    });
+    have.add(c.characterId);
+    n++;
+  }
+  if (n) save(list);
+  return n;
+}
+

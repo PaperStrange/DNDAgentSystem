@@ -280,9 +280,12 @@ export function mountChargen(root, view, net) {
   let created = !!view.mySheet;
   // R-11: 载入的角色条目id（阵亡角色不可载入）；已有车卡按同名在世条目衔接，避免重复建档
   let loadedId = null;
+  // R1-33：当前编辑角色的服务端 characterId（有它 ⇒ 提交时带出，服务端按权威副本锁定被锁字段）。
+  // 来源：① 载入名册条目时取条目的 serverId；② 房间快照 mySheet 上带回的 characterId（Part 2 接入）。
+  let loadedCharacterId = (view.mySheet && view.mySheet.characterId) ? view.mySheet.characterId : null;
   if (view.mySheet) {
     const existing = loadRoster().find(x => x.name === view.mySheet.name && x.status !== 'dead');
-    if (existing) loadedId = existing.id;
+    if (existing) { loadedId = existing.id; if (existing.serverId) loadedCharacterId = existing.serverId; }
   }
 
   const race = () => RACES.find(r => r.id === selRace);
@@ -371,6 +374,7 @@ export function mountChargen(root, view, net) {
     const e = loadRoster().find(x => x.id === rosterSel.value);
     if (!e) return;
     loadedId = e.id;
+    loadedCharacterId = e.serverId || null; // R1-33：载入名册角色即绑定其服务端 characterId
     name = e.name; nameInput.value = e.name;
     selRace = e.raceId; selClass = e.classId;
     stats = e.stats ? { ...e.stats } : null;
@@ -501,7 +505,9 @@ export function mountChargen(root, view, net) {
     const payload = buildPayload();
     loadedId = upsertEntry(payload, loadedId);
     refreshRosterSel();
-    net.send('room:charsheet', { sheet: payload });
+    // R1-33：带出 characterId —— 已有角色由服务端按权威副本校验（被锁字段不可改）；
+    // 新建角色不带该字段（由服务端签发新 id 并回吐，见 server/characters.mjs authorize）。
+    net.send('room:charsheet', loadedCharacterId ? { sheet: payload, characterId: loadedCharacterId } : { sheet: payload });
     if (!silent) toast('⏳ 正在保存车卡…');
   };
   saveBtn.onclick = () => {

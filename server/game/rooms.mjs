@@ -9,6 +9,7 @@ import { DUNGEONS, MONSTERS } from './dungeon.mjs';
 import { PERSONAS, personaSummary, personaById } from '../dm/personas.mjs';
 import { buildSheet } from './charsheet.mjs';
 import { flexEqual, statsEqual } from '../../public/shared/chargen-points.mjs'; // R1-28：已创建角色不可改种族加点/属性
+import { authorize, settle, getById } from '../characters.mjs'; // R1-33 Part 2：服务端角色权威（唯一判定点）+ 结算写回
 import { chat, llmAvailable } from '../llm.mjs';
 
 export const MAX_PLAYERS = 5;
@@ -60,6 +61,9 @@ export class Rooms {
       personaId: persona.id, personaName: persona.name, phase: 'prepare',
       mode: mode === 'manual' ? 'manual' : 'auto', // 战斗模式：默认自动战斗
       members: [host.pid], sheets: new Map(), ready: new Set(),
+      // R1-33 Part 2：本房间内「pid → 服务端角色 characterId」绑定。
+      // 生命周期与 room.sheets 一致（跨局保留，见 _resetToPrepare 注释），玩家离房/被踢时删除。
+      charIds: new Map(),
       // R1-27：全员确认门 —— 记录「已确认隐藏目标」的成员（与 ready 并列，房间级）。
       // 冒险在全员确认前不真正开始（beginPlay 被推迟，见 startGame/_beginPlay）。
       confirmed: new Set(), confirmTimer: null,
@@ -88,6 +92,7 @@ export class Rooms {
     const wasHost = room.hostId === player.pid;
     room.members = room.members.filter(p => p !== player.pid);
     room.ready.delete(player.pid);
+    room.charIds?.delete(player.pid); // R1-33 Part 2：离房即解除该玩家与角色的绑定
     room.confirmed?.delete(player.pid); // R1-27：离开即从确认集合移除
     room.afterEnd?.delete(player.pid); // R1-21：离开即从结算去向中移除
     if (room.game && (room.phase === 'playing' || room.phase === 'intro' || room.phase === 'confirm' || room.phase === 'ended')) room.game.removePlayer(player.pid, false);
@@ -111,6 +116,7 @@ export class Rooms {
     if (targetPid === host.pid) return { err: '不能踢自己' };
     room.members = room.members.filter(p => p !== targetPid);
     room.ready.delete(targetPid);
+    room.charIds?.delete(targetPid); // R1-33 Part 2：被踢者解除角色绑定
     room.confirmed?.delete(targetPid); // R1-27：被踢者从确认集合移除
     room.afterEnd?.delete(targetPid); // R1-21：被踢者从结算去向中移除
     if (room.game && (room.phase === 'playing' || room.phase === 'confirm')) room.game.removePlayer(targetPid, true);
@@ -120,9 +126,35 @@ export class Rooms {
     else if (room.phase === 'confirm') this._checkConfirmComplete(room); // R1-27：被踢者移出后重算确认门
     return { kicked: true, room, victimPid: targetPid };
   }
-  setSheet(player, rawSheet) {
+  setSheet(player, rawSheet, characterId) {
     const room = this.roomOf(player);
     if (!room || room.phase !== 'prepare') return { err: '游戏已开始，不能修改车卡' };
+
+    // R1-33 Part 2：**「已创建」的唯一权威判定点**。
+    // 账号可用时，一律走服务端权威库（characters.authorize）—— 跨会话/跨房间/退房重进均成立，
+    // 且不接受客户端标志位（前端标志可被直接发协议消息绕过）。
+    // 无账号（离线/未登录/测试夹具）时，回退到 R1-28 的**会话级** LOCKED_FIELDS（行为逐字不变）。
+    // 两条路径互斥，绝不同时生效 ⇒ 不会出现两套「已创建」口径（R1-24 研究 §5 的要求）。
+    const account = this._getAccount ? this._getAccount(player.pid) : null;
+    if (account) {
+      // 绑定的 characterId：优先客户端显式带出；否则用本房间已记住的绑定（客户端漏带也不会被绕过）
+      const cid = characterId ? String(characterId) : ((room.charIds && room.charIds.get(player.pid)) || null);
+      const auth = authorize(account, cid, rawSheet);
+      if (auth.err) return { err: auth.err };
+      // 落 room.sheets 的必须是**服务端权威归一化后**的车卡（authorize.raw），而非客户端原值 ——
+      // 这样即便客户端塞了 level/xp，房间内实际采用的也是权威值（覆盖语义的落地）。
+      let sheet;
+      try { sheet = buildSheet(auth.raw); }
+      catch (e) { return { err: (e && e.message) ? e.message : '车卡数据非法，请检查属性与种族职业' }; }
+      room.sheets.set(player.pid, sheet);
+      (room.charIds || (room.charIds = new Map())).set(player.pid, auth.characterId);
+      room.ready.delete(player.pid);
+      room.lastTouched = Date.now();
+      // 可观测：level/xp 被服务端覆盖时随响应回传（配合 characters.mjs 的日志），绝不静默
+      return { room, characterId: auth.characterId, overridden: auth.overridden || [] };
+    }
+
+    // —— 回退：会话级锁（R1-28，行为逐字不变；无账号 / 离线 / 测试夹具）——
     // R1-22：非法车卡必须「被拒绝**且有反馈**」。buildSheet 对非法输入会抛出，
     // 原先抛出后没有任何回执（客户端只看到卡住）⇒ 这里改为把原因作为 err 回传。
     let sheet;
@@ -175,12 +207,15 @@ export class Rooms {
     const g = room.game;
     const origEnd = g._endGame.bind(g);
     g._endGame = (kind, reason) => {
+      const alreadyEnded = room.phase === 'ended';
       origEnd(kind, reason);
       room.phase = 'ended';
       room.ready.clear();      // R1-21：本局就绪标记作废，下一局重新准备
       room.confirmed.clear();  // R1-27：确认门作废，下一局重新确认
       room.afterEnd.clear();   // R1-21：结算去向清零，每位玩家重新决定
       this._clearConfirmTimer(room);
+      // R1-33 Part 2（RD-073 硬约束）：冒险结束由**服务端**结算成长，只结算一次。
+      if (!alreadyEnded) this._settleGrowth(room);
       this.touch(room);
       this._writeLogFile(room);
     }; // R-23: 冒险结束时在房主本地落盘完整日志
@@ -196,6 +231,30 @@ export class Rooms {
       console.error('[room] 开场失败', e);
       this._enterConfirm(room);
     });
+  }
+  // R1-33 Part 2（RD-007 / RD-073）：冒险结束 → 服务端权威结算成长。
+  //  level/xp 取自服务端 room.game.players 的 p.level / p.xp（注意：_levelUp 只改 p.level，
+  //  **不改 p.sheet.level** —— 绝不能拿客户端经 room:charsheet 送来的 level/xp 当成长）。
+  //  双写（缺一不可）：①账号权威库（settle）②room.sheets.get(pid)（同房间下一局立即继承）。
+  //  边界（已接受）：冒险中离场者已从 game.players 删除 ⇒ 不结算；无 characterId（未登录/访客）⇒ 跳过。
+  _settleGrowth(room) {
+    const g = room.game;
+    if (!g || !g.players) return;
+    for (const pid of room.members) {
+      const characterId = room.charIds ? room.charIds.get(pid) : null;
+      if (!characterId) continue;                 // 无绑定角色 ⇒ 跳过 settle
+      const p = g.players.get(pid);
+      if (!p) continue;                           // 冒险中离场者 ⇒ 不结算
+      const res = settle(characterId, { level: p.level, xp: p.xp, dead: !!p.dead });
+      if (res && res.err) { console.error('[R1-33] settle 失败：', characterId, res.err); continue; }
+      // 双写②：以权威库为准回写 room.sheets（保证「同房间下一局立即继承」与权威库一致）
+      const rec = getById(characterId);
+      const sheet = room.sheets.get(pid);
+      if (rec && sheet) {
+        sheet.level = rec.locked.level;
+        sheet.xp = rec.locked.xp;
+      }
+    }
   }
   // R1-27：进入「全员确认门」。game.state 仍为 'intro'（无回合/无游荡），turn=null ⇒ 看门狗无从装配。
   _enterConfirm(room) {
@@ -320,7 +379,7 @@ export class Rooms {
   _roomMsg(player, msg) {
     if (msg.t === 'room:leave') return this.leaveRoom(player);
     if (msg.t === 'room:kick') return this.kickRoom(player, msg.targetPid);
-    if (msg.t === 'room:charsheet') return this.setSheet(player, msg.sheet);
+    if (msg.t === 'room:charsheet') return this.setSheet(player, msg.sheet, msg.characterId); // R1-33 Part 2：带出 characterId 走服务端权威
     if (msg.t === 'room:ready') return this.setReady(player, !!msg.ready);
     // R-14：车卡阶段房主可随时切换自动/手动战斗模式
     if (msg.t === 'room:mode') {
@@ -437,6 +496,14 @@ export class Rooms {
   }
 
   // ---------- 快照 ----------
+  // R1-33 Part 2：本玩家车卡视图 —— 附上服务端角色 characterId，供客户端 pushSheet 带出
+  // （已有角色 ⇒ 服务端按权威副本校验；客户端据此判「已创建」仍沿用 R1-28 的 mySheet 非空口径）。
+  _mySheetFor(room, player) {
+    const sheet = room.sheets.get(player.pid);
+    if (!sheet) return null;
+    const cid = room.charIds ? room.charIds.get(player.pid) : null;
+    return cid ? { ...sheet, characterId: cid } : sheet;
+  }
   snapshotFor(player) {
     // 大厅视图
     if (!player.roomCode) return { view: 'lobby', online: this._onlineCount ? this._onlineCount() : 0, rooms: this.roomList(), dungeons: DUNGEONS.map(d => ({ id: d.id, name: d.name, icon: d.icon, desc: d.desc, publicGoal: d.publicGoal.text })), personas: PERSONAS.map(personaSummary), me: { pid: player.pid, name: player.name } };
@@ -456,7 +523,7 @@ export class Rooms {
         dungeon: DUNGEONS.find(d => d.id === room.dungeonId),
         persona: personaSummary(personaById(room.personaId)),
         members, me: { pid: player.pid, name: player.name },
-        mySheet: room.sheets.get(player.pid) || null,
+        mySheet: this._mySheetFor(room, player),
       };
     }
     if (room.phase === 'ended') {
@@ -470,7 +537,7 @@ export class Rooms {
           dungeon: DUNGEONS.find(d => d.id === room.dungeonId),
           persona: personaSummary(personaById(room.personaId)),
           members, me: { pid: player.pid, name: player.name },
-          mySheet: room.sheets.get(player.pid) || null,
+          mySheet: this._mySheetFor(room, player),
         };
       }
       const view = room.game ? room.game.snapshotFor(player.pid) : null;
@@ -496,7 +563,8 @@ export class Rooms {
     };
   }
   // 由index.mjs注入注册表引用与广播函数
-  bindRegistry(getName, isOnline, broadcast, onlineCount) { this._registryName = getName; this._isOnline = isOnline; this._broadcast = broadcast; this._onlineCount = onlineCount; }
+  // R1-33 Part 2：新增 getAccount(pid) —— rooms 取账号以调用服务端角色权威（authorize/settle）。
+  bindRegistry(getName, isOnline, broadcast, onlineCount, getAccount) { this._registryName = getName; this._isOnline = isOnline; this._broadcast = broadcast; this._onlineCount = onlineCount; this._getAccount = getAccount; }
   _broadcastRoom(room) { if (this._broadcast) this._broadcast(room); }
 
   isMember(pid, room) { return room.members.includes(pid); }
