@@ -3,6 +3,8 @@ import { spawn } from 'node:child_process';
 import { chromium } from 'playwright';
 import { writeFileSync, appendFileSync } from 'node:fs';
 import { join } from 'node:path';
+// R1-34：R1-27 全员确认门的**唯一真源**（与 tools/solo-probe.mjs、simulate/bots.mjs、simulate/e2e.mjs 共用）
+import { CONFIRM_BUTTON_TEXT, isConfirmGate, isGameStarted, waitPagePhase } from '../simulate/confirm-gate.mjs';
 // 隔离（R1-4）：日志目录可由 DND_QA_OUT_DIR 覆盖；未设时与历史行为一致（tools/）
 const ULOG = join(process.env.DND_QA_OUT_DIR || 'tools', '_ui_out.log');
 try { writeFileSync(ULOG, ''); } catch (e) {}
@@ -151,6 +153,11 @@ async function main() {
   await page.click('.dialog-overlay button:has-text("立即开始")');
   await page.waitForSelector('.screen-game', { timeout: 20000 });
   check('B-10 确认后进入游戏', await page.locator('.screen-game').isVisible());
+  // R1-34：R1-27 全员确认门——单人「立即开始」后进入 confirm 门，须在真实界面点击「确认开始」
+  //   （等价于产品客户端 net.send('room:confirm')）才放行到 playing；判据/按钮文案同源于 simulate/confirm-gate.mjs。
+  await waitPagePhase(page, isConfirmGate, 20000, '全员确认门出现');
+  await page.click('button:has-text("' + CONFIRM_BUTTON_TEXT + '")');
+  await waitPagePhase(page, isGameStarted, 20000, '确认门放行（playing）');
   // F-34：隐藏目标生成并行化——从点击「立即开始」到进入playing < 20秒（含在线LLM）
   const tPlaying = await page.waitForFunction(() => {
     const v = window.__e2e && window.__e2e.view();
