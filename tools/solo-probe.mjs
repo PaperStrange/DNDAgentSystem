@@ -8,6 +8,8 @@ import { spawn } from 'node:child_process';
 import { createPolicy } from '../public/shared/autoplay-policy.mjs';
 import { buildSheet } from '../server/game/charsheet.mjs';
 import { createGuardedSocket } from './ws-client-guard.mjs';
+// R1-34：R1-27 全员确认门的**唯一真源**（与 simulate/bots.mjs、simulate/e2e.mjs 共用）
+import { driveConfirmGate, CONFIRM_MSG } from '../simulate/confirm-gate.mjs';
 
 const PORT = 3897;
 const log = (...a) => console.log('[solo]', ...a);
@@ -129,14 +131,19 @@ async function main() {
   if (view?.phase === 'prepare' && !view?.game) log('B-10 ✓ 单人准备后未自动开局（phase=prepare，等待确认）');
   else fail('B-10 ✗ 单人准备后意外开局 phase=' + view?.phase);
 
-  // B-10 断言2：显式 room:start 后开局
+  // B-10 断言2：显式 room:start 后开局。
+  // R1-34：R1-27 起 room:start 不再直接开局——先进入「全员确认门」（phase='confirm'），
+  //   须发送真实协议消息 room:confirm（与真人点击「确认开始」等价）才放行到 _beginPlay。
+  //   断言强度**不降反升**：仍要求最终 phase==='playing'（真实开局），而非停在 confirm；
+  //   且不再把瞬态 'intro' 当作已开局（见 confirm-gate.mjs 的语义说明）。
   sock.send('room:start', {});
-  for (let i = 0; i < 20; i++) {
-    await sleep(500);
-    if (view?.phase === 'playing' || view?.phase === 'intro') break;
-  }
-  if (view?.phase === 'playing' || view?.phase === 'intro') log('B-10 ✓ 确认后显式开局成功（phase=' + view.phase + '）');
-  else fail('B-10 ✗ 显式开局失败 phase=' + view?.phase);
+  const gate = await driveConfirmGate({
+    getPhase: () => view?.phase,
+    sendConfirm: () => sock.send(CONFIRM_MSG),
+    wait: sleep,
+  });
+  if (gate.started) log('B-10 ✓ 确认后显式开局成功（phase=' + view.phase + '，确认门已发确认=' + gate.sentConfirm + '）');
+  else fail('B-10 ✗ 显式开局失败 phase=' + (gate.lastPhase ?? view?.phase));
 
   // B-11 断言：怪物数量缩减 + 药水+3
   for (let i = 0; i < 40; i++) {

@@ -2,6 +2,8 @@
 import { spawn } from 'node:child_process';
 import { mkdirSync } from 'node:fs';
 import { chromium } from 'playwright';
+// R1-34：R1-27 全员确认门的**唯一真源**（与 tools/solo-probe.mjs、simulate/bots.mjs、tools/ui-check.mjs 共用）
+import { CONFIRM_BUTTON_TEXT, isConfirmGate, isGameStarted, waitPagePhase } from './confirm-gate.mjs';
 
 const PORT = 3892;
 const SEED = Number(process.env.E2E_SEED || 20240601);
@@ -93,7 +95,18 @@ async function main() {
     await p.click('button:has-text("准备就绪")');
   }
   await pages[0].waitForSelector('.screen-game', { timeout: 30000 });
-  log('全部准备就绪 → 游戏自动开始');
+  log('全部准备就绪 → 进入 R1-27 全员确认门');
+  // R1-34：R1-27 确认门——须在**真实界面**上点击「确认开始」（等价于产品客户端的 net.send('room:confirm')），
+  //   不得绕过 confirm 阶段、不得伪造 phase。确认逻辑与判据同源于 simulate/confirm-gate.mjs。
+  await waitPagePhase(pages[0], isConfirmGate, 30000, '全员确认门出现');
+  for (const p of pages) {
+    const btn = p.locator('button:has-text("' + CONFIRM_BUTTON_TEXT + '")');
+    await btn.first().waitFor({ state: 'visible', timeout: 30000 });
+    await btn.first().click();
+  }
+  // 确认门放行 → 真正进入对局（phase='playing'，_beginPlay 之后；非停在 confirm）
+  const startedPhase = await waitPagePhase(pages[0], isGameStarted, 30000, '确认门放行（playing）');
+  log('全员确认门放行 → 游戏开始（phase=' + startedPhase + '）');
   await pages[0].waitForTimeout(1500);
   await pages[0].screenshot({ path: SHOTS + '/04-intro.png' });
 

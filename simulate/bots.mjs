@@ -4,6 +4,8 @@ import { spawn } from 'node:child_process';
 import { WebSocket } from 'ws';
 import { createPolicy } from '../public/shared/autoplay-policy.mjs';
 import { buildSheet } from '../server/game/charsheet.mjs';
+// R1-34：R1-27 全员确认门的**唯一真源**（与 tools/solo-probe.mjs、simulate/e2e.mjs 共用）
+import { driveConfirmGate, CONFIRM_MSG } from './confirm-gate.mjs';
 
 const PORT = 3891;
 const SEED = Number(process.env.SIM_SEED || 20240521);
@@ -183,10 +185,18 @@ async function main() {
   await waitFor(() => bots.every(b => b.view?.members?.every(m => m.sheet)), '全员完成车卡');
   log('全员车卡完成 ✓');
 
-  // 准备
+  // 准备（全员就绪 ⇒ 服务端 _checkAutoStart 触发 startGame，进入 R1-27 全员确认门）
   for (const b of bots) b.send('room:ready', { ready: true });
-  await waitFor(() => bots.every(b => b.view?.phase === 'playing' || b.view?.phase === 'intro'), '游戏开始');
-  log('全部准备就绪 → 游戏自动开始 ✓');
+  // R1-34：R1-27 确认门——每个机器人发送真实协议 room:confirm（等价于各自在界面点击「确认开始」）；
+  //   全员确认后 _beginPlay 才真正开局。断言强度不变：仍要求 phase==='playing'（真实开局），不停在 confirm。
+  const gate = await driveConfirmGate({
+    getPhase: () => bots[0].view?.phase,
+    sendConfirm: () => { for (const b of bots) b.send(CONFIRM_MSG); },
+    wait: (ms) => new Promise(r => setTimeout(r, ms)),
+    timeoutMs: 30000,
+  });
+  if (!gate.started) throw new Error('R1-27 全员确认门未放行（lastPhase=' + gate.lastPhase + '，sentConfirm=' + gate.sentConfirm + '）');
+  log('全部准备就绪 → 全员确认门放行 → 游戏开始 ✓');
 
   // 隐藏目标下发检查
   await waitFor(() => bots.every(b => b.view?.game?.me?.goal), '隐藏目标下发');

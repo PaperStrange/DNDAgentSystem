@@ -202,6 +202,14 @@
       "expertCR": true,
       "evidence": "R1-33 服务端角色权威（Part1+Part2）。Part1 受审对象 fe3823b（独立复核 PASS 10/10，docs/pm/reviews/R1-33-P1-CR-独立复核-20260920.md）；Part2 受审对象 0663558（独立复核 PASS，docs/pm/reviews/R1-33-P2-CR-独立复核-20260920.md，含判别器 U10g 证明「换新房间继承」靠账号权威库而非 R1-28 会话回退、变异测试有牙 9/12 失败）。合并经 --no-ff，双亲 = a1eb61e(Z10) + 944218e。合并内容==受审对象：git diff --name-only 0663558 4344900 -- . :(exclude)tools/ci-gate/audit-log.json 为空（该笔只多台账）。Z11 净增（a1eb61e..4344900 排除台账）= R1-33 的 9 文件 +831/−10。合并后 npm test = 157/157（team-lead 在 main 上独立重跑确认）。执行人说明：release-ops-lead 会话不可恢复（重新派单无效，用户批准），本笔由 team-lead 代执行。",
       "date": "2026-09-21"
+    },
+    {
+      "merge": "ad776f6",
+      "subject": "fix(R1-31): merge kickRoom/leaveRoom 统一成员移除 + snapshotFor 成员护栏（team-lead 代执行）",
+      "author": "游承峰",
+      "expertCR": true,
+      "evidence": "R1-31 kickRoom/leaveRoom 抽统一成员移除（单一真源）+ snapshotFor 成员资格护栏。受审对象 5eda920（R1-31 分支受审 commit；父 = a1eb61e；diff a1eb61e..5eda920 = 4 文件 +389/−20）。独立对抗性复核 ✅ PASS（复核人 quality-lead 严守真，非作者；报告 docs/pm/reviews/R1-31-CR-独立复核-20260921.md）：两项核心缺陷（① kickRoom 漏清被踢者 roomCode；② snapshotFor 不校验成员资格）已真实修复，「统一移除单一真源」重构零回归，index.mjs 删本地兜底后依赖点安全；判定「可合并」。合并经 --no-ff，双亲 = 4344900(Z11) + 207de43(R1-31 分支 tip；其为 ledger-only chore 回填 Z11=4344900)。解冲突为语义并集（① charIds?.delete 下沉 _removeMember；② bindRegistry 扩 6 参；③ index.mjs 同步 6 实参；④ R1-33 夹具同步第 6 参），已由 quality-lead 独立验证「✅ 确认通过」（docs/pm/reviews/Z12-解冲突-独立验证-20260921.md；含 5eda920 与 4344900 均为 ad776f6 祖先的双向核验、6 参顺序逐一对应、全量回归 173/173 EXIT=0；附 1 项非阻塞保留：Z12 特有 charIds 清理无测试覆盖，缺口继承自 R1-33、非 Z12 引入）。Z12 净增（4344900..ad776f6 排除台账）= 5 文件（R1-31 的 4 文件：server/game/rooms.mjs、server/index.mjs、tests/r1-31/kick-server-e2e.test.mjs、tests/r1-31/member-removal.test.mjs + R1-33 夹具 tests/r1-33/server-authority.test.mjs）。合并后 npm test = 173/173（team-lead 与 quality-lead 在 main 上各自独立重跑确认）。执行人说明：release-ops-lead 当时未响应，本笔由 team-lead 代执行（用户批准）。",
+      "date": "2026-09-21"
     }
   ],
   "_note": "台账必须位于受版本控制的位置；docs/ 被 .gitignore 排除，放那里 CI 读不到。",
