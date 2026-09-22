@@ -10,6 +10,9 @@ export function mountGame(root, view) {
   const net = store.net;
   const g = { view, pending: null, floaters: [], anim: new Map(), introSeen: false, confirmSent: false, autoplay: false, modeInited: false, policy: createPolicy(), sfx: true, lastSnapSeq: 0, speed: 1, logFilter: 'all', cardSent: false, panelTab: 'log', unitFilter: null, rosterMarked: false, eventTreeOpen: null };
   let raf = null, canvas, ctx, wrap, autoTicker = null;
+  // ART-3-A1：测试钩子用「冻结时间」。默认 null = 实时（**不改产品行为**）；仅当探针显式调用
+  // __e2e.setFixedTime(ms) 时才生效——用于「同 seed + 冻结时间 + 收敛 ⇒ 逐像素一致」取证。
+  let fixedTime = null;
 
   // ---------- DOM ----------
   const screen = el('div', 'screen-game');
@@ -597,7 +600,9 @@ export function mountGame(root, view) {
     return { x, y };
   }
 
-  function draw(t) {
+  function draw(ts) {
+    // ART-3-A1：冻结时间钩子——fixedTime 非 null 时以之替代 rAF 时间戳（默认 null ⇒ 实时不变）
+    const t = fixedTime !== null ? fixedTime : ts;
     const gv = g.view?.game;
     ctx.setTransform(1, 0, 0, 1, 0, 0);
     ctx.fillStyle = '#0d0a14';
@@ -1290,7 +1295,7 @@ export function mountGame(root, view) {
       c2.fillStyle = k % 2 ? '#6a4a2e' : '#5d4328';
       c2.fillRect(fx - 26 + k * 9, fy + 14, 8, 4);
     }
-    const tt = performance.now();
+    const tt = fixedTime !== null ? fixedTime : performance.now();
     const flick = Math.sin(tt / 400) * 3 + Math.sin(tt / 240) * 2;
     c2.fillStyle = '#e07030';
     c2.fillRect(fx - 9, fy - 22 + Math.floor(flick), 18, 22);
@@ -1347,6 +1352,20 @@ export function mountGame(root, view) {
     // R1-18：只读访问器。断言「点击不可通行格时是否给出可见反馈」需要直接读浮动文字队列
     // （画布上的浮动文字无法从 Node 侧稳定取证）。纯只读、无副作用；与 animOf 同源。
     floaters: () => g.floaters.map((f) => ({ x: f.x, y: f.y, text: f.text })),
+    // ART-3-A1：冻结时间（默认 null=实时）。仅测试探针调用；**不新增任何游戏触发点**。
+    setFixedTime: (ms) => { fixedTime = (ms === null || ms === undefined) ? null : Number(ms); },
+    // ART-3-A1：只读——所有实体插值是否已收敛归位（「冻结时间」取证前等待稳定帧用）。
+    // 与 animOf/floaters 同源：纯只读、无副作用。
+    settled: () => {
+      const gv = g.view?.game;
+      if (!gv) return true;
+      for (const e of gv.entities) {
+        const a = g.anim.get(e.eid);
+        if (!a) continue;
+        if (a.moving || a.x !== e.x || a.y !== e.y) return false;
+      }
+      return true;
+    },
   };
 
   // R-10: 生成高光时刻配图（程序化像素画：主角+最终BOSS同框）
