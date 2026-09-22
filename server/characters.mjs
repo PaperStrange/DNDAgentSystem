@@ -6,7 +6,6 @@
 import { readFileSync, writeFileSync, existsSync, mkdirSync, renameSync } from 'node:fs';
 import { join } from 'node:path';
 import { dataRoot } from './paths.mjs';
-import { uid } from './util.mjs';
 import { buildSheet, MAX_LEVEL } from './game/charsheet.mjs';
 
 const DATA_DIR = dataRoot;
@@ -96,9 +95,21 @@ function rawFromLocked(locked, editable) {
   };
 }
 
+// R1-38：characterId 必须【不消耗】游戏的共享种子 RNG（`util.rnd`）。
+//   R1-33 原先用 `uid('ch')`，而 `uid()` 会消耗全局种子流 2 次；`newRecord` 在【建角色时】
+//   调用，早于游戏内所有 RNG 敏感决策 ⇒ 整体平移种子流 ⇒ 隐藏目标/骰子序列全变 ⇒
+//   单人局由「确定性通关」变「确定性团灭」（R1-38 回归根因）。
+//   改用【独立、非种子】的生成器（Date.now + Math.random），与游戏 RNG 完全隔离，
+//   从而逐字节恢复 R1-33 之前的种子流位置。唯一性强度与 uid 同级（毫秒时间戳 + 2×46656）。
+function newCharacterId() {
+  return 'ch' + Date.now().toString(36)
+    + Math.floor(Math.random() * 46656).toString(36)
+    + Math.floor(Math.random() * 46656).toString(36);
+}
+
 function newRecord(account, locked, editable, origin, status) {
   return {
-    characterId: uid('ch'), accountId: account,
+    characterId: newCharacterId(), accountId: account,
     createdAt: Date.now(), updatedAt: Date.now(),
     origin, adventureCount: 0, version: 1,
     status: status === 'dead' ? 'dead' : 'alive',
