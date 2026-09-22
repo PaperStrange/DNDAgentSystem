@@ -4,7 +4,7 @@ import { RACES, CLASSES, MAX_STAT, MIN_STAT, POINT_POOL } from '../../shared/cha
 // R1-22：购点计算与「基础值还原」共用同一真源，避免界面把种族加成/自由加点算进购点
 import { usedPoints, remainingPoints, baseStatsOf, flexSlots, flexFromSlots } from '../../shared/chargen-points.mjs';
 import { SKIN_TONES, HAIR_TONES, OUTFIT_TONES, EYE_TONES, ACCENT_TONES, spriteToCanvas, spritePalette } from '../pixel.mjs';
-import { aliveEntries, upsertEntry, loadRoster } from '../roster.mjs';
+import { aliveEntries, upsertEntry, loadRoster, bindServerId } from '../roster.mjs';
 import { portraitUrl } from '../portraits.mjs';
 
 export function mountRoom(root, view) {
@@ -248,7 +248,12 @@ export function mountRoom(root, view) {
   return {
     // R1-28：把「服务端是否已有该玩家车卡」这一状态转换点同步给车卡面板
     // （mySheet 非空 ⟺ 已创建 ⇒ 种族加点只读）。
-    update(v) { renderMembers(v); if (chargenRef && chargenRef.setCreated) chargenRef.setCreated(!!v.mySheet); },
+    update(v) {
+      renderMembers(v);
+      if (chargenRef && chargenRef.setCreated) chargenRef.setCreated(!!v.mySheet);
+      // R1-35：服务端签发/带回的 characterId 落到本地名册条目的 serverId（换房/重登后可回落）
+      if (chargenRef && chargenRef.setServerCharacterId) chargenRef.setServerCharacterId(v.mySheet && v.mySheet.characterId);
+    },
     onBg: (text) => { if (chargenRef) chargenRef.onBg(text); },
   };
 }
@@ -287,6 +292,21 @@ export function mountChargen(root, view, net) {
     const existing = loadRoster().find(x => x.name === view.mySheet.name && x.status !== 'dead');
     if (existing) { loadedId = existing.id; if (existing.serverId) loadedCharacterId = existing.serverId; }
   }
+  // R1-35：服务端签发的 characterId 回写本地名册条目的 serverId（账号级）。
+  // 覆盖两种入口：① 本房间保存车卡后服务端签发（经 mountRoom.update 快照带回）；
+  //             ② 进入房间时快照已带 characterId（如退房重进同一房间）。
+  // 与 applyServerIds 共用同一写入真源（roster.bindServerId）⇒ **不新写第二份写入逻辑**。
+  // boundServerId 记录已回写的值，避免每次 s:state 快照都重复读写 localStorage。
+  let boundServerId = null;
+  const bindLoadedServerId = (cid) => {
+    if (!cid) return;
+    cid = String(cid);
+    if (loadedCharacterId !== cid) loadedCharacterId = cid;
+    if (!loadedId || boundServerId === cid) return;
+    bindServerId(loadedId, cid);
+    boundServerId = cid;
+  };
+  if (loadedId && loadedCharacterId) bindLoadedServerId(loadedCharacterId);
 
   const race = () => RACES.find(r => r.id === selRace);
   const cls = () => CLASSES.find(c => c.id === selClass);
@@ -818,5 +838,7 @@ export function mountChargen(root, view, net) {
     // R1-28：服务端快照确认「已创建」（mySheet 出现）后，把种族加点切为只读。
     // 使「首次保存成功」这一状态转换点即时生效（无需等玩家离开再进入房间）。
     setCreated(v) { v = !!v; if (v === created) return; created = v; renderStatRows(); },
+    // R1-35：服务端快照带回 characterId 时回写本地名册条目（与 applyServerIds 同源）。
+    setServerCharacterId: bindLoadedServerId,
   };
 }

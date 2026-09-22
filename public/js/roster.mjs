@@ -79,6 +79,18 @@ export function findByServerId(serverId) {
   return loadRoster().find(e => e && e.serverId === serverId) || null;
 }
 
+// 写入 serverId 的**唯一真源**（R1-35）：把服务端签发的 characterId 落到列表中的条目。
+// 只加字段 + 清 syncError，**非破坏**（不动其它字段、不删条目）。返回是否确有变更。
+// applyServerIds（批量迁移回执）与 bindServerId（房间流程单条回写）都经此 ⇒ 写入语义只有一份。
+function _bindServerId(list, rosterId, characterId) {
+  if (!rosterId || !characterId) return false;
+  const e = list.find(x => x && x.id === rosterId);
+  if (!e || e.serverId === characterId) return false;
+  e.serverId = characterId;
+  delete e.syncError;
+  return true;
+}
+
 // 迁移回执：把 serverId 写回本地条目（只加字段，非破坏）
 export function applyServerIds(map) {
   if (!map) return 0;
@@ -86,11 +98,22 @@ export function applyServerIds(map) {
   let n = 0;
   for (const e of list) {
     if (!e || !e.id) continue;
-    const cid = map[e.id];
-    if (cid && e.serverId !== cid) { e.serverId = cid; delete e.syncError; n++; }
+    if (_bindServerId(list, e.id, map[e.id])) n++;
   }
   if (n) save(list);
   return n;
+}
+
+// R1-35：房间流程内拿到服务端签发的 characterId 时，把它回写到**指定本地条目**的 serverId。
+// 与 applyServerIds 共用同一写入真源（_bindServerId）——**不新写第二份写入逻辑**。
+// 效果：① 换房/重登后 loadedCharacterId 有 serverId 可回落（服务端权威锁定生效）；
+//       ② restoreFromServer 的 have 集合能命中 ⇒ 不再 unshift 同名条目（消除重复）。
+export function bindServerId(rosterId, characterId) {
+  if (!rosterId || !characterId) return false;
+  const list = loadRoster();
+  const changed = _bindServerId(list, rosterId, String(characterId));
+  if (changed) save(list);
+  return changed;
 }
 
 // 迁移失败项：保留原卡 + 记原因（绝不删）
