@@ -211,8 +211,10 @@ async function main() {
     if (!c || c.width < 50) return false;
     const ctx = c.getContext('2d');
     const d = ctx.getImageData(0, 0, c.width, c.height).data;
+    // ART-3-A1：动态哨兵——背景基准取画面左上角像素（原硬编码 rgb(13,10,20) 在光照/暗角变更后会失配）
+    const bg = [d[0], d[1], d[2]];
     let nonBg = 0;
-    for (let i = 0; i < d.length; i += 16) { if (d[i] !== 13 || d[i + 1] !== 10 || d[i + 2] !== 20) nonBg++; }
+    for (let i = 0; i < d.length; i += 16) { if (d[i] !== bg[0] || d[i + 1] !== bg[1] || d[i + 2] !== bg[2]) nonBg++; }
     return nonBg > 500;
   });
   log('像素画布渲染正常:', canvasOk ? '✅' : '❌');

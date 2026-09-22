@@ -1,7 +1,8 @@
 // 像素渲染引擎：程序化tileset + 角色/怪物像素画（全部代码绘制，无图片资源）
 export const TILE = 16; // 逻辑像素
 
-function hash2(x, y, seed = 0) {
+// ART-3-A1：导出以复用为「确定性随机源」（替代 Math.random()，保证同种子同帧可复现）
+export function hash2(x, y, seed = 0) {
   let h = (x * 374761393 + y * 668265263 + seed * 1442695041) | 0;
   h = (h ^ (h >>> 13)) | 0;
   h = Math.imul(h, 1274126177);

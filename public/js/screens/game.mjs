@@ -1,6 +1,6 @@
 // 游戏主界面：像素画布 + 回合交互 + 战斗 + 对话 + 结算
 import { store, el, toast, saveCard } from '../app.mjs';
-import { TILE, drawTile, drawSprite, spritePalette, spriteToCanvas } from '../pixel.mjs';
+import { TILE, drawTile, drawSprite, spritePalette, spriteToCanvas, hash2 } from '../pixel.mjs';
 import { createPolicy, abilityNoResource } from '../../shared/autoplay-policy.mjs';
 import { markDeathByName, updateProgression } from '../roster.mjs';
 
@@ -1279,9 +1279,11 @@ export function mountGame(root, view) {
     grad.addColorStop(1, '#241a12');
     c2.fillStyle = grad;
     c2.fillRect(0, 0, cv.width, cv.height);
+    // ART-3-A1：星星位置/亮度改用确定性哈希（原 Math.random() 每帧重掷 ⇒ 基线不可复现）
     for (let i = 0; i < 40; i++) {
-      c2.fillStyle = 'rgba(255,255,230,' + (0.2 + Math.random() * 0.5).toFixed(2) + ')';
-      c2.fillRect(Math.floor(Math.random() * cv.width), Math.floor(Math.random() * cv.height * 0.5), 2, 2);
+      const ra = hash2(i, 101, 7), rx = hash2(i, 102, 7), ry = hash2(i, 103, 7);
+      c2.fillStyle = 'rgba(255,255,230,' + (0.2 + ra * 0.5).toFixed(2) + ')';
+      c2.fillRect(Math.floor(rx * cv.width), Math.floor(ry * cv.height * 0.5), 2, 2);
     }
     const fx = cv.width / 2, fy = cv.height - 96;
     for (let k = 0; k < 6; k++) {
@@ -1362,9 +1364,11 @@ export function mountGame(root, view) {
       c2.fillRect(0, 52, 96, 12);
       c2.fillStyle = '#4a3a2c';
       c2.fillRect(0, 52, 96, 2);
+      // ART-3-A1：同上——确定性哈希，保证同一冒险存档的高光配图可复现
       for (let i = 0; i < 16; i++) {
-        c2.fillStyle = 'rgba(255,190,90,' + (0.1 + Math.random() * 0.22).toFixed(2) + ')';
-        c2.fillRect(Math.floor(Math.random() * 96), Math.floor(Math.random() * 48), 2, 2);
+        const ra = hash2(i, 201, 7), rx = hash2(i, 202, 7), ry = hash2(i, 203, 7);
+        c2.fillStyle = 'rgba(255,190,90,' + (0.1 + ra * 0.22).toFixed(2) + ')';
+        c2.fillRect(Math.floor(rx * 96), Math.floor(ry * 48), 2, 2);
       }
       c2.imageSmoothingEnabled = false;
       const pal = spritePalette('player', 'human', me.sheet.colors || {});
