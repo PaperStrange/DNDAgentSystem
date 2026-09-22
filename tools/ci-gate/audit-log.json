@@ -218,6 +218,14 @@
       "expertCR": true,
       "evidence": "R1-34 SOP 基线工具跟进 R1-27 全员确认门：让 4 个 SOP 基线工具（tools/solo-probe.mjs / simulate/bots.mjs / simulate/e2e.mjs / tools/ui-check.mjs）按真实流程走确认门，抽单一真源 simulate/confirm-gate.mjs；产品代码零改动（只改 simulate/ 与 tools/）。受审对象 1c94b34（R1-34 分支 tip；其后仅一笔台账提交 edfa338 ⇒ 复核有效）。独立复核 ✅ PASS（复核人 quality-lead 严守真，非作者；报告 docs/pm/reviews/R1-34-CR-独立复核-20260922.md）。合并内容==受审对象：git diff --name-only 1c94b34 dda59a1 -- . ':(exclude)tools/ci-gate/audit-log.json' 为空（合并只多一笔台账）。合并经 --no-ff，双亲 = ad776f6(Z12) + edfa338（分支 tip；其为 ledger-only chore 回填 Z12=ad776f6）。Z13 净增（ad776f6..dda59a1 排除台账）= R1-34 的 5 文件（simulate/bots.mjs、simulate/confirm-gate.mjs[新]、simulate/e2e.mjs、tools/solo-probe.mjs、tools/ui-check.mjs）+132/−11。合并后 npm test = 173/173（team-lead 在 main 上独立重跑确认；release-ops-lead 亦独立复跑 173/173）。",
       "date": "2026-09-22"
+    },
+    {
+      "merge": "f5e86d7",
+      "subject": "fix(R1-35): merge characterId 回写本地名册 serverId（换房/重登后权威锁定生效 + 消除同名重复条目；携带 R1-37 收口）",
+      "author": "路远行",
+      "expertCR": true,
+      "evidence": "R1-35 服务端签发的 characterId 回写本地名册 serverId（换房/重登后权威锁定生效 + 消除同名重复条目）。受审对象 6bc3275（R1-35 分支 tip，其后仅一笔台账提交 551da2d ⇒ 复核有效）。独立复核 PASS（复核人 quality-lead，非作者；docs/pm/reviews/R1-35-CR-独立复核-20260922.md）——含单一真源核实（全文件唯一 e.serverId= 赋值点）、重复条目 A/B（2→1）、浏览器级换房继承 13/13（含出站 room:charsheet 载荷捕获 characterId，命中卡反例5）、三组行为级变异全 EXIT=1。R-11 经产品修复自然转绿且 ui-check 未改（git diff --name-only dda59a1..6bc3275 -- tools/ui-check.mjs 为空）。本笔携带 R1-37 收口（R1-37 定位证明 ui-check R-11 是 R1-35 的下游症状）。合并经 --no-ff，双亲 = dda59a1(Z13) + 551da2d。合并内容==受审对象：git diff --name-only 6bc3275 f5e86d7 -- . :(exclude)tools/ci-gate/audit-log.json 为空。Z14 净增（dda59a1..f5e86d7 排除台账）= R1-35 的 3 文件 +145/−4。合并后 npm test = 178/178（173 基线 + R1-35 新增 5；release-ops-lead 与 team-lead 各自独立复跑）。",
+      "date": "2026-09-23"
     }
   ],
   "_note": "台账必须位于受版本控制的位置；docs/ 被 .gitignore 排除，放那里 CI 读不到。",
