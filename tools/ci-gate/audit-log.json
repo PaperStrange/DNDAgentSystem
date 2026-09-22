@@ -192,7 +192,7 @@
       "subject": "fix(R1-30): merge randomSheet 全职业抛异常修复（处理次序改为 ATTRS 旋转派生）",
       "author": "游承峰",
       "expertCR": true,
-      "evidence": "R1-30 randomSheet 全职业抛异常修复：处理次序改为 ATTRS 旋转派生（修 4/5 职业漏 INT 抛异常）。受审对象 6e23d29（R1-30 分支 tip，其后无提交 ⇒ 复核有效）。独立复核 APPROVE 6/6（复核人 quality-lead-2，非作者；docs/pm/reviews/R1-30-CR-独立复核-20260920.md），复核独立全仓核实并定性「randomSheet 无调用点、实际影响=0」。合并经 --no-ff，双亲 = 7ea543b(Z9) + a375d33。合并内容==受审内容：R1-30 自身改动（6c8d674..6e23d29）= 3 文件 +196/−1，与 Z10 净增（7ea543b..a1eb61e）= 3 文件 +196/−1 逐文件逐行数一致 ⇒ 产品代码与受审对象一致（diff 6e23d29..a1eb61e 多出的 11 文件为 Z8/Z9 已复核内容，因 6e23d29 基线为 Z7）。合并后 npm test = 145/145（team-lead 在 main 上独立重跑确认）。执行人说明：release-ops-lead 会话不可恢复（重新派单无效，用户批准），本笔由 team-lead 代执行。",
+      "evidence": "R1-30 randomSheet 全职业抛异常修复：处理次序改为 ATTRS 旋转派生（修 4/5 职业漏 INT 抛异常）。受审对象 6e23d29（R1-30 分支 tip，其后无提交 ⇒ 复核有效）。独立复核 APPROVE 6/6（复核人 quality-lead-2，非作者；docs/pm/reviews/R1-30-CR-独立复核-20260920.md），复核独立全仓核实并定性「randomSheet 无调用点、实际影响=0」。合并经 --no-ff，双亲 = 7ea543b(Z9) + a375d33。合并内容==受审内容：R1-30 自身改动（6c8d674..6e23d29）= 3 文件 +196/−1，与 Z10 净增（7ea543b..a1eb61e）= 3 文件 +196/−1 逐文件逐行数一致 ⇒ 产品代码与受审对象一致（diff 6e23d29..a1eb61e 多出的 11 文件为 Z8/Z9 已复核内容，因 6e23d29 基线为 Z7）。合并后 npm test = 145/145（team-lead 在 main 上独立重跑确认）。执行人说明：Z10 的合并由 release-ops-lead 执行；该条台账回填由 team-lead 代执行（当时 release-ops-lead 未响应，用户批准）。",
       "date": "2026-09-20"
     },
     {
@@ -210,6 +210,14 @@
       "expertCR": true,
       "evidence": "R1-31 kickRoom/leaveRoom 抽统一成员移除（单一真源）+ snapshotFor 成员资格护栏。受审对象 5eda920（R1-31 分支受审 commit；父 = a1eb61e；diff a1eb61e..5eda920 = 4 文件 +389/−20）。独立对抗性复核 ✅ PASS（复核人 quality-lead 严守真，非作者；报告 docs/pm/reviews/R1-31-CR-独立复核-20260921.md）：两项核心缺陷（① kickRoom 漏清被踢者 roomCode；② snapshotFor 不校验成员资格）已真实修复，「统一移除单一真源」重构零回归，index.mjs 删本地兜底后依赖点安全；判定「可合并」。合并经 --no-ff，双亲 = 4344900(Z11) + 207de43(R1-31 分支 tip；其为 ledger-only chore 回填 Z11=4344900)。解冲突为语义并集（① charIds?.delete 下沉 _removeMember；② bindRegistry 扩 6 参；③ index.mjs 同步 6 实参；④ R1-33 夹具同步第 6 参），已由 quality-lead 独立验证「✅ 确认通过」（docs/pm/reviews/Z12-解冲突-独立验证-20260921.md；含 5eda920 与 4344900 均为 ad776f6 祖先的双向核验、6 参顺序逐一对应、全量回归 173/173 EXIT=0；附 1 项非阻塞保留：Z12 特有 charIds 清理无测试覆盖，缺口继承自 R1-33、非 Z12 引入）。Z12 净增（4344900..ad776f6 排除台账）= 5 文件（R1-31 的 4 文件：server/game/rooms.mjs、server/index.mjs、tests/r1-31/kick-server-e2e.test.mjs、tests/r1-31/member-removal.test.mjs + R1-33 夹具 tests/r1-33/server-authority.test.mjs）。合并后 npm test = 173/173（team-lead 与 quality-lead 在 main 上各自独立重跑确认）。执行人说明：release-ops-lead 当时未响应，本笔由 team-lead 代执行（用户批准）。",
       "date": "2026-09-21"
+    },
+    {
+      "merge": "dda59a1",
+      "subject": "fix(R1-34): merge SOP 基线工具跟进 R1-27 全员确认门（单一真源 simulate/confirm-gate.mjs）",
+      "author": "路远行",
+      "expertCR": true,
+      "evidence": "R1-34 SOP 基线工具跟进 R1-27 全员确认门：让 4 个 SOP 基线工具（tools/solo-probe.mjs / simulate/bots.mjs / simulate/e2e.mjs / tools/ui-check.mjs）按真实流程走确认门，抽单一真源 simulate/confirm-gate.mjs；产品代码零改动（只改 simulate/ 与 tools/）。受审对象 1c94b34（R1-34 分支 tip；其后仅一笔台账提交 edfa338 ⇒ 复核有效）。独立复核 ✅ PASS（复核人 quality-lead 严守真，非作者；报告 docs/pm/reviews/R1-34-CR-独立复核-20260922.md）。合并内容==受审对象：git diff --name-only 1c94b34 dda59a1 -- . ':(exclude)tools/ci-gate/audit-log.json' 为空（合并只多一笔台账）。合并经 --no-ff，双亲 = ad776f6(Z12) + edfa338（分支 tip；其为 ledger-only chore 回填 Z12=ad776f6）。Z13 净增（ad776f6..dda59a1 排除台账）= R1-34 的 5 文件（simulate/bots.mjs、simulate/confirm-gate.mjs[新]、simulate/e2e.mjs、tools/solo-probe.mjs、tools/ui-check.mjs）+132/−11。合并后 npm test = 173/173（team-lead 在 main 上独立重跑确认；release-ops-lead 亦独立复跑 173/173）。",
+      "date": "2026-09-22"
     }
   ],
   "_note": "台账必须位于受版本控制的位置；docs/ 被 .gitignore 排除，放那里 CI 读不到。",
