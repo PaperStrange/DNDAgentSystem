@@ -228,6 +228,14 @@
       "date": "2026-09-23"
     },
     {
+      "merge": "d77d225",
+      "subject": "fix(R1-38): merge characterId 不再消耗共享种子 RNG（恢复 R1-33 之前的种子流位置）",
+      "author": "游承峰",
+      "expertCR": true,
+      "evidence": "R1-38 characterId 不再消耗共享种子 RNG。受审对象 e2cc38c6033cadc67985b1977d51918b06382d51（R1-38 分支受审 commit；基线 main=dda59a1；范围恰 1 文件 server/characters.mjs +13/-2）。独立对抗性复核判定 CONCERNS、技术上可合并（复核人 quality-lead-2 严守真，非作者；报告 docs/pm/reviews/R1-38-CR-独立复核-20260922.md）：A 种子流等价性有保留（结构证据成立、solo-probe 日志证据不可靠，根因未定位但不阻塞通过性）、B 反向对照成立、C 外科式成立、D 范围无夹带成立、E 变异有牙成立、F 回归 npm test 173/173。合并经 --no-ff，双亲 = f5e86d7347ddbd18f4f5968b99b7789af12941fe(Z14) + 3d53fa0a923151c091c3840857be1970ac78971b(分支 tip)。合并内容==分支 tip：实测 git diff --name-only 3d53fa0 d77d225 -- . :(exclude)tools/ci-gate/audit-log.json 为空。Z15 净增（f5e86d7..d77d225 排除台账）= 恰 server/characters.mjs 1 文件 +13/-2，与复核报告声明范围逐字一致。分支 tip 由 e2cc38c 前进至 3d53fa0，其 delta 含产品代码，但均为【他人已复核并已合并】的 Z14/R1-35 内容（非 R1-38 作者新增）⇒ 依项目规则复核仍有效。本笔合并即 Sprint 1 收口 tip，已推送 origin/main。执行人说明：release-ops-lead 未响应，由 team-lead 代执行（用户批准）。台账补登说明：本条为 2026-09-24 补登（原漏登，导致 Z16 合并后 merge-audit 门禁将其判为缺失）。",
+      "date": "2026-09-23"
+    },
+    {
       "merge": "5234e33",
       "subject": "feat(ART-3-A1): merge B方向 Step2（draw 三段/光照层/面部规则/暗角分平台 + 确定性探针）",
       "author": "游承峰",
