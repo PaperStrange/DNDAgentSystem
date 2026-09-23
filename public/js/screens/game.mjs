@@ -57,11 +57,19 @@ export function mountGame(root, view) {
   const sfxBtn = el('button', 'btn small', '🔊');
   sfxBtn.title = '音效开关';
   sfxBtn.onclick = () => { g.sfx = !g.sfx; sfxBtn.textContent = g.sfx ? '🔊' : '🔇'; };
-  // ART-3-A1 §6.7/§9：光照强度（完整/减弱/关闭）+ 暗角（开/关）——可访问性硬要求，默认「完整+开」，一处点击可达
+  // ART-3-A1 §6.7/§9：光照强度（完整/减弱/关闭）+ 暗角（开/关）——可访问性硬要求，一处点击可达
+  // §6.6：暗角默认值分平台——桌面首访默认「开」，移动端首访默认「关」；
+  //   用户一旦显式设置过（localStorage 存在 dnd_vignette）则一律以用户设置为准，不再按平台覆盖。
   const LIGHT_MODES = ['full', 'dim', 'off'];
   const LIGHT_LABEL = { full: '💡 光照·完整', dim: '💡 光照·减弱', off: '💡 光照·关闭' };
-  let lightMode = 'full', vignetteOn = true;
-  try { const v = localStorage.getItem('dnd_light_mode'); if (LIGHT_MODES.includes(v)) lightMode = v; if (localStorage.getItem('dnd_vignette') === '0') vignetteOn = false; } catch (e) { /* 隐私模式 */ }
+  // 移动端判定：CSS 媒体查询 (pointer: coarse) —— 直接表达「触屏为主」的输入语义，
+  //   不依赖易变/可伪造的 UA 串，也不会把「窄窗口的桌面」误判为移动端（鼠标 = fine pointer）。
+  const isCoarsePointer = (() => { try { return matchMedia('(pointer: coarse)').matches; } catch (e) { return false; } })();
+  let lightMode = 'full', vignetteOn = !isCoarsePointer; // 桌面首访=开，移动端首访=关
+  try {
+    const v = localStorage.getItem('dnd_light_mode'); if (LIGHT_MODES.includes(v)) lightMode = v;
+    const vig = localStorage.getItem('dnd_vignette'); if (vig === '0') vignetteOn = false; else if (vig === '1') vignetteOn = true; // 用户显式设置优先
+  } catch (e) { /* 隐私模式 */ }
   const lightBtn = el('button', 'btn small', LIGHT_LABEL[lightMode]);
   lightBtn.title = '光照强度：完整 / 减弱 / 关闭（关闭=战场全亮，策略读图更清晰）';
   lightBtn.onclick = () => {
