@@ -226,6 +226,14 @@
       "expertCR": true,
       "evidence": "R1-35 服务端签发的 characterId 回写本地名册 serverId（换房/重登后权威锁定生效 + 消除同名重复条目）。受审对象 6bc3275（R1-35 分支 tip，其后仅一笔台账提交 551da2d ⇒ 复核有效）。独立复核 PASS（复核人 quality-lead，非作者；docs/pm/reviews/R1-35-CR-独立复核-20260922.md）——含单一真源核实（全文件唯一 e.serverId= 赋值点）、重复条目 A/B（2→1）、浏览器级换房继承 13/13（含出站 room:charsheet 载荷捕获 characterId，命中卡反例5）、三组行为级变异全 EXIT=1。R-11 经产品修复自然转绿且 ui-check 未改（git diff --name-only dda59a1..6bc3275 -- tools/ui-check.mjs 为空）。本笔携带 R1-37 收口（R1-37 定位证明 ui-check R-11 是 R1-35 的下游症状）。合并经 --no-ff，双亲 = dda59a1(Z13) + 551da2d。合并内容==受审对象：git diff --name-only 6bc3275 f5e86d7 -- . :(exclude)tools/ci-gate/audit-log.json 为空。Z14 净增（dda59a1..f5e86d7 排除台账）= R1-35 的 3 文件 +145/−4。合并后 npm test = 178/178（173 基线 + R1-35 新增 5；release-ops-lead 与 team-lead 各自独立复跑）。",
       "date": "2026-09-23"
+    },
+    {
+      "merge": "5234e33",
+      "subject": "feat(ART-3-A1): merge B方向 Step2（draw 三段/光照层/面部规则/暗角分平台 + 确定性探针）",
+      "author": "游承峰",
+      "expertCR": true,
+      "evidence": "ART-3-A1 B方向 Step2：draw 三段重构/光照层/面部规则/暗角分平台 + 确定性探针（art-shot/画布 SHA-256 判据）。受审对象 348a4c042f5fe930787134cdcda213bbe110e7cd（= R1-26-chengjiyan tip；实测 git diff --name-only 348a4c0 R1-26-chengjiyan 为空 ⇒ 分支 tip 与受审对象逐字一致，复核有效）。独立对抗性复核判定 CONCERNS 可合并（复核人 quality-lead 严守真，非作者；报告 docs/pm/reviews/ART-3-CR-独立复核-20260924.md；核心判据 A/B/C/D/F 全部成立，另 4 项须在合并说明/后续 Step 落实，非本笔阻塞）。合并经 --no-ff，双亲 = d77d22525410f1c761515fd5ac2ed515d32a5149(Z15) + 348a4c042f5fe930787134cdcda213bbe110e7cd。合并内容==受审对象：实测 git diff --name-only 348a4c0 5234e338574ac2ee8a87327c1198eb9646510b21 -- . ':(exclude)tools/ci-gate/audit-log.json' 为空（合并只多台账）。Z16 净增（d77d225..5234e33 排除台账）= 6 文件 +750/-179：public/js/pixel.mjs、public/js/screens/game.mjs、simulate/e2e.mjs、tests/art/face-rules.test.mjs[新]、tools/art-shot.mjs[新]、tools/canvas-probe.mjs。合并后 npm test 连跑 3 次实测：2 次 184/184 全部通过，1 次 178/184。对那 6 项失败（tests/r1-27/offline-remove.test.mjs F1 G1-G4 / tests/r1-31/kick-server-e2e.test.mjs / tests/r1-33/e2e-authority.test.mjs）已定位根因并【推翻初判】：失败块为 failureType=hookFailed、error=「服务端未在 15000ms 内就绪」、且 --- server log --- 完全为空 ⇒ 子进程一行日志未输出即消失。同环境实测 node 无法 spawn 任何子进程（execFileSync git / git.exe / execSync shell 均 EBUSY），且单文件连跑 6 轮 6/6 全过、仅三文件并行时偶发 ⇒ 归因为【执行环境间歇拒绝 spawn 子进程】，非产品缺陷、非套件缺陷、与本笔无因果（依赖面另核：三文件仅 import node 内置 + ws，不使用浏览器、不引用本笔改动的任一文件）。故本笔不因该现象阻塞；台账如实记录该环境现象，不据此对产品侧立卡。执行人说明：release-ops-lead 三轮无响应，本笔由 team-lead 代执行（用户批准；先例 Z11=4344900 / Z12=ad776f6 / Z14=f5e86d7 均同）。",
+      "date": "2026-09-24"
     }
   ],
   "_note": "台账必须位于受版本控制的位置；docs/ 被 .gitignore 排除，放那里 CI 读不到。",
