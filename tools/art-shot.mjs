@@ -35,6 +35,15 @@ server.stderr.on('data', d => process.stderr.write('[srv] ' + d));
 const sleep = (ms) => new Promise(r => setTimeout(r, ms));
 let browser = null;
 
+// 等服务器就绪（并发任务下 3899 可能启动偏慢）——最多等 30s
+async function waitServer(url, tries = 60) {
+  for (let i = 0; i < tries; i++) {
+    try { const r = await fetch(url); if (r.ok) return true; } catch (e) { /* 未就绪 */ }
+    await sleep(500);
+  }
+  return false;
+}
+
 const manifest = { tag: TAG, seed: SEED, viewport: { w: VW, h: VH }, freezeMs: FREEZE, generatedAt: new Date().toISOString(), shots: [], errors: [], degraded: false };
 
 async function shoot(page, name, extra = {}) {
@@ -42,22 +51,41 @@ async function shoot(page, name, extra = {}) {
   await page.screenshot({ path });
   let stat = null;
   try {
-    stat = await page.evaluate(() => {
+    stat = await page.evaluate(async () => {
       const c = document.getElementById('game-canvas');
       if (!c || c.width < 50) return null;
-      const d = c.getContext('2d').getImageData(0, 0, c.width, c.height).data;
+      const ctx = c.getContext('2d');
+      const d = ctx.getImageData(0, 0, c.width, c.height).data;
       const freq = new Map(); let total = 0, maxN = 0;
       for (let i = 0; i < d.length; i += 4) {
         const key = (d[i] << 16) | (d[i + 1] << 8) | d[i + 2];
         const n = (freq.get(key) || 0) + 1; freq.set(key, n); if (n > maxN) maxN = n; total++;
       }
-      return { distinctColors: freq.size, dominantPct: +(100 * maxN / total).toFixed(2) };
+      // ⭐ 判据复验用：对**画布像素**做 SHA-256（页面截图含日志时间戳等非画布元素 ⇒ 不可用于逐像素比对）
+      let canvasSha = '';
+      try {
+        const bytes = new Uint8Array(d.buffer, d.byteOffset, d.byteLength);
+        const digest = await crypto.subtle.digest('SHA-256', bytes);
+        canvasSha = [...new Uint8Array(digest)].map(b => b.toString(16).padStart(2, '0')).join('').slice(0, 16);
+      } catch (e) { canvasSha = 'unavailable'; }
+      // 诊断：游戏态（实体坐标/相机/浮字）
+      const v = (window.__e2e && window.__e2e.view) ? window.__e2e.view() : null;
+      const gv = v && v.game;
+      const cam = (window.__e2e && window.__e2e.cam) ? window.__e2e.cam() : null;
+      return {
+        distinctColors: freq.size, dominantPct: +(100 * maxN / total).toFixed(2),
+        canvasSha, canvasW: c.width, canvasH: c.height,
+        ents: gv ? gv.entities.map(e => e.eid.slice(-5) + '@' + e.x + ',' + e.y).join('|') : '',
+        cam: cam ? cam.x.toFixed(4) + ',' + cam.y.toFixed(4) : '',
+        floaters: (window.__e2e && window.__e2e.floaters) ? window.__e2e.floaters().length : -1,
+        autoplay: (window.__e2e && window.__e2e.debug) ? window.__e2e.debug().autoplay : '?',
+      };
     });
   } catch (e) { /* 非游戏页（大厅/房间）无画布 */ }
   const sha = createHash('sha256').update(readFileSync(path)).digest('hex').slice(0, 16);
   const rec = { name, file: name + '.png', sha256_16: sha, ...extra, ...(stat || {}) };
   manifest.shots.push(rec);
-  log('  📷 ' + name + '  sha=' + sha + (stat ? '  distinct=' + stat.distinctColors + ' 最常色=' + stat.dominantPct + '%' : ''));
+  log('  📷 ' + name + '  sha=' + sha + (stat ? '  distinct=' + stat.distinctColors + ' 最常色=' + stat.dominantPct + '%' : '') + (stat && stat.cam ? '  canvasSha=' + stat.canvasSha + ' (' + stat.canvasW + 'x' + stat.canvasH + ')  cam=' + stat.cam + ' autoplay=' + stat.autoplay + '  ents=' + stat.ents : ''));
   return rec;
 }
 
@@ -78,7 +106,8 @@ async function login(page, name) {
 }
 
 async function main() {
-  await sleep(1500);
+  const ready = await waitServer('http://localhost:' + PORT + '/');
+  if (!ready) { console.error('ART-SHOT: 服务器未就绪（30s 超时）'); server.kill(); process.exit(3); }
   browser = await chromium.launch();
   const page = await browser.newPage({ viewport: { width: VW, height: VH } });
   page.on('pageerror', e => manifest.errors.push('pageerror: ' + e.message));
@@ -113,11 +142,23 @@ async function main() {
   await cbtn.first().waitFor({ state: 'visible', timeout: 30000 });
   await cbtn.first().click();
   await waitPagePhase(page, isGameStarted, 30000, '确认门放行（playing）');
-  await page.waitForTimeout(1500);
+  // ⭐ 判据复验关键：**立即关闭自动游玩**——否则单人对局会实时自行推进（实测 ~1.3s 内已换图/换实体），
+  //    导致「同 seed 两次渲染」不可比。关掉后对局停在玩家回合，状态静止 ⇒ 冻结时间才真正冻结画面。
+  await page.evaluate(() => { try { window.__e2e && window.__e2e.setAutoplay(false); } catch (e) {} });
+  await page.waitForTimeout(1200);
 
   // 关闭开场覆盖层（若存在）
   const intro = page.locator('.overlay-card button:has-text("开始冒险")');
   if (await intro.count()) { await intro.first().click(); await page.waitForTimeout(800); }
+
+  // 预热：等画布尺寸稳定（日志面板增长会触发 ResizeObserver ⇒ lightmap 尺寸重建的启动瞬态）
+  let prevW = 0, prevH = 0;
+  for (let i = 0; i < 12; i++) {
+    const dim = await page.evaluate(() => { const c = document.getElementById('game-canvas'); return c ? [c.width, c.height] : [0, 0]; });
+    if (dim[0] === prevW && dim[1] === prevH && dim[0] > 50) break;
+    prevW = dim[0]; prevH = dim[1];
+    await page.waitForTimeout(300);
+  }
 
   // 冻结时间 + 等收敛（旧分支无钩子 ⇒ 降级）
   const hasFreeze = await page.evaluate(() => !!(window.__e2e && window.__e2e.setFixedTime));
@@ -153,6 +194,10 @@ async function main() {
       await page.evaluate(() => window.__e2e.setAmbientFloor(null)); // 恢复内置下限
       await page.waitForTimeout(200);
     }
+    // 判据复验：同一次运行内**重复**采集 full ⇒ 区分「运行内稳定」与「跨运行微差」
+    await page.evaluate(() => window.__e2e.setLightMode('full'));
+    await page.waitForTimeout(400);
+    await shoot(page, '08-game-light-full-repeat', { scene: '游戏·光照完整（重复采集·判据复验）' });
   }
 
   writeFileSync(join(SHOTS, 'manifest-' + TAG + '.json'), JSON.stringify(manifest, null, 2), 'utf8');
