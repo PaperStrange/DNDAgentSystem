@@ -1,7 +1,8 @@
 // 像素渲染引擎：程序化tileset + 角色/怪物像素画（全部代码绘制，无图片资源）
 export const TILE = 16; // 逻辑像素
 
-function hash2(x, y, seed = 0) {
+// ART-3-A1：导出以复用为「确定性随机源」（替代 Math.random()，保证同种子同帧可复现）
+export function hash2(x, y, seed = 0) {
   let h = (x * 374761393 + y * 668265263 + seed * 1442695041) | 0;
   h = (h ^ (h >>> 13)) | 0;
   h = Math.imul(h, 1274126177);
@@ -235,17 +236,20 @@ export function drawTile(ctx, type, x, y, t = 0, theme = null) {
 }
 
 // ---------- 精灵 ----------
-// 通用人形 12x16，字符: o描边 s皮肤 S皮肤阴影 h头发 H头发高光 u上衣 U上衣高光
-// d深色/腰带 w金属/牙 e眼白 p瞳孔
-const HUMANOID = [
+// 通用人形 12x16。字符: o描边 s皮肤 S皮肤暗 T皮肤高光 q皮肤暗深 h头发 H头发高光
+//   u上衣 U上衣高光 d深色/腰带 w金属/牙 e眼白 p瞳孔
+// ART-3-A1 T2（§4.2 面部部件网格）：rows1-7 = 面部画布
+//   row2 额高光(T) / row3 发际(h，仅1行) / row4 眉+鬓 / row5 眼(§4.3) / row6 鼻+颊(无 o) / row7 口(q/d)+下颌
+// ART-3-A1 §4.6：导出面部网格供「可辨识度验收规则」自动化测试（纯只读，无副作用）
+export const HUMANOID = [
   '....oooo....',
   '...osssso...',
-  '..osssssso..',
-  '..ohhhHHho..',
+  '..osTssTso..',
   '..ohhhhhho..',
-  '.oeeeppeeeo.',
-  '...ososo....',
-  '....oooo....',
+  '..ohssssho..',
+  '.oeepSSppeo.',
+  '..osSsSsso..',
+  '...odqqdo...',
   '..ouuuuuuo..',
   '.oUuuuuuUo..',
   '.oUuuuuuUo..',
@@ -255,18 +259,18 @@ const HUMANOID = [
   '..oouooouo..',
   '..oddoooddo.',
 ];
-// 种族特征网格（R-3）：不同种族有专属造型
-const RACE_GRIDS = {
+// 种族特征网格（R-3 + ART-3-A1 §4.5）：共享面部语法（rows1-7），每族 1-2 处专属特征
+export const RACE_GRIDS = {
   human: HUMANOID,
-  elf: [
+  elf: [ // 尖耳(row1 加宽) + 无面纹
     '....oooo....',
-    '...osssso...',
-    '..osssssso..',
-    '.oohhhHHhoo.',
-    '.oohhhhhhoo.',
-    '.oeeeppeeeo.',
-    '...osssso...',
-    '....oooo....',
+    '.osssssssso.',
+    '..osTssTso..',
+    '..ohhhhhho..',
+    '..ohssssho..',
+    '.oeepSSppeo.',
+    '..osSsSsso..',
+    '...odqqdo...',
     '..ouuuuuuo..',
     '.oUuuuuuUo..',
     '.oUuuuuuUo..',
@@ -276,15 +280,15 @@ const RACE_GRIDS = {
     '..oouooouo..',
     '..oddoooddo.',
   ],
-  dwarf: [
+  dwarf: [ // 眉压低(row4 亦为发色) + 鼻加宽(row6)
     '....oooo....',
     '...osssso...',
-    '..osssssso..',
-    '..ohhhHHho..',
-    '..ohhhhhho..',
-    '.oeeeppeeeo.',
+    '..osTssTso..',
     '..ohhhhhho..',
     '..ohhhhhho..',
+    '.oeepSSppeo.',
+    '..osSSSSso..',
+    '...odqqdo...',
     '.oouuuuuuo..',
     '.oUuuuuuUo..',
     '.oUuuuuuUo..',
@@ -294,15 +298,15 @@ const RACE_GRIDS = {
     '..oddoooddo.',
     '............',
   ],
-  halfling: [
+  halfling: [ // 脸圆(row1 更宽) + 下颌短
     '....oooo....',
-    '...osssso...',
     '..osssssso..',
+    '..osTssTso..',
     '..ohhhhhho..',
-    '..ohHHhhho..',
-    '.oeeeppeeeo.',
-    '...osssso...',
-    '....oooo....',
+    '..ohssssho..',
+    '.oeepSSppeo.',
+    '..osSsSsso..',
+    '....oddo....',
     '..ouuuuuuo..',
     '.oUuuuuuUo..',
     '.oUuuuuuUo..',
@@ -312,15 +316,15 @@ const RACE_GRIDS = {
     '..oddoooddo.',
     '............',
   ],
-  halforc: [
+  halforc: [ // 下颌加宽 + 獠牙(w)
     '....oooo....',
     '...osssso...',
-    '..osssssso..',
+    '..osTssTso..',
     '..ohhhhhho..',
-    '..ohhhHHho..',
-    '.oeeeppeeeo.',
-    '..oswsswso..',
-    '....oooo....',
+    '..ohssssho..',
+    '.oeepSSppeo.',
+    '..osSsSsso..',
+    '..odwqqwdo..',
     '..ouuuuuuo..',
     '.oUuuuuuUo..',
     '.oUuuuuuUo..',
@@ -330,15 +334,15 @@ const RACE_GRIDS = {
     '..oouooouo..',
     '..oddoooddo.',
   ],
-  dragonborn: [
+  dragonborn: [ // 无眉(row4 用鳞色 S) + 吻部突出(row6 加宽)
     '....oooo....',
-    '.o..osso..o.',
-    '..osssssso..',
-    '..osssssso..',
-    '..osssssso..',
-    '.oeeeppeeeo.',
-    '..osssssso..',
-    '....oooo....',
+    '...osssso...',
+    '..osTssTso..',
+    '..ohhhhhho..',
+    '..oSssssSo..',
+    '.oeepSSppeo.',
+    '..osSSSSso..',
+    '...odqqdo...',
     '..ouuuuuuo..',
     '.oUuuuuuUo..',
     '.oUuuuuuUo..',
@@ -348,15 +352,15 @@ const RACE_GRIDS = {
     '..oouooouo..',
     '..oddoooddo.',
   ],
-  gnome: [
-    '.....oo.....',
-    '....ohho....',
-    '...ohhhho...',
+  gnome: [ // 头大(row0/1) + 下颌短
+    '...oooooo...',
+    '..osssssso..',
+    '..osTssTso..',
     '..ohhhhhho..',
-    '..ohhhHHho..',
-    '.oeeeppeeeo.',
-    '...osssso...',
-    '....oooo....',
+    '..ohssssho..',
+    '.oeepSSppeo.',
+    '..osSsSsso..',
+    '....oddo....',
     '..ouuuuuuo..',
     '.oUuuuuuUo..',
     '.oUuuuuuUo..',
@@ -366,15 +370,15 @@ const RACE_GRIDS = {
     '..oddoooddo.',
     '............',
   ],
-  halfelf: [
+  halfelf: [ // human↔elf 之间：微耳(row1)
     '....oooo....',
-    '...osssso...',
-    '..osssssso..',
-    '..ohhhHHho..',
-    '.oohhhhhhoo.',
-    '.oeeeppeeeo.',
-    '...osssso...',
-    '....oooo....',
+    '.oosssssoo..',
+    '..osTssTso..',
+    '..ohhhhhho..',
+    '..ohssssho..',
+    '.oeepSSppeo.',
+    '..osSsSsso..',
+    '...odqqdo...',
     '..ouuuuuuo..',
     '.oUuuuuuUo..',
     '.oUuuuuuUo..',
@@ -430,6 +434,84 @@ const SKELETON = [
   '..ow..wo....',
 ];
 
+// ART-3-A1 §3.2：怪物剪影族模板（解决"换色人形"）——每族一个专属网格
+// 小型人形（goblin 系）10×13：头大身小、弓背、短腿
+const GOBLIN = [
+  '...oooo...',
+  '..osssso..',
+  '..osssso..',
+  '..oepSpeo.',
+  '..osssso..',
+  '..ouuuuo..',
+  '.ouuuuuuo.',
+  '.ouuuuuuo.',
+  '.ouuuuuuo.',
+  '..ouuuuo..',
+  '..o.oo.o..',
+  '..o....o..',
+  '..o....o..',
+];
+// 壮硕人形（orc 系）13×17：宽肩、长臂、方下颌
+const BRUTE = [
+  '.....ooo.....',
+  '....osssso...',
+  '...osssssso..',
+  '...oeeppeo...',
+  '...ossssso...',
+  '..oouuuuuoo..',
+  '.oouuuuuuuoo.',
+  '.ouuuuuuuuuo.',
+  '.ouuuuuuuuuo.',
+  '.ouuuuuuuuuo.',
+  '.ouuuuuuuuuo.',
+  '.ouduuuuuduo.',
+  '..ouuuuuuuo..',
+  '..ouuoooouu..',
+  '..ouo...ouo..',
+  '..oo.....oo..',
+  '..o.......o..',
+];
+// 不死（undead）12×16：垂臂、歪头（配色随 defKey 变）
+const ZOMBIE = [
+  '....oooo....',
+  '...osssso...',
+  '..osssssso..',
+  '..osSsSsso..',
+  '.oeepSSppeo.',
+  '..osssssso..',
+  '...odqdo....',
+  '..ouuuuuuo..',
+  '.ouuuuuuuuo.',
+  '.ouuuuuuuuo.',
+  '.ouuuuuuuuo.',
+  '.ouduuuuduo.',
+  '..ouuuuuuo..',
+  '..ouuoouuo..',
+  '..oo...oo...',
+  '..o.....o...',
+];
+// 异形（aberration / BOSS）14×18：多眼、触须、非人比例
+const ABERRATION = [
+  '.....oooo.....',
+  '....osssso....',
+  '...osssssso...',
+  '..osesssseso..',
+  '..osssssssso..',
+  '..oeppppppeo..',
+  '..osssssssso..',
+  '...osssssso...',
+  '....oooooo....',
+  '..ouuuuuuuuo..',
+  '.ouuuuuuuuuuo.',
+  '.ouuuuuuuuuuo.',
+  '.ouuuuuuuuuuo.',
+  '.ouuuuuuuuuuo.',
+  '.ouduuuuuuudo.',
+  '..ouuuuuuuuo..',
+  '..ouu.oo.uuuo.',
+  '..oo......oo..',
+];
+
 const CLASS_TWEAK = {
   // F-21：职业头饰不再遮住发色行（保留第4~5行头发），头盔饰条用饰色U展示，颜色区分更明显
   fighter: (g) => [g[0], g[1], '..oUUUUUo..', '..owwwwwo..', g[4], g[5], g[6], g[7], '.owuuuuuwo.', g[9], g[10], g[11], g[12], g[13], g[14], g[15]],
@@ -482,19 +564,36 @@ function lighten(hex, amt = 38) {
   const r = Math.min(255, ((n >> 16) & 255) + amt), g = Math.min(255, ((n >> 8) & 255) + amt), b = Math.min(255, (n & 255) + amt);
   return '#' + [r, g, b].map(c => c.toString(16).padStart(2, '0')).join('');
 }
-// 为任意基础调色板补齐阴影/高光/瞳孔
+
+// ART-3-A1 T2（§2.3）：按「相对明度」派生明暗阶——相邻阶的相对明度差可控（目标 ≥12%）
+function relLum(hex, pct) {
+  const n = parseInt(hex.slice(1), 16);
+  const r = (n >> 16) & 255, g = (n >> 8) & 255, b = n & 255;
+  const L = 0.2126 * r + 0.7152 * g + 0.0722 * b;
+  const target = Math.max(0, Math.min(255, L * (1 + pct)));
+  const k = L > 0 ? target / L : 0;
+  const f = (v) => Math.max(0, Math.min(255, Math.round(v * k)));
+  return '#' + [f(r), f(g), f(b)].map(c => c.toString(16).padStart(2, '0')).join('');
+}
+
+// 为任意基础调色板补齐 **4 阶明暗**（§2.3：暗深 q / 暗 S / 基 s / 高光 T）+ 瞳孔
 function withShades(pal) {
+  const s = pal.s || '#e8b88a';
+  const e = pal.e || '#e6e6ea';
   return {
     ...pal,
-    S: pal.S || shade(pal.s || '#e8b88a'),
-    H: pal.H || lighten(pal.h || '#5b3a1e'),
-    U: pal.U || lighten(pal.u || '#4a6b8a'),
-    p: pal.p || '#2a2430',
+    e,
+    S: pal.S || relLum(s, -0.18),   // 暗阶
+    q: pal.q || relLum(s, -0.32),   // 暗深（§2.3 新增）
+    T: pal.T || relLum(s, +0.14),   // 高光（§2.3 新增）
+    H: pal.H || relLum(pal.h || '#5b3a1e', +0.30),
+    U: pal.U || relLum(pal.u || '#4a6b8a', +0.30),
+    p: pal.p || relLum(e, -0.55),   // 瞳孔：眼色的暗阶 ⇒ 与轮廓 o 不再同色（修 D2）
   };
 }
 
 const PALETTES = {
-  player: (colors) => withShades({ o: '#2a2430', s: colors.skin, h: colors.hair, u: colors.outfit, d: shade(colors.outfit), w: '#cfd6e4', e: '#f0f0f0' }),
+  player: (colors) => withShades({ o: '#2a2430', s: colors.skin, h: colors.hair, u: colors.outfit, d: shade(colors.outfit), w: '#cfd6e4', e: '#e6e6ea' }),
   goblin: { o: '#2a2430', s: '#7a9a3a', h: '#5a7a2a', u: '#6a4a2e', d: '#4a3a22', w: '#cfd6e4', e: '#ffd040' },
   wolf: { o: '#2a2430', s: '#6a6a72', h: '#6a6a72', u: '#4a4a52', d: '#3a3a42', w: '#cfd6e4', e: '#ffd040' },
   klarg: { o: '#2a2430', s: '#8a6a3a', h: '#5a4322', u: '#6a4a2e', d: '#4a3a22', w: '#cfd6e4', e: '#ff4040' },
@@ -523,7 +622,12 @@ function shade(hex) {
   return '#' + [r, g, b].map(c => c.toString(16).padStart(2, '0')).join('');
 }
 
-const MONSTER_GRID = { goblin: null, wolf: WOLF, skeleton: SKELETON, giantspider: SPIDER, nezznar: null };
+// ART-3-A1 §3.2：按剪影族映射（不再落 HUMANOID 换色人形）
+const MONSTER_GRID = {
+  goblin: GOBLIN, wolf: WOLF, skeleton: SKELETON, giantspider: SPIDER, nezznar: ABERRATION,
+  hobgoblin: BRUTE, bugbear: BRUTE, grol: BRUTE, klarg: BRUTE, ruffian: BRUTE, glasstaff: BRUTE,
+  doppelganger: ABERRATION, zombie: ZOMBIE,
+};
 
 export function spritePalette(kind, defKey, colors) {
   if (kind === 'player') return PALETTES.player(colors || { skin: SKIN_TONES[0], hair: HAIR_TONES[0], outfit: OUTFIT_TONES[0] });
@@ -534,12 +638,12 @@ export function spritePalette(kind, defKey, colors) {
 // S1-1：捏脸系统扩展——8发型/5胡须/4眉型/3唇部/4纹饰，通用像素变换
 export function applyLook(grid, palette, look) {
   const rows = grid.map(r => r.split(''));
-  if (look.eye) palette = { ...palette, e: look.eye };
+  if (look.eye) palette = { ...palette, p: look.eye }; // §4.3：瞳色=虹膜色（p）；眼白 e 保持亮色（修 D2）
   if (look.accent) palette = { ...palette, U: look.accent };
   const hairRows = [];
   for (let i = 0; i < rows.length; i++) if (rows[i].filter(c => c === 'h' || c === 'H').length >= 3) hairRows.push(i);
   const eyeRow = rows.findIndex(r => r.includes('e'));
-  const mouthRow = eyeRow >= 0 ? eyeRow + 1 : -1;
+  const mouthRow = eyeRow >= 0 ? eyeRow + 2 : -1; // §4.2：口在眼下方第 2 行（眼5→鼻6→口7）
   if (hairRows.length) {
     const first = hairRows[0], last = hairRows[hairRows.length - 1];
     const cols = [];
@@ -577,10 +681,11 @@ export function applyLook(grid, palette, look) {
           if (rightCol + 1 < rows[r].length) rows[r][rightCol + 1] = 'h';
         }
       }
-    } else if (hairStyle === 6) { // 蓬松：左右各扩1px
+    } else if (hairStyle === 6) { // 蓬松：左右各扩1px（ART-3-A1：可覆盖剪影外侧 o——轮廓由 drawSprite 洪泛重建，故扩宽有效）
       for (const i of hairRows) {
-        if (leftCol - 1 >= 0 && rows[i][leftCol - 1] === '.') rows[i][leftCol - 1] = 'h';
-        if (rightCol + 1 < rows[i].length && rows[i][rightCol + 1] === '.') rows[i][rightCol + 1] = 'h';
+        const l = rows[i][leftCol - 1], r = rows[i][rightCol + 1];
+        if (leftCol - 1 >= 0 && (l === '.' || l === 'o')) rows[i][leftCol - 1] = 'h';
+        if (rightCol + 1 < rows[i].length && (r === '.' || r === 'o')) rows[i][rightCol + 1] = 'h';
       }
     } else if (hairStyle === 7) { // 背头：发色行后移，露出额头
       for (const i of hairRows) {
@@ -593,32 +698,25 @@ export function applyLook(grid, palette, look) {
       }
     }
   }
-  // S1-1：胡须扩展（5种）
+  // S1-1：胡须扩展（5种）——ART-3-A1：基准行随新面部下移（口行 mouthRow）
   const beardType = look.beard || 0;
   if (beardType > 0 && eyeRow >= 0) {
     const mid = Math.floor(rows[eyeRow].length / 2);
-    if (beardType === 1) { // 短须：row eyeRow+1 中央3-4px
-      const r = mouthRow;
-      if (r > 0 && r < rows.length) for (let c = mid - 1; c <= mid + 1; c++) if (rows[r][c] !== undefined && rows[r][c] !== '.' && rows[r][c] !== 'o') rows[r][c] = 'h';
-    } else if (beardType === 2) { // 长须：row eyeRow+1 到 eyeRow+3 中央4-5px
-      for (let k = 1; k <= 3; k++) {
-        const r = eyeRow + k;
-        if (r < rows.length) { const w = k <= 2 ? 2 : 1; for (let c = mid - w; c <= mid + w; c++) if (rows[r][c] !== undefined && rows[r][c] !== '.' && rows[r][c] !== 'o') rows[r][c] = 'h'; }
+    const put = (r, c) => { if (r >= 0 && r < rows.length && c >= 0 && c < rows[r].length && rows[r][c] !== '.' && rows[r][c] !== 'o') rows[r][c] = 'h'; };
+    if (beardType === 1) { // 短须：口行中央3px
+      for (let c = mid - 1; c <= mid + 1; c++) put(mouthRow, c);
+    } else if (beardType === 2) { // 长须：口行 + 下方 2 行
+      for (let k = 0; k <= 2; k++) { const w = k === 0 ? 2 : 1; for (let c = mid - w; c <= mid + w; c++) put(mouthRow + k, c); }
+    } else if (beardType === 3) { // 络腮：颊侧(上1行起) + 中央连接
+      for (let k = -1; k <= 2; k++) {
+        const r = mouthRow + k;
+        for (let c = mid - 3; c <= mid - 1; c++) put(r, c);
+        for (let c = mid + 1; c <= mid + 3; c++) put(r, c);
+        if (k >= 0) for (let c = mid - 1; c <= mid + 1; c++) put(r, c);
       }
-    } else if (beardType === 3) { // 络腮：两侧+中央连接
-      for (let k = 0; k <= 2; k++) {
-        const r = eyeRow + k;
-        if (r < rows.length) {
-          for (let c = mid - 3; c <= mid - 1; c++) if (rows[r][c] !== undefined && rows[r][c] !== '.' && rows[r][c] !== 'o') rows[r][c] = 'h';
-          for (let c = mid + 1; c <= mid + 3; c++) if (rows[r][c] !== undefined && rows[r][c] !== '.' && rows[r][c] !== 'o') rows[r][c] = 'h';
-          if (k >= 1) for (let c = mid - 1; c <= mid + 1; c++) if (rows[r][c] !== undefined && rows[r][c] !== '.' && rows[r][c] !== 'o') rows[r][c] = 'h';
-        }
-      }
-    } else if (beardType === 4) { // 山羊胡：仅下巴尖端
-      const r1 = eyeRow + 2;
-      const r2 = eyeRow + 3;
-      if (r1 < rows.length) for (let c = mid - 1; c <= mid; c++) if (rows[r1][c] !== undefined && rows[r1][c] !== '.' && rows[r1][c] !== 'o') rows[r1][c] = 'h';
-      if (r2 < rows.length) if (rows[r2][mid] !== undefined && rows[r2][mid] !== '.' && rows[r2][mid] !== 'o') rows[r2][mid] = 'h';
+    } else if (beardType === 4) { // 山羊胡：仅下颌尖端
+      for (let c = mid - 1; c <= mid; c++) put(mouthRow + 1, c);
+      put(mouthRow + 2, mid);
     }
   }
   // S1-1：眉型（4种）——修改眼睛上方一行
@@ -638,20 +736,15 @@ export function applyLook(grid, palette, look) {
       if (rows[browRow][3] !== undefined && rows[browRow][3] !== 'o') rows[browRow][3] = 'U';
     }
   }
-  // S1-1：唇部（3种）——修改嘴部行中央
+  // S1-1：唇部（3种）——修改嘴部行中央（ART-3-A1 §4.2：口部为 q/d，**不得用 o**）
   const mouthType = look.mouth || 0;
   if (mouthType > 0 && mouthRow > 0 && mouthRow < rows.length) {
     const mid = Math.floor(rows[mouthRow].length / 2);
-    if (mouthType === 1) { // 微笑：嘴角上移
-      if (rows[mouthRow][mid - 2] !== undefined && rows[mouthRow][mid - 2] === 's') rows[mouthRow][mid - 2] = 'o';
-      if (rows[mouthRow][mid + 2] !== undefined && rows[mouthRow][mid + 2] === 's') rows[mouthRow][mid + 2] = 'o';
-      if (mouthRow > 0) {
-        if (rows[mouthRow - 1][mid - 2] !== undefined && rows[mouthRow - 1][mid - 2] === 'o') rows[mouthRow - 1][mid - 2] = 's';
-        if (rows[mouthRow - 1][mid + 2] !== undefined && rows[mouthRow - 1][mid + 2] === 'o') rows[mouthRow - 1][mid + 2] = 's';
-      }
-    } else if (mouthType === 2) { // 严肃：嘴角拉平
-      if (rows[mouthRow][mid - 2] !== undefined && rows[mouthRow][mid - 2] !== '.' && rows[mouthRow][mid - 2] !== 'o') rows[mouthRow][mid - 2] = 's';
-      if (rows[mouthRow][mid + 2] !== undefined && rows[mouthRow][mid + 2] !== '.' && rows[mouthRow][mid + 2] !== 'o') rows[mouthRow][mid + 2] = 's';
+    const mset = (c, ch) => { if (rows[mouthRow][c] !== undefined && rows[mouthRow][c] !== '.' && rows[mouthRow][c] !== 'o') rows[mouthRow][c] = ch; };
+    if (mouthType === 1) { // 微笑：嘴角上提（口行两角改亮阶 S ⇒ 上扬感）
+      mset(mid - 2, 'S'); mset(mid + 1, 'S');
+    } else if (mouthType === 2) { // 严肃：口拉平加宽（中央改暗阶 d）
+      mset(mid - 1, 'd'); mset(mid, 'd');
     }
   }
   // S1-1：面部纹饰（4种）——饰色U点缀
@@ -691,9 +784,8 @@ export function drawSprite(ctx, kind, defKey, palette, dx, dy, { dir = 'down', f
     }
   } else {
     grid = MONSTER_GRID[defKey] || HUMANOID;
-    if (defKey === 'wolf') offsetX = 0;
-    else if (defKey === 'spider' || defKey === 'giantspider') offsetX = 0;
-    else offsetX = 2;
+    if (defKey === 'wolf' || defKey === 'spider' || defKey === 'giantspider') offsetX = 0;
+    else offsetX = Math.round((16 - grid[0].length) / 2); // §3.2：各剪影族宽度不同，按宽度居中
   }
   const gw = grid[0].length, gh = grid.length;
   // 朝上：脸部行替换为头发（背面）

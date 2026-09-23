@@ -205,17 +205,31 @@ async function main() {
   log('覆盖全部章节:', missing.length === 0 ? '✅' : '❌ 缺失: ' + missing.join(','));
   log('隐藏目标下发:', ok1.goals ? '✅' : '❌');
   log('DM旁白存在:', ok1.dmNarr ? '✅' : '❌');
-  // 画布渲染检查（全画布采样）
-  const canvasOk = await pages[0].evaluate(() => {
+  // 画布渲染检查（ART-3-A1：内容「丰富度」区间断言）
+  // 背景：原 nonBg>500 经实测为恒真——硬编码哨兵 rgb(13,10,20) 匹配 0 像素（世界瓦片铺满画布，
+  //       game.mjs:603 底色永不可见），故该断言自始无判别力（BL-44）。
+  // 改用光照鲁棒的内容丰富度：distinctColors ≥ 200 且 最常色覆盖 ≤ 90%。
+  // 依据：当前 main 实测 distinctColors=1510、最常色覆盖=32.57%（空白画布 ⇒ 1 色 / 100%）。
+  const canvasStat = await pages[0].evaluate(() => {
     const c = document.getElementById('game-canvas');
-    if (!c || c.width < 50) return false;
+    if (!c || c.width < 50) return { ok: false, distinct: 0, dominantPct: 100, reason: 'no-canvas' };
     const ctx = c.getContext('2d');
     const d = ctx.getImageData(0, 0, c.width, c.height).data;
-    let nonBg = 0;
-    for (let i = 0; i < d.length; i += 16) { if (d[i] !== 13 || d[i + 1] !== 10 || d[i + 2] !== 20) nonBg++; }
-    return nonBg > 500;
+    const freq = new Map();
+    let total = 0, maxN = 0;
+    for (let i = 0; i < d.length; i += 4) {
+      const key = (d[i] << 16) | (d[i + 1] << 8) | d[i + 2];
+      const n = (freq.get(key) || 0) + 1;
+      freq.set(key, n);
+      if (n > maxN) maxN = n;
+      total++;
+    }
+    const distinct = freq.size;
+    const dominantPct = +(100 * maxN / total).toFixed(2);
+    return { ok: distinct >= 200 && dominantPct <= 90, distinct, dominantPct };
   });
-  log('像素画布渲染正常:', canvasOk ? '✅' : '❌');
+  const canvasOk = canvasStat.ok;
+  log('像素画布渲染正常:', canvasOk ? '✅' : '❌', '(distinct=' + canvasStat.distinct + ', 最常色=' + canvasStat.dominantPct + '%)');
   const realErrors = errors.filter(e => !e.includes('AudioContext') && !e.includes('WebAudio'));
   log('浏览器错误数(忽略无音频设备):', realErrors.length);
   for (const e of realErrors.slice(0, 10)) log('  ⚠ ' + e);

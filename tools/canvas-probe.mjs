@@ -45,12 +45,14 @@ async function main() {
       const rect = c.getBoundingClientRect();
       const ctx = c.getContext('2d');
       const img = ctx.getImageData(0, 0, c.width, c.height).data;
+      // ART-3-A1：动态哨兵——背景基准取画面左上角像素（原硬编码 rgb(13,10,20) 在光照/暗角变更后会失配）
+      const bg = [img[0], img[1], img[2]];
       // 内容边界框（非背景像素的列/行范围）
       let minX = 1e9, maxX = -1, minY = 1e9, maxY = -1, count = 0;
       for (let y = 0; y < c.height; y += 2) {
         for (let x = 0; x < c.width; x += 2) {
           const i = (y * c.width + x) * 4;
-          const isBg = img[i] === 13 && img[i + 1] === 10 && img[i + 2] === 20;
+          const isBg = img[i] === bg[0] && img[i + 1] === bg[1] && img[i + 2] === bg[2];
           if (!isBg) {
             count++;
             if (x < minX) minX = x; if (x > maxX) maxX = x;

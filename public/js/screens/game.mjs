@@ -1,6 +1,6 @@
 // 游戏主界面：像素画布 + 回合交互 + 战斗 + 对话 + 结算
 import { store, el, toast, saveCard } from '../app.mjs';
-import { TILE, drawTile, drawSprite, spritePalette, spriteToCanvas } from '../pixel.mjs';
+import { TILE, drawTile, drawSprite, spritePalette, spriteToCanvas, hash2, makeCanvas } from '../pixel.mjs';
 import { createPolicy, abilityNoResource } from '../../shared/autoplay-policy.mjs';
 import { markDeathByName, updateProgression } from '../roster.mjs';
 
@@ -10,6 +10,9 @@ export function mountGame(root, view) {
   const net = store.net;
   const g = { view, pending: null, floaters: [], anim: new Map(), introSeen: false, confirmSent: false, autoplay: false, modeInited: false, policy: createPolicy(), sfx: true, lastSnapSeq: 0, speed: 1, logFilter: 'all', cardSent: false, panelTab: 'log', unitFilter: null, rosterMarked: false, eventTreeOpen: null };
   let raf = null, canvas, ctx, wrap, autoTicker = null;
+  // ART-3-A1：测试钩子用「冻结时间」。默认 null = 实时（**不改产品行为**）；仅当探针显式调用
+  // __e2e.setFixedTime(ms) 时才生效——用于「同 seed + 冻结时间 + 收敛 ⇒ 逐像素一致」取证。
+  let fixedTime = null;
 
   // ---------- DOM ----------
   const screen = el('div', 'screen-game');
@@ -54,6 +57,33 @@ export function mountGame(root, view) {
   const sfxBtn = el('button', 'btn small', '🔊');
   sfxBtn.title = '音效开关';
   sfxBtn.onclick = () => { g.sfx = !g.sfx; sfxBtn.textContent = g.sfx ? '🔊' : '🔇'; };
+  // ART-3-A1 §6.7/§9：光照强度（完整/减弱/关闭）+ 暗角（开/关）——可访问性硬要求，一处点击可达
+  // §6.6：暗角默认值分平台——桌面首访默认「开」，移动端首访默认「关」；
+  //   用户一旦显式设置过（localStorage 存在 dnd_vignette）则一律以用户设置为准，不再按平台覆盖。
+  const LIGHT_MODES = ['full', 'dim', 'off'];
+  const LIGHT_LABEL = { full: '💡 光照·完整', dim: '💡 光照·减弱', off: '💡 光照·关闭' };
+  // 移动端判定：CSS 媒体查询 (pointer: coarse) —— 直接表达「触屏为主」的输入语义，
+  //   不依赖易变/可伪造的 UA 串，也不会把「窄窗口的桌面」误判为移动端（鼠标 = fine pointer）。
+  const isCoarsePointer = (() => { try { return matchMedia('(pointer: coarse)').matches; } catch (e) { return false; } })();
+  let lightMode = 'full', vignetteOn = !isCoarsePointer; // 桌面首访=开，移动端首访=关
+  try {
+    const v = localStorage.getItem('dnd_light_mode'); if (LIGHT_MODES.includes(v)) lightMode = v;
+    const vig = localStorage.getItem('dnd_vignette'); if (vig === '0') vignetteOn = false; else if (vig === '1') vignetteOn = true; // 用户显式设置优先
+  } catch (e) { /* 隐私模式 */ }
+  const lightBtn = el('button', 'btn small', LIGHT_LABEL[lightMode]);
+  lightBtn.title = '光照强度：完整 / 减弱 / 关闭（关闭=战场全亮，策略读图更清晰）';
+  lightBtn.onclick = () => {
+    lightMode = LIGHT_MODES[(LIGHT_MODES.indexOf(lightMode) + 1) % LIGHT_MODES.length];
+    lightBtn.textContent = LIGHT_LABEL[lightMode];
+    try { localStorage.setItem('dnd_light_mode', lightMode); } catch (e) {}
+  };
+  const vigBtn = el('button', 'btn small', vignetteOn ? '🌑 暗角·开' : '🌑 暗角·关');
+  vigBtn.title = '屏幕暗角：开 / 关';
+  vigBtn.onclick = () => {
+    vignetteOn = !vignetteOn;
+    vigBtn.textContent = vignetteOn ? '🌑 暗角·开' : '🌑 暗角·关';
+    try { localStorage.setItem('dnd_vignette', vignetteOn ? '1' : '0'); } catch (e) {}
+  };
   const autoBtn = el('button', 'btn small', '🤖 自动');
   autoBtn.title = '自动游玩开关（手动模式下可随时开启）';
   // R1-20：切换自动/手动时必须上报服务端——服务端据此决定「该玩家回合是否被看门狗跳过」
@@ -65,7 +95,7 @@ export function mountGame(root, view) {
   // R1-20：严格回合制下的「等待」指示——让人看出在等谁行动，而不是静默卡住
   const gtWait = el('div', 'gt-wait', '');
   gtWait.style.cssText = 'font-size:12px;opacity:.92;white-space:nowrap;';
-  top.append(gtChapter, gtObj, gtTurn, gtWait, modeBadge, speedSel, pauseBtn, autoBtn, sfxBtn, leaveBtn);
+  top.append(gtChapter, gtObj, gtTurn, gtWait, modeBadge, speedSel, pauseBtn, autoBtn, sfxBtn, lightBtn, vigBtn, leaveBtn);
   screen.appendChild(top);
   // R-15：房主身份 + 非房主禁用调速控件 + 快捷键提示行
   const isHostMe = store.pid === g.view?.room?.hostId;
@@ -597,7 +627,173 @@ export function mountGame(root, view) {
     return { x, y };
   }
 
-  function draw(t) {
+  // ---------- ART-3-A1 §6：光照与氛围层（**绘制层**，零协议改动）----------
+  let lmCanvas = null, lmCtx = null;
+  let ambientFloorOverride = null; // ART-3-A1：仅供美术探针取证「明度下限前/后」对比（默认 null=用内置下限）
+  // 光源收集：全部来自现有快照（props / tiles / exits / entities / turn）——零新数据（§6.2）
+  function collectLights(gv, cam, t) {
+    const out = [];
+    const strength = lightMode === 'dim' ? 0.5 : 1;
+    const pulse = 1 + 0.06 * Math.sin(t / 220); // §6.5 程序化脉动（替代帧动画）
+    const vw = Math.ceil(canvas.width / SCALE / TILE) + 2, vh = Math.ceil(canvas.height / SCALE / TILE) + 2;
+    const ox = Math.floor(cam.x), oy = Math.floor(cam.y);
+    const seen = new Set();
+    const add = (gx, gy, warm, radius, inten) => {
+      const key = gx + ',' + gy; if (seen.has(key)) return; seen.add(key);
+      out.push({
+        wx: gx * TILE + TILE / 2, wy: gy * TILE + TILE / 2, r: radius,
+        c0: (warm ? 'rgba(255,176,96,' : 'rgba(106,154,208,') + (inten * strength * pulse).toFixed(3) + ')',
+        c1: warm ? 'rgba(255,176,96,0)' : 'rgba(106,154,208,0)',
+      });
+    };
+    const inView = (x, y) => x >= ox - 2 && x < ox + vw + 2 && y >= oy - 2 && y < oy + vh + 2;
+    // L1 静态点光：发光瓦片（篝火 f/熔炉 z=暖；水晶 y/传送门 x=冷）+ props
+    for (let y = oy - 2; y < oy + vh + 2; y++) for (let x = ox - 2; x < ox + vw + 2; x++) {
+      if (x < 0 || y < 0 || x >= gv.map.w || y >= gv.map.h) continue;
+      const ch = gv.map.tiles[y][x];
+      if (ch === 'f') add(x, y, true, 4.5, 0.9);
+      else if (ch === 'z') add(x, y, true, 5, 0.9);
+      else if (ch === 'y') add(x, y, false, 3.5, 0.8);
+      else if (ch === 'x') add(x, y, false, 4, 0.85);
+    }
+    for (const pr of gv.map.props) {
+      if (!inView(pr.x, pr.y)) continue;
+      if (pr.type === 'campfire') add(pr.x, pr.y, true, 4.5, 0.9);
+      else if (pr.type === 'crystal') add(pr.x, pr.y, false, 3.5, 0.8);
+    }
+    for (const ex of gv.exits) if (inView(ex.x, ex.y)) add(ex.x, ex.y, false, 4, 0.85);
+    // L2 队伍光：每个存活玩家一盏小暖光；**倒地/阵亡者熄灭**（§1.3 合作冒险的视觉化）
+    for (const e of gv.entities) {
+      if (e.kind !== 'player') continue;
+      const p = gv.players.find(x => x.eid === e.eid);
+      if (e.downed || e.dead || (p && p.dead)) continue;
+      out.push({ wx: e.x * TILE + TILE / 2, wy: e.y * TILE + TILE / 2, r: 2.6,
+        c0: 'rgba(255,233,160,' + (0.5 * strength * pulse).toFixed(3) + ')', c1: 'rgba(255,233,160,0)' });
+    }
+    // L5 焦点光：当前回合行动者所在格（"DM 指向你"）
+    if (gv.turn && gv.state === 'playing') {
+      const a = gv.entities.find(e => e.eid === gv.turn.actorEid);
+      if (a) out.push({ wx: a.x * TILE + TILE / 2, wy: a.y * TILE + TILE / 2, r: 1.8,
+        c0: 'rgba(255,233,160,' + (0.7 * strength * pulse).toFixed(3) + ')', c1: 'rgba(255,233,160,0)' });
+    }
+    // 同屏 ≤12：取距相机中心最近者（§6.6）
+    if (out.length > 12) {
+      const ccx = (cam.x + canvas.width / SCALE / TILE / 2) * TILE, ccy = (cam.y + canvas.height / SCALE / TILE / 2) * TILE;
+      out.sort((a, b) => ((a.wx - ccx) ** 2 + (a.wy - ccy) ** 2) - ((b.wx - ccx) ** 2 + (b.wy - ccy) ** 2));
+      out.length = 12;
+    }
+    return out;
+  }
+  // L3 环境光基准（§6.2）：由章节 theme 的 floor/wall 色派生（**保留色相** ⇒ 章节氛围/暖冷分区），
+  // 但**强制明度下限**（full 175 / dim 230）⇒ 未照亮区不因光照而丢失可读性（§6.2/§9.3）。
+  // ⚠️ 与圣经 §2.4「环境底 = #0d0a14」的分歧：multiply 合成下 #0d0a14（≈5% 明度）会把未照亮区
+  //    压成近全黑、与 §6.2「保证可读性不因光照而丢失」直接冲突。此处以 §6.2 的**可读性条款**为准，
+  //    并把该分歧登记回报（见 ART-3-A1 报告）。#0d0a14 仍精确用于 ① 画布清屏（§6.3 ①，不变）。
+  function ambientBase(gv) {
+    const th = gv && gv.map && gv.map.theme;
+    const hex = (th && (th.floor || th.wall)) || '#6b6478';
+    let r = 107, g = 100, b = 120;
+    const m = /^#([0-9a-fA-F]{6})$/.exec(String(hex || ''));
+    if (m) { r = parseInt(m[1].slice(0, 2), 16); g = parseInt(m[1].slice(2, 4), 16); b = parseInt(m[1].slice(4, 6), 16); }
+    const FLOOR = ambientFloorOverride !== null ? ambientFloorOverride : (lightMode === 'dim' ? 230 : 175); // 可读性下限（max 通道目标值）
+    const mx = Math.max(r, g, b, 1);
+    if (mx < FLOOR) { const k = FLOOR / mx; r = Math.min(255, Math.round(r * k)); g = Math.min(255, Math.round(g * k)); b = Math.min(255, Math.round(b * k)); }
+    return 'rgb(' + r + ',' + g + ',' + b + ')';
+  }
+  function drawLighting(cam, gv, t) {
+    const mobile = window.innerWidth < 900 || (navigator.maxTouchPoints || 0) > 0;
+    const div = mobile ? 4 : 2; // §6.6：桌面 1/2、移动 1/4 分辨率
+    const lw = Math.max(1, Math.round(canvas.width / div)), lh = Math.max(1, Math.round(canvas.height / div));
+    if (!lmCanvas || lmCanvas.width !== lw || lmCanvas.height !== lh) { lmCanvas = makeCanvas(lw, lh); lmCtx = lmCanvas.getContext('2d'); }
+    const lc = lmCtx;
+    lc.setTransform(1, 0, 0, 1, 0, 0);
+    lc.globalCompositeOperation = 'source-over';
+    // L3 环境光基准（§6.2）：**由章节 theme 派生**（保留章节色相 ⇒ 暖=安全/公开、冷=未知/隐藏），
+    // 并把明度抬到「可读性下限」——否则 multiply 合成下未照亮区会趋近全黑、丢失战术读图（§6.2/§9.3）。
+    lc.fillStyle = ambientBase(gv);
+    lc.fillRect(0, 0, lw, lh);
+    const lights = collectLights(gv, cam, t);
+    const k = SCALE / div; // world px → lightmap px
+    lc.globalCompositeOperation = 'lighter';
+    for (const L of lights) {
+      const cx = (L.wx - cam.x * TILE) * k, cy = (L.wy - cam.y * TILE) * k, r = L.r * TILE * k;
+      if (cx + r < 0 || cy + r < 0 || cx - r > lw || cy - r > lh) continue;
+      const grad = lc.createRadialGradient(cx, cy, 0, cx, cy, r);
+      grad.addColorStop(0, L.c0); grad.addColorStop(1, L.c1);
+      lc.fillStyle = grad;
+      lc.fillRect(cx - r, cy - r, r * 2, r * 2);
+    }
+    lc.globalCompositeOperation = 'source-over';
+    // 合成：multiply（§6.3 ③）
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.globalCompositeOperation = 'multiply';
+    ctx.imageSmoothingEnabled = true;
+    ctx.drawImage(lmCanvas, 0, 0, canvas.width, canvas.height);
+    ctx.globalCompositeOperation = 'source-over';
+    ctx.imageSmoothingEnabled = false;
+  }
+  // L4 暗角：屏幕空间 source-over；**在 HUD 之前**绘制 ⇒ 不压暗 HUD（§1.2）
+  function drawVignette() {
+    const w = canvas.width, h = canvas.height;
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    const g2 = ctx.createRadialGradient(w / 2, h / 2, Math.min(w, h) * 0.38, w / 2, h / 2, Math.max(w, h) * 0.72);
+    g2.addColorStop(0, 'rgba(0,0,0,0)'); g2.addColorStop(1, 'rgba(0,0,0,.5)');
+    ctx.fillStyle = g2;
+    ctx.fillRect(0, 0, w, h);
+  }
+  // HUD 层（屏幕空间固定像素）：名称牌/血条/蓝条/浮字/悬停——在光照层之上（§6.4）
+  function drawHud(queue, cam, t, gv) {
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    for (const { e, sx, sy } of queue) {
+      ctx.font = '10px sans-serif';
+      ctx.textAlign = 'center';
+      const label = (e.downed ? '💀' : '') + e.name;
+      const nameW = Math.min(96, Math.max(46, label.length * 11 + 8));
+      const by2 = sy - 16;
+      ctx.fillStyle = 'rgba(0,0,0,.62)';
+      ctx.fillRect(sx - nameW / 2, by2, nameW, 13);
+      ctx.fillStyle = e.kind === 'player' ? '#ffe9a8' : (e.kind === 'monster' ? '#ffb0a0' : '#b8e8c8');
+      ctx.fillText(label.slice(0, 7), sx, by2 + 9);
+      const bw = Math.min(46, nameW);
+      const hpRatio = Math.max(0, Math.min(1, e.hp / Math.max(1, e.maxHp)));
+      ctx.fillStyle = '#2a1020';
+      ctx.fillRect(sx - bw / 2, by2 + 14, bw, 4);
+      ctx.fillStyle = hpRatio > .35 ? '#7ec97a' : '#e06c5a';
+      ctx.fillRect(sx - bw / 2, by2 + 14, Math.max(1, bw * hpRatio), 4);
+      if (e.maxMp > 0) {
+        const mpRatio = Math.max(0, Math.min(1, (e.mp || 0) / e.maxMp));
+        ctx.fillStyle = '#10202a';
+        ctx.fillRect(sx - bw / 2, by2 + 19, bw, 3);
+        ctx.fillStyle = '#5a9ae0';
+        ctx.fillRect(sx - bw / 2, by2 + 19, Math.max(1, bw * mpRatio), 3);
+      }
+      if (e.boss || e.finalBoss) {
+        ctx.fillStyle = 'rgba(0,0,0,.62)';
+        ctx.fillRect(sx - 46, by2 - 14, 92, 14);
+        ctx.fillStyle = '#ff8080';
+        ctx.fillText('👑' + e.name.slice(0, 8), sx, by2 - 5);
+      }
+    }
+    for (const f of g.floaters) {
+      const age = (t - f.t0) / 1200;
+      ctx.globalAlpha = 1 - age;
+      ctx.font = 'bold 13px sans-serif';
+      ctx.textAlign = 'center';
+      ctx.fillStyle = f.color;
+      ctx.fillText(f.text, (f.x - cam.x) * TILE * SCALE + TILE * SCALE / 2, (f.y - cam.y) * TILE * SCALE - 8 - age * 16);
+      ctx.globalAlpha = 1;
+    }
+    if (g.hover && gv) {
+      const occupied = gv.entities.find(e => e.x === g.hover.x && e.y === g.hover.y && !e.dead);
+      ctx.strokeStyle = occupied ? '#ff8060' : 'rgba(255,255,255,.5)';
+      ctx.lineWidth = 1;
+      ctx.strokeRect((g.hover.x - cam.x) * TILE * SCALE + .5, (g.hover.y - cam.y) * TILE * SCALE + .5, TILE * SCALE - 1, TILE * SCALE - 1);
+    }
+  }
+
+  function draw(ts) {
+    // ART-3-A1：冻结时间钩子——fixedTime 非 null 时以之替代 rAF 时间戳（默认 null ⇒ 实时不变）
+    const t = fixedTime !== null ? fixedTime : ts;
     const gv = g.view?.game;
     ctx.setTransform(1, 0, 0, 1, 0, 0);
     ctx.fillStyle = '#0d0a14';
@@ -639,6 +835,7 @@ export function mountGame(root, view) {
     }
     // 实体（按y排序）；同格堆叠时错开绘制，多人同屏不重叠
     const ents = [...gv.entities].sort((a, b) => a.y - b.y || a.eid.localeCompare(b.eid));
+    const hudQueue = []; // ART-3-A1 §6.4：名称牌/血条收集后于光照层之上绘制
     const stackIdx = new Map(); // tileKey -> 已绘制数量
     const STACK_OFFSETS = [[0, 0], [-3, -2], [3, -2], [0, -4], [-3, 2], [3, 2]];
     for (const e of ents) {
@@ -679,42 +876,12 @@ export function mountGame(root, view) {
       if (e.downed) { ctx.globalAlpha = .55; }
       drawSprite(ctx, kind, defKey, palette, px, py, { dir: anim.dir || 'down', frame: anim.frame, cls, race, bob: true, look: lookOf });
       ctx.globalAlpha = 1;
-      // F-26：统一名称牌——所有实体（玩家/怪物/NPC）头顶展示名称+血条+蓝条（屏幕空间固定像素，不随缩放变形）
+      // F-26：统一名称牌——所有实体（玩家/怪物/NPC）头顶展示名称+血条+蓝条。
+      // ART-3-A1 §6.4：**不再就地绘制**，只收集坐标入 hudQueue，由 drawHud() 在光照/暗角层之上
+      // 以屏幕空间固定像素绘制 ⇒ 名称牌/血条【不被光照压暗】，保证可读性（§9.3）。
       const sx = (anim.x + so[0] / TILE - cam.x) * TILE * SCALE;
       const sy = (anim.y + so[1] / TILE - cam.y) * TILE * SCALE;
-      ctx.save();
-      ctx.setTransform(1, 0, 0, 1, 0, 0);
-      ctx.font = '10px sans-serif';
-      ctx.textAlign = 'center';
-      const label = (e.downed ? '💀' : '') + e.name;
-      const nameW = Math.min(96, Math.max(46, label.length * 11 + 8));
-      const by2 = sy - 16;
-      ctx.fillStyle = 'rgba(0,0,0,.62)';
-      ctx.fillRect(sx - nameW / 2, by2, nameW, 13);
-      ctx.fillStyle = e.kind === 'player' ? '#ffe9a8' : (e.kind === 'monster' ? '#ffb0a0' : '#b8e8c8');
-      ctx.fillText(label.slice(0, 7), sx, by2 + 9);
-      // 血条（常驻展示）
-      const bw = Math.min(46, nameW);
-      const hpRatio = Math.max(0, Math.min(1, e.hp / Math.max(1, e.maxHp)));
-      ctx.fillStyle = '#2a1020';
-      ctx.fillRect(sx - bw / 2, by2 + 14, bw, 4);
-      ctx.fillStyle = hpRatio > .35 ? '#7ec97a' : '#e06c5a';
-      ctx.fillRect(sx - bw / 2, by2 + 14, Math.max(1, bw * hpRatio), 4);
-      // 蓝条（F-26：施法者法术位资源；无蓝条实体不展示）
-      if (e.maxMp > 0) {
-        const mpRatio = Math.max(0, Math.min(1, (e.mp || 0) / e.maxMp));
-        ctx.fillStyle = '#10202a';
-        ctx.fillRect(sx - bw / 2, by2 + 19, bw, 3);
-        ctx.fillStyle = '#5a9ae0';
-        ctx.fillRect(sx - bw / 2, by2 + 19, Math.max(1, bw * mpRatio), 3);
-      }
-      if (e.boss || e.finalBoss) {
-        ctx.fillStyle = 'rgba(0,0,0,.62)';
-        ctx.fillRect(sx - 46, by2 - 14, 92, 14);
-        ctx.fillStyle = '#ff8080';
-        ctx.fillText('👑' + e.name.slice(0, 8), sx, by2 - 5);
-      }
-      ctx.restore();
+      hudQueue.push({ e, sx, sy });
       // 目标指示
       if (g.pending && g.pending.target === e.eid) {
         ctx.strokeStyle = '#ffd040';
@@ -727,28 +894,12 @@ export function mountGame(root, view) {
         ctx.fillRect(px, py, 16, 18);
       }
     }
-    // 悬浮伤害数字（屏幕空间固定字号）
+    // ART-3-A1 §6.3 绘制管线：②world（上方已绘）→ ③光照 multiply → ⑤暗角 → ④HUD
+    // 关键：名称牌/血条/浮字/悬停都在 drawHud()（屏幕空间、位于光照层之上）⇒ 不被压暗（§1.2/§6.4）
     g.floaters = g.floaters.filter(f => t - f.t0 < 1200);
-    ctx.save();
-    ctx.setTransform(1, 0, 0, 1, 0, 0);
-    for (const f of g.floaters) {
-      const age = (t - f.t0) / 1200;
-      ctx.globalAlpha = 1 - age;
-      ctx.font = 'bold 13px sans-serif';
-      ctx.textAlign = 'center';
-      ctx.fillStyle = f.color;
-      ctx.fillText(f.text, (f.x - cam.x) * TILE * SCALE + TILE * SCALE / 2, (f.y - cam.y) * TILE * SCALE - 8 - age * 16);
-      ctx.globalAlpha = 1;
-    }
-    ctx.restore();
-    // 悬停高亮
-    if (g.hover) {
-      const tile = gv.map.tiles[g.hover.y]?.[g.hover.x];
-      const occupied = gv.entities.find(e => e.x === g.hover.x && e.y === g.hover.y && !e.dead);
-      ctx.strokeStyle = occupied ? '#ff8060' : 'rgba(255,255,255,.5)';
-      ctx.lineWidth = 1;
-      ctx.strokeRect(g.hover.x * TILE + .5, g.hover.y * TILE + .5, TILE - 1, TILE - 1);
-    }
+    if (lightMode !== 'off') drawLighting(cam, gv, t);
+    if (vignetteOn && lightMode !== 'off') drawVignette();
+    drawHud(hudQueue, cam, t, gv);
     raf = requestAnimationFrame(draw);
   }
   raf = requestAnimationFrame(draw);
@@ -1279,16 +1430,18 @@ export function mountGame(root, view) {
     grad.addColorStop(1, '#241a12');
     c2.fillStyle = grad;
     c2.fillRect(0, 0, cv.width, cv.height);
+    // ART-3-A1：星星位置/亮度改用确定性哈希（原 Math.random() 每帧重掷 ⇒ 基线不可复现）
     for (let i = 0; i < 40; i++) {
-      c2.fillStyle = 'rgba(255,255,230,' + (0.2 + Math.random() * 0.5).toFixed(2) + ')';
-      c2.fillRect(Math.floor(Math.random() * cv.width), Math.floor(Math.random() * cv.height * 0.5), 2, 2);
+      const ra = hash2(i, 101, 7), rx = hash2(i, 102, 7), ry = hash2(i, 103, 7);
+      c2.fillStyle = 'rgba(255,255,230,' + (0.2 + ra * 0.5).toFixed(2) + ')';
+      c2.fillRect(Math.floor(rx * cv.width), Math.floor(ry * cv.height * 0.5), 2, 2);
     }
     const fx = cv.width / 2, fy = cv.height - 96;
     for (let k = 0; k < 6; k++) {
       c2.fillStyle = k % 2 ? '#6a4a2e' : '#5d4328';
       c2.fillRect(fx - 26 + k * 9, fy + 14, 8, 4);
     }
-    const tt = performance.now();
+    const tt = fixedTime !== null ? fixedTime : performance.now();
     const flick = Math.sin(tt / 400) * 3 + Math.sin(tt / 240) * 2;
     c2.fillStyle = '#e07030';
     c2.fillRect(fx - 9, fy - 22 + Math.floor(flick), 18, 22);
@@ -1345,6 +1498,27 @@ export function mountGame(root, view) {
     // R1-18：只读访问器。断言「点击不可通行格时是否给出可见反馈」需要直接读浮动文字队列
     // （画布上的浮动文字无法从 Node 侧稳定取证）。纯只读、无副作用；与 animOf 同源。
     floaters: () => g.floaters.map((f) => ({ x: f.x, y: f.y, text: f.text })),
+    // ART-3-A1：冻结时间（默认 null=实时）。仅测试探针调用；**不新增任何游戏触发点**。
+    setFixedTime: (ms) => { fixedTime = (ms === null || ms === undefined) ? null : Number(ms); },
+    // ART-3-A1：只读——所有实体插值是否已收敛归位（「冻结时间」取证前等待稳定帧用）。
+    // 与 animOf/floaters 同源：纯只读、无副作用。
+    settled: () => {
+      const gv = g.view?.game;
+      if (!gv) return true;
+      for (const e of gv.entities) {
+        const a = g.anim.get(e.eid);
+        if (!a) continue;
+        if (a.moving || a.x !== e.x || a.y !== e.y) return false;
+      }
+      return true;
+    },
+    // ART-3-A1 §6.7/§9：光照模式读写（**仅供美术截图探针**在冻结时间下切换 full/dim/off，
+    // 与 lightBtn 点击等价、纯客户端绘制层，不新增任何游戏触发点）。
+    lightState: () => ({ mode: lightMode, vignette: vignetteOn }),
+    setLightMode: (m) => { if (LIGHT_MODES.includes(m)) { lightMode = m; lightBtn.textContent = LIGHT_LABEL[m]; } },
+    setVignette: (on) => { vignetteOn = !!on; vigBtn.textContent = vignetteOn ? '🌑 暗角·开' : '🌑 暗角·关'; },
+    // ART-3-A1：仅供美术探针取证「§2.4 环境底 vs 可读性下限」的对比图（null=恢复内置下限）。
+    setAmbientFloor: (n) => { ambientFloorOverride = (n === null || n === undefined) ? null : Number(n); },
   };
 
   // R-10: 生成高光时刻配图（程序化像素画：主角+最终BOSS同框）
@@ -1362,9 +1536,11 @@ export function mountGame(root, view) {
       c2.fillRect(0, 52, 96, 12);
       c2.fillStyle = '#4a3a2c';
       c2.fillRect(0, 52, 96, 2);
+      // ART-3-A1：同上——确定性哈希，保证同一冒险存档的高光配图可复现
       for (let i = 0; i < 16; i++) {
-        c2.fillStyle = 'rgba(255,190,90,' + (0.1 + Math.random() * 0.22).toFixed(2) + ')';
-        c2.fillRect(Math.floor(Math.random() * 96), Math.floor(Math.random() * 48), 2, 2);
+        const ra = hash2(i, 201, 7), rx = hash2(i, 202, 7), ry = hash2(i, 203, 7);
+        c2.fillStyle = 'rgba(255,190,90,' + (0.1 + ra * 0.22).toFixed(2) + ')';
+        c2.fillRect(Math.floor(rx * 96), Math.floor(ry * 48), 2, 2);
       }
       c2.imageSmoothingEnabled = false;
       const pal = spritePalette('player', 'human', me.sheet.colors || {});
