@@ -1,0 +1,400 @@
+{
+  "schema": 1,
+  "characters": {
+    "chmueecb67hiu24e": {
+      "characterId": "chmueecb67hiu24e",
+      "accountId": "探针694967",
+      "createdAt": 1790185695631,
+      "updatedAt": 1790185695631,
+      "origin": "fresh",
+      "adventureCount": 0,
+      "version": 1,
+      "status": "alive",
+      "locked": {
+        "name": "探针侠",
+        "raceId": "human",
+        "classId": "fighter",
+        "stats": {
+          "STR": 15,
+          "DEX": 10,
+          "CON": 13,
+          "INT": 10,
+          "WIS": 10,
+          "CHA": 10
+        },
+        "flex": {
+          "STR": 1,
+          "CON": 1
+        },
+        "level": 1,
+        "xp": 0,
+        "background": "平凡的旅人"
+      },
+      "editable": {
+        "colors": {
+          "skin": "#f5d0a8",
+          "hair": "#1a1210",
+          "outfit": "#8a3030",
+          "eye": "#2860a0",
+          "accent": "#c8a030"
+        },
+        "look": {
+          "hair": 0,
+          "beard": 0,
+          "brow": 0,
+          "mouth": 0,
+          "marking": 0
+        }
+      }
+    },
+    "chmueecei2iwh7np": {
+      "characterId": "chmueecei2iwh7np",
+      "accountId": "探针699264",
+      "createdAt": 1790185699946,
+      "updatedAt": 1790185699946,
+      "origin": "fresh",
+      "adventureCount": 0,
+      "version": 1,
+      "status": "alive",
+      "locked": {
+        "name": "探针侠",
+        "raceId": "human",
+        "classId": "fighter",
+        "stats": {
+          "STR": 15,
+          "DEX": 10,
+          "CON": 13,
+          "INT": 10,
+          "WIS": 10,
+          "CHA": 10
+        },
+        "flex": {
+          "STR": 1,
+          "CON": 1
+        },
+        "level": 1,
+        "xp": 0,
+        "background": "平凡的旅人"
+      },
+      "editable": {
+        "colors": {
+          "skin": "#f5d0a8",
+          "hair": "#1a1210",
+          "outfit": "#8a3030",
+          "eye": "#2860a0",
+          "accent": "#c8a030"
+        },
+        "look": {
+          "hair": 0,
+          "beard": 0,
+          "brow": 0,
+          "mouth": 0,
+          "marking": 0
+        }
+      }
+    },
+    "chmueechwqcj6j9y": {
+      "characterId": "chmueechwqcj6j9y",
+      "accountId": "探针703664",
+      "createdAt": 1790185704362,
+      "updatedAt": 1790185704362,
+      "origin": "fresh",
+      "adventureCount": 0,
+      "version": 1,
+      "status": "alive",
+      "locked": {
+        "name": "探针侠",
+        "raceId": "human",
+        "classId": "fighter",
+        "stats": {
+          "STR": 15,
+          "DEX": 10,
+          "CON": 13,
+          "INT": 10,
+          "WIS": 10,
+          "CHA": 10
+        },
+        "flex": {
+          "STR": 1,
+          "CON": 1
+        },
+        "level": 1,
+        "xp": 0,
+        "background": "平凡的旅人"
+      },
+      "editable": {
+        "colors": {
+          "skin": "#f5d0a8",
+          "hair": "#1a1210",
+          "outfit": "#8a3030",
+          "eye": "#2860a0",
+          "accent": "#c8a030"
+        },
+        "look": {
+          "hair": 0,
+          "beard": 0,
+          "brow": 0,
+          "mouth": 0,
+          "marking": 0
+        }
+      }
+    },
+    "chmugrcgedktd38o": {
+      "characterId": "chmugrcgedktd38o",
+      "accountId": "艾莉",
+      "createdAt": 1790328469765,
+      "updatedAt": 1790328469765,
+      "origin": "fresh",
+      "adventureCount": 0,
+      "version": 1,
+      "status": "alive",
+      "locked": {
+        "name": "艾莉",
+        "raceId": "human",
+        "classId": "fighter",
+        "stats": {
+          "STR": 15,
+          "DEX": 10,
+          "CON": 13,
+          "INT": 10,
+          "WIS": 10,
+          "CHA": 10
+        },
+        "flex": {
+          "STR": 1,
+          "CON": 1
+        },
+        "level": 1,
+        "xp": 0,
+        "background": "平凡的旅人"
+      },
+      "editable": {
+        "colors": {
+          "skin": "#f5d0a8",
+          "hair": "#1a1210",
+          "outfit": "#8a3030",
+          "eye": "#2860a0",
+          "accent": "#c8a030"
+        },
+        "look": {
+          "hair": 0,
+          "beard": 0,
+          "brow": 0,
+          "mouth": 0,
+          "marking": 0
+        }
+      }
+    },
+    "chmugrch3sxc29ks": {
+      "characterId": "chmugrch3sxc29ks",
+      "accountId": "布莱克",
+      "createdAt": 1790328470680,
+      "updatedAt": 1790328470680,
+      "origin": "fresh",
+      "adventureCount": 0,
+      "version": 1,
+      "status": "alive",
+      "locked": {
+        "name": "布莱克",
+        "raceId": "human",
+        "classId": "wizard",
+        "stats": {
+          "STR": 10,
+          "DEX": 14,
+          "CON": 13,
+          "INT": 15,
+          "WIS": 10,
+          "CHA": 10
+        },
+        "flex": {
+          "INT": 1,
+          "CON": 1
+        },
+        "level": 1,
+        "xp": 0,
+        "background": "平凡的旅人"
+      },
+      "editable": {
+        "colors": {
+          "skin": "#f5d0a8",
+          "hair": "#1a1210",
+          "outfit": "#8a3030",
+          "eye": "#2860a0",
+          "accent": "#c8a030"
+        },
+        "look": {
+          "hair": 0,
+          "beard": 0,
+          "brow": 0,
+          "mouth": 0,
+          "marking": 0
+        }
+      }
+    },
+    "chmugrchtr1kl29s": {
+      "characterId": "chmugrchtr1kl29s",
+      "accountId": "希尔德",
+      "createdAt": 1790328471615,
+      "updatedAt": 1790328471615,
+      "origin": "fresh",
+      "adventureCount": 0,
+      "version": 1,
+      "status": "alive",
+      "locked": {
+        "name": "希尔德",
+        "raceId": "human",
+        "classId": "rogue",
+        "stats": {
+          "STR": 10,
+          "DEX": 15,
+          "CON": 13,
+          "INT": 10,
+          "WIS": 10,
+          "CHA": 10
+        },
+        "flex": {
+          "DEX": 1,
+          "CON": 1
+        },
+        "level": 1,
+        "xp": 0,
+        "background": "平凡的旅人"
+      },
+      "editable": {
+        "colors": {
+          "skin": "#f5d0a8",
+          "hair": "#1a1210",
+          "outfit": "#8a3030",
+          "eye": "#2860a0",
+          "accent": "#c8a030"
+        },
+        "look": {
+          "hair": 0,
+          "beard": 0,
+          "brow": 0,
+          "mouth": 0,
+          "marking": 0
+        }
+      }
+    },
+    "chmugrcij6dtbubu": {
+      "characterId": "chmugrcij6dtbubu",
+      "accountId": "诺拉",
+      "createdAt": 1790328472530,
+      "updatedAt": 1790328472530,
+      "origin": "fresh",
+      "adventureCount": 0,
+      "version": 1,
+      "status": "alive",
+      "locked": {
+        "name": "诺拉",
+        "raceId": "human",
+        "classId": "cleric",
+        "stats": {
+          "STR": 10,
+          "DEX": 14,
+          "CON": 13,
+          "INT": 10,
+          "WIS": 15,
+          "CHA": 10
+        },
+        "flex": {
+          "WIS": 1,
+          "CON": 1
+        },
+        "level": 1,
+        "xp": 0,
+        "background": "平凡的旅人"
+      },
+      "editable": {
+        "colors": {
+          "skin": "#f5d0a8",
+          "hair": "#1a1210",
+          "outfit": "#8a3030",
+          "eye": "#2860a0",
+          "accent": "#c8a030"
+        },
+        "look": {
+          "hair": 0,
+          "beard": 0,
+          "brow": 0,
+          "mouth": 0,
+          "marking": 0
+        }
+      }
+    },
+    "chmugrcj95rri1iy": {
+      "characterId": "chmugrcj95rri1iy",
+      "accountId": "灰隼",
+      "createdAt": 1790328473465,
+      "updatedAt": 1790328473465,
+      "origin": "fresh",
+      "adventureCount": 0,
+      "version": 1,
+      "status": "alive",
+      "locked": {
+        "name": "灰隼",
+        "raceId": "human",
+        "classId": "ranger",
+        "stats": {
+          "STR": 10,
+          "DEX": 15,
+          "CON": 13,
+          "INT": 10,
+          "WIS": 10,
+          "CHA": 10
+        },
+        "flex": {
+          "DEX": 1,
+          "CON": 1
+        },
+        "level": 1,
+        "xp": 0,
+        "background": "平凡的旅人"
+      },
+      "editable": {
+        "colors": {
+          "skin": "#f5d0a8",
+          "hair": "#1a1210",
+          "outfit": "#8a3030",
+          "eye": "#2860a0",
+          "accent": "#c8a030"
+        },
+        "look": {
+          "hair": 0,
+          "beard": 0,
+          "brow": 0,
+          "mouth": 0,
+          "marking": 0
+        }
+      }
+    }
+  },
+  "byAccount": {
+    "探针694967": [
+      "chmueecb67hiu24e"
+    ],
+    "探针699264": [
+      "chmueecei2iwh7np"
+    ],
+    "探针703664": [
+      "chmueechwqcj6j9y"
+    ],
+    "艾莉": [
+      "chmugrcgedktd38o"
+    ],
+    "布莱克": [
+      "chmugrch3sxc29ks"
+    ],
+    "希尔德": [
+      "chmugrchtr1kl29s"
+    ],
+    "诺拉": [
+      "chmugrcij6dtbubu"
+    ],
+    "灰隼": [
+      "chmugrcj95rri1iy"
+    ]
+  },
+  "importKeys": {}
+}
